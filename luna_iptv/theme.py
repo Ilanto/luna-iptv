@@ -41,6 +41,9 @@ def apply_theme(app):
         QLabel#heading { font-size: 23px; font-weight: 600; }
         QLabel#muted { color: #b2aaad; }
         QLabel#badge { color: #e889a8; font-size: 10px; }
+        QLabel#accountStatus { color: #b2aaad; font-weight: 600; }
+        QLabel#accountStatus[state="active"] { color: #e889a8; }
+        QLabel#accountStatus[state="expired"], QLabel#accountStatus[state="disabled"], QLabel#accountStatus[state="banned"] { color: #f8e7ec; }
         QFrame#sidebar { background: #181b1c; border-right: 1px solid #343637; }
         QFrame#library { border-right: 1px solid #343637; }
         QFrame#controls { background: #242728; border-radius: 8px; }

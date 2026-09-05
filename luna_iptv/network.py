@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from .accounts import AccountProfile, normalize_profile
 from .models import Channel, Playlist
 from .playlist import parse_m3u, resolve_logo
 
@@ -115,11 +116,22 @@ class XtreamClient:
             raise NetworkError("Sağlayıcının katalog biçimi desteklenmiyor.")
         return data
 
+    @staticmethod
+    def _profile(response: object) -> AccountProfile:
+        user_info = response.get("user_info") if isinstance(response, dict) else None
+        if not isinstance(user_info, dict):
+            raise NetworkError("Sağlayıcının hesap profil biçimi desteklenmiyor.")
+        return normalize_profile(response)
+
+    def account_info(self) -> AccountProfile:
+        return self._profile(self._api())
+
     def catalog(self) -> Playlist:
         account = self._api()
         user_info = account.get("user_info") if isinstance(account, dict) else None
         if not isinstance(user_info, dict) or str(user_info.get("auth", 0)) != "1":
             raise NetworkError("Oturum açılamadı. Kullanıcı adı ve şifreyi kontrol edin.")
+        account_profile = self._profile(account)
         channels = []
         for mode, api, kind in [
             ("live", "get_live_streams", "live"),
@@ -158,7 +170,12 @@ class XtreamClient:
                         series_id=str(item_id) if mode == "series" else "",
                     )
                 )
-        return Playlist(channels=channels, epg_urls=[self.epg_url()], warnings=[])
+        return Playlist(
+            channels=channels,
+            epg_urls=[self.epg_url()],
+            warnings=[],
+            account_profile=account_profile,
+        )
 
     def episodes(self, series_id: str) -> list[Channel]:
         response = self._api("get_series_info", series_id=series_id)
