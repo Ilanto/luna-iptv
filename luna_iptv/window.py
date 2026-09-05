@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
         self.model.reset(self.store.channels(), self.store.favorites())
-        self.proxy.recent = set(self.store.recent_ids())
+        self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
             self.current = next(
                 (c for c in self.model.channels if c.id == self.current.id), self.current
@@ -260,7 +260,7 @@ class MainWindow(QMainWindow):
             }[section]
         )
         self.search.clear()
-        self.proxy.recent = set(self.store.recent_ids())
+        self.proxy.set_recent_ids(self.store.recent_ids())
         self.refresh_categories()
         self.filter_changed()
 
