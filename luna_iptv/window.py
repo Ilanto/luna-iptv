@@ -5,7 +5,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMainWindow, QMenu, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QInputDialog,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+)
 
 from .dialogs import GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
@@ -227,7 +235,7 @@ class MainWindow(QMainWindow):
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
         self.model.reset(self.store.channels(), self.store.favorites())
-        self.proxy.recent = set(self.store.recent_ids())
+        self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
             self.current = next(
                 (c for c in self.model.channels if c.id == self.current.id), self.current
@@ -262,7 +270,7 @@ class MainWindow(QMainWindow):
             }[section]
         )
         self.search.clear()
-        self.proxy.recent = set(self.store.recent_ids())
+        self.proxy.set_recent_ids(self.store.recent_ids())
         self.refresh_categories()
         self.filter_changed()
 
@@ -568,6 +576,9 @@ class MainWindow(QMainWindow):
         source_id = self.source_combo.currentData()
         source = next((s for s in self.store.sources() if s["id"] == source_id), None)
         menu = QMenu(self)
+        rename = menu.addAction("Seçili kaynağı yeniden adlandır")
+        rename.setEnabled(source is not None and not self._busy)
+        rename.triggered.connect(lambda: self.rename_source(source))
         refresh = menu.addAction("Seçili kaynağı yenile")
         refresh.setEnabled(source is not None and not self._busy)
         refresh.triggered.connect(lambda: self.import_source(source))
@@ -577,6 +588,27 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
         menu.exec(self.cursor().pos())
+
+    def rename_source(self, source):
+        if source is None:
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Kaynağı yeniden adlandır", "Kaynak adı", QLineEdit.Normal, source["name"]
+        )
+        if not accepted:
+            return
+        try:
+            renamed = self.store.rename_source(source["id"], name)
+        except ValueError as error:
+            self.status(str(error))
+            return
+        if not renamed:
+            self.status("Kaynak artık mevcut değil.")
+            return
+        index = self.source_combo.findData(source["id"])
+        if index >= 0:
+            self.source_combo.setItemText(index, name.strip())
+        self.status("Kaynak adı güncellendi.")
 
     def remove_source(self, source):
         if (
