@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,16 @@ class Store:
         if "updated_at" not in progress_columns:
             self._db.execute(
                 "ALTER TABLE progress ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"
+            )
+
+    def rename_source(self, source_id: str, name: str) -> bool:
+        name = name.strip()
+        if not name or any(unicodedata.category(c) == "Cc" for c in name):
+            raise ValueError("Kaynak adı boş olamaz veya kontrol karakteri içeremez.")
+        with self._db:
+            return (
+                self._db.execute("UPDATE sources SET name=? WHERE id=?", (name, source_id)).rowcount
+                > 0
             )
 
     def save_source(self, source: dict[str, Any]) -> str:
