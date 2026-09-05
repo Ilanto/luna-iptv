@@ -1,3 +1,31 @@
+# Luna IPTV 0.3.0 doğrulama kaydı
+
+2026-09-05 · openSUSE Tumbleweed · GNOME Wayland · Python 3.13 · Qt/PySide6 6.11.2. Tek libmpv oynatıcısı, aynı QOpenGLWidget ve mevcut donanım çözümleme yolu korunur; yeni çalışma zamanı bağımlılığı yoktur.
+
+## Sonuçlar
+
+- `env -u DISPLAY -u GDK_BACKEND QT_QPA_PLATFORM=wayland ./scripts/test.sh`: **205 test geçti, 46,06 saniye**, `-W error`; Ruff lint/format temiz. Yerel video/HLS probe ve tam pencere smoke akışı da başarılı.
+- İlk sürümün 45 testini içeren sekiz dosyadaki bütün özgün test fonksiyonları ve yardımcılar, `f74c6695dc79d5d15cf9832b38f4d4e0f4322a32` ile AST düzeyinde aynı. `test_player.py` yalnız async komut future sözleşmesini sınayan yeni bir test içerir.
+- Mevcut logo FIFO testindeki yazıcı, okuyucu FIFO'yu doğru biçimde reddedip kapattığında oluşabilen `BrokenPipeError` durumunu artık beklenen kapanış olarak ele alır. FIFO'nun reddedilmesi assertion'ı korunur; FIFO kabul eden geçici mutasyonla testin hâlâ başarısız olduğu doğrulandı.
+- Yeni taşıma testleri: ±5 saniye exact seek, iki yönde 2/4/8/16× tarama, ters yön, sınırda durma, önceki pause durumunu koruma, normal oynatmaya dönüş, yeni kaynak/stop/error/close temizliği, canlı/kısmi/bilinmeyen süre için yetenek sınırları. Gerçek yerel videoda düğmeler, kayıtlı kısayollar ve hızlı çıkış/yeniden giriş ayrıca sınanır.
+- Tarama, monotonic saatle hesaplanan mutlak keyframe konumlarına en fazla 500 ms'de bir gider. Gösterilen hız hedef zaman çizgisi taramasıdır; kesintisiz 16× decode veya ağ performansı garantisi değildir. Pause bildirimi komut onayı sayılmaz: mpv bildirimleri birleştirebilir. Güncel async future tamamlanmadan tarama başlamaz; eski ve başarısız sonuçlar ile senkron tamamlanan future yolları testlidir.
+- Native tam ekranda video ve pencere **2304 × 1296 mantıksal piksel**, video başlangıcı **(0, 0)**; aynı parent, GL context ve Player korunur. Normal/minimum pencere, overlay ve gizlenmiş kontroller görsel olarak incelendi. Normal düzene dönüş, mouse/klavye/menü/slider etkileşimi, 2,5 saniye idle, cursor geri dönüşü ve stop sonrası bilgi panelinin kapalı kalması sınanır.
+- Qt Wayland testinde fiziksel imleç taşıma/focus zorlaması yapılmaz. Mouse hareketi gerçek video widget'ına Qt olayı olarak gönderilir; kayıtlı QShortcut testi yalnız test uygulamasının mantıksal active window durumunu hazırlar. Fiziksel masaüstü girdisi test edilmiş gibi sunulmaz.
+- Önceki altyazı/GL_BLEND regresyonları, yerel ve localhost HLS görüntü/ses/seek/mute/HTTP başlıkları, M3U/XMLTV, favori, resume, kalıcı veri ve düzenli kapanış testleri de geçer. Gerçek sağlayıcı hesabı veya kişisel kütüphane otomatik testlerde kullanılmaz.
+
+## Kanal geçişi karşılaştırması
+
+Aynı uygulama teması, yerel 640 × 360 MPEG-2 renkleri, dört ısınma ve yirmi ölçümlü geçiş; `MainWindow.play()` çağrısından doğru framebuffer rengine kadar. Her koşuda native Wayland ve tek backend doğrulanır.
+
+| Eş koşullarda ölçüm | Değişmemiş 0.2.1 (`3a843df`) | 0.3.0 |
+|---|---:|---:|
+| Median | 444,89 ms | 445,78 ms |
+| p95 | 447,39 ms | 447,37 ms |
+
+Daha erken bir 0.2.1 koşusu 62,68 / 63,57 ms verdi. Sonraki koşullarda aynı değişmemiş sürüm de yaklaşık 445 ms verdiği için erken ölçüm, sonraki sürümün doğrudan kontrolü sayılmaz. Eş koşullu sonuçlarda yeni kodun belirgin bir ek gecikmesi görülmedi. Profilde 24 geçiş boyunca taşıma UI güncellemelerinin toplamı 1,61 ms, tam ekran event filter toplamı 3,22 ms idi. Bu ölçüm internet sağlayıcısının gecikmesini veya bütün masaüstü yüklerini kapsamaz.
+
+---
+
 # Luna IPTV 0.2.0 doğrulama kaydı
 
 2026-09-05 · openSUSE Tumbleweed · GNOME Wayland. Aynı Qt Widgets/QOpenGLWidget ve tek libmpv handle korunmuştur; yeni çalışma zamanı bağımlılığı eklenmemiştir.

@@ -467,8 +467,12 @@ def test_nonregular_local_logo_is_rejected_without_blocking(qt_app, cache_factor
             except OSError:
                 stop.wait(0.005)
                 continue
-            with os.fdopen(fd, "wb") as file:
-                file.write(png())
+            try:
+                with os.fdopen(fd, "wb") as file:
+                    file.write(png())
+            except BrokenPipeError:
+                # The correct reader rejects the FIFO before this buffered flush.
+                pass
             return
 
     thread = threading.Thread(target=writer, daemon=True)

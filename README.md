@@ -5,7 +5,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.2.1-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.3.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -16,6 +16,15 @@ Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlıl
 “Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Yıldız favoriye ekler. Xtream dizilerinde diziye tıklamak bölümleri açar; sezon seçimi kategori alanından yapılır. Kaynak işlemleri menüsünden listeyi yenileyin veya kaldırın. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi ve tam ekran içerir. Film/bölüm konumu otomatik kaydedilir; bitişe yakın konumlar yeniden başlatılır. Son izlenenler yerel geçmişten gelir. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.3.0 · sarma ve tam ekran
+
+- **−5 sn / +5 sn** düğmeleri ve sol/sağ oklar, sarılabilen yayında beş saniye atlar.
+- **≪ / ≫** düğmeleri aynı yönde her tıklamada **2× → 4× → 8× → 16× → normal** tarama seçer. Karşı yön düğmesi o yönde 2× başlatır. Film/bölüm içinde yer ararken görüntüler atlayarak ilerler; gösterilen değer hedef tarama hızıdır, kesintisiz hızlı oynatma değildir. Ağın ve videonun yapısına göre karelerin geliş süresi değişebilir.
+- **Oynat**, hız göstergesi veya **K**, taramadan çıkarak 1× oynatır. Beş saniye atlama ve konum çubuğu da taramayı bitirir; bunlar tarama öncesindeki duraklatma durumunu korur. Yeni yayın, durdurma, bitiş ve hata taramayı sıfırlar. Canlı yayınlarda, yalnız kısmen sarılabilen kaynaklarda ve süresi bilinmeyen videolarda sürekli tarama kapalıdır.
+- **Tam ekran**, başlık/kenar boşluğu bırakmadan video alanını ekran boyutuna getirir. Kontroller video üzerinde görünür; fare hareketi veya klavye kullanımıyla açılır, 2,5 saniye boşta kalınca imleçle birlikte gizlenir. Kontrol üzerinde fare, klavye odağı, açık menü veya sürüklenen slider varken gizlenmez. **F / Esc** eski pencere düzenini geri getirir. Videonun en-boy oranı korunur.
+
+Native Wayland yüzeyi ve donanım çözümleme korunur. Geri tarama, mpv'nin bellek tüketebilen ters decode modu yerine sınırlandırılmış zaman çizgisi atlamalarını kullanır. [mpv sarma komutları](https://mpv.io/manual/stable/#command-interface-seek).
 
 ### 0.2.1 · görüntü düzeltmesi
 
@@ -38,7 +47,9 @@ Logo önbelleği veritabanının yanındaki `<veritabanı-adı>.logos/` klasör�
 | Boşluk | Oynat / duraklat |
 | F / Esc | Tam ekrana gir / çık |
 | M | Sesi kapat / aç |
-| Sol / sağ | Desteklenen akışlarda 10 saniye sar |
+| Sol / sağ | Desteklenen akışlarda 5 saniye sar |
+| J / L | Geri / ileri tara: 2×, 4×, 8×, 16× |
+| K | Taramadan çık, 1× oynat |
 
 Bir dosyayı pencereye bırakabilir veya `luna-iptv liste.m3u` / `luna-iptv video.mkv` çalıştırabilirsiniz. Arama yazarken tek harfli oynatıcı kısayolları devreye girmez.
 

@@ -33,8 +33,10 @@ class Player(QObject):
         "cache-buffering-state",
         "media-title",
         "seekable",
+        "seeking",
     )
     OPTIONAL_OBSERVED = (
+        "partially-seekable",
         "video-dec-params",
         "video-params",
         "video-frame-info/interlaced",
@@ -148,6 +150,7 @@ class Player(QObject):
         try:
             future = self._mpv.command_async(*args)
             future.add_done_callback(self._command_done)
+            return future
         except (ValueError, RuntimeError, OSError):
             self.error.emit("Oynatıcı komutu uygulanamadı.")
 
@@ -158,7 +161,7 @@ class Player(QObject):
     def set_property(self, name: str, value: Any):
         if isinstance(value, bool):
             value = "yes" if value else "no"
-        self.command(["set", name, str(value)])
+        return self.command(["set", name, str(value)])
 
     def pause_toggle(self):
         self.command(["cycle", "pause"])
