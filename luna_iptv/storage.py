@@ -316,6 +316,15 @@ class Store:
     ) -> list[Channel]:
         from dataclasses import replace
 
+        source_type = self._db.execute(
+            "SELECT type FROM sources WHERE id=?", (source_id,)
+        ).fetchone()
+        if source_type is not None and source_type[0] == "direct" and len(channels) == 1:
+            existing = self._db.execute(
+                "SELECT id FROM channels WHERE source_id=?", (source_id,)
+            ).fetchall()
+            if len(existing) == 1:
+                return [replace(channels[0], id=existing[0][0])]
         self._backfill_provider_keys(source_id)
         existing = dict(
             self._db.execute(
@@ -341,8 +350,6 @@ class Store:
         playlist: Playlist,
     ) -> bool:
         """Compare-and-swap connection metadata and its prepared catalogue atomically."""
-
-        from dataclasses import replace
 
         from .source_connections import retarget_cached_episodes
 
@@ -385,10 +392,6 @@ class Store:
                 ]
                 channels.extend(retarget_cached_episodes(candidate, cached))
                 channels = self._reconcile_provider_channels(source_id, channels)
-            elif candidate["type"] == "direct" and len(channels) == 1:
-                existing = self.channels(source_id)
-                if len(existing) == 1:
-                    channels = [replace(channels[0], id=existing[0].id)]
             rows = self._channel_rows(source_id, channels)
             incoming_ids = {row[0] for row in rows}
             self._db.execute(

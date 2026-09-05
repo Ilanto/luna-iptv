@@ -676,6 +676,14 @@ def test_direct_connection_edit_preserves_single_channel_identity_and_user_state
     assert store.favorites() == {existing.id}
     assert store.progress(existing.id) == (19, 90)
 
+    [refreshed] = store.replace_channels(
+        "direct",
+        [Channel("later-url-hash", "Local film", "file:///tmp/second.mkv", kind="movie")],
+    )
+    assert refreshed.id == existing.id
+    assert store.favorites() == {existing.id}
+    assert store.progress(existing.id) == (19, 90)
+
 
 def test_edit_that_removes_playing_channel_detaches_progress_without_stopping(window, monkeypatch):
     old = dict(xtream_source("/tmp/old.m3u"), type="m3u", username="", password="", epg_url="")
