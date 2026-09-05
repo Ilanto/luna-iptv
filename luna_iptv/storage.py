@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .accounts import AccountProfile
 from .models import Channel
 
 _SOURCE_FIELDS = ("id", "name", "type", "location", "username", "password", "epg_url")
@@ -66,6 +67,15 @@ class Store:
                 position REAL NOT NULL,
                 duration REAL NOT NULL,
                 updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS account_snapshots (
+                source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                created_at INTEGER,
+                expires_at INTEGER,
+                active_connections INTEGER,
+                max_connections INTEGER,
+                checked_at INTEGER NOT NULL
             );
             """
         )
@@ -228,6 +238,42 @@ class Store:
                 (int(limit),),
             )
         ]
+
+    def save_account_profile(self, source_id: str, profile: AccountProfile) -> None:
+        with self._db:
+            self._db.execute(
+                """
+                INSERT INTO account_snapshots(
+                    source_id,status,created_at,expires_at,
+                    active_connections,max_connections,checked_at
+                ) VALUES(?,?,?,?,?,?,?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                  status=excluded.status, created_at=excluded.created_at,
+                  expires_at=excluded.expires_at,
+                  active_connections=excluded.active_connections,
+                  max_connections=excluded.max_connections,
+                  checked_at=excluded.checked_at
+                """,
+                (
+                    source_id,
+                    profile.status,
+                    profile.created_at,
+                    profile.expires_at,
+                    profile.active_connections,
+                    profile.max_connections,
+                    profile.checked_at,
+                ),
+            )
+
+    def account_profile(self, source_id: str) -> AccountProfile | None:
+        row = self._db.execute(
+            """
+            SELECT status,created_at,expires_at,active_connections,max_connections,checked_at
+            FROM account_snapshots WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+        return AccountProfile(*row) if row is not None else None
 
     def remove_source(self, source_id: str) -> None:
         with self._db:

@@ -1,6 +1,8 @@
+import math
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -22,6 +24,122 @@ def text_label(text, name=None):
     if name:
         label.setObjectName(name)
     return label
+
+
+class AccountDialog(QDialog):
+    refresh_requested = Signal()
+    closed = Signal()
+
+    def __init__(self, source_name, profile=None, parent=None, *, now=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setWindowTitle(f"Luna IPTV · {source_name} hesabı")
+        self.setMinimumWidth(500)
+        self._now = now
+        self.accepts_updates = True
+        self.is_refreshing = False
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.addWidget(text_label(source_name, "heading"))
+        intro = text_label("Sağlayıcının son hesap durumu", "muted")
+        layout.addWidget(intro)
+        form = QFormLayout()
+        self.status_value = text_label("")
+        self.status_value.setObjectName("accountStatus")
+        self.created_value = text_label("")
+        self.expiry_value = text_label("")
+        self.remaining_value = text_label("")
+        self.connections_value = text_label("")
+        self.checked_value = text_label("")
+        for title, value in [
+            ("Durum", self.status_value),
+            ("Hesap açılışı", self.created_value),
+            ("Bitiş", self.expiry_value),
+            ("Kalan", self.remaining_value),
+            ("Bağlantılar", self.connections_value),
+            ("Son kontrol", self.checked_value),
+        ]:
+            value.setWordWrap(True)
+            form.addRow(title, value)
+        layout.addLayout(form)
+        self.error_label = text_label("", "muted")
+        self.error_label.setWordWrap(True)
+        layout.addWidget(self.error_label)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.button(QDialogButtonBox.Close).setText("Kapat")
+        self.refresh_button = buttons.addButton("Şimdi yenile", QDialogButtonBox.ActionRole)
+        self.refresh_button.setObjectName("primary")
+        self.refresh_button.clicked.connect(self.refresh_requested)
+        buttons.rejected.connect(self.close)
+        layout.addWidget(buttons)
+        self.render(profile)
+
+    def render(self, profile) -> None:
+        self.error_label.clear()
+        if profile is None:
+            self.status_value.setText("Bilinmiyor")
+            self.status_value.setProperty("state", "unknown")
+            self.created_value.setText("Bilinmiyor")
+            self.expiry_value.setText("Bilinmiyor")
+            self.remaining_value.setText("Bilinmiyor · sağlayıcı tarih vermedi.")
+            self.connections_value.setText("Bilinmiyor / Bilinmiyor · son kontrolde")
+            self.checked_value.setText("Henüz başarılı kontrol yok.")
+            return
+
+        labels = {
+            "active": "Aktif",
+            "expired": "Süresi dolmuş",
+            "disabled": "Devre dışı",
+            "banned": "Engellenmiş",
+            "unknown": "Bilinmiyor",
+        }
+        self.status_value.setText(labels.get(profile.status, "Bilinmiyor"))
+        self.status_value.setProperty("state", profile.status)
+        self.status_value.style().unpolish(self.status_value)
+        self.status_value.style().polish(self.status_value)
+        self.created_value.setText(self._date(profile.created_at))
+        self.expiry_value.setText(self._date(profile.expires_at))
+        self.remaining_value.setText(self._remaining(profile.expires_at))
+        active = (
+            "Bilinmiyor"
+            if profile.active_connections is None
+            else str(profile.active_connections)
+        )
+        maximum = (
+            "Bilinmiyor" if profile.max_connections is None else str(profile.max_connections)
+        )
+        self.connections_value.setText(f"{active} / {maximum} · son kontrolde")
+        self.checked_value.setText(self._date(profile.checked_at))
+
+    def _date(self, timestamp) -> str:
+        if timestamp is None:
+            return "Bilinmiyor"
+        return datetime.fromtimestamp(timestamp).astimezone().strftime("%d.%m.%Y %H:%M")
+
+    def _remaining(self, expires_at) -> str:
+        if expires_at is None:
+            return "Bilinmiyor · sağlayıcı tarih vermedi."
+        now = self._now if self._now is not None else datetime.now().timestamp()
+        seconds = expires_at - now
+        if seconds <= 0:
+            return "Süre dolmuş."
+        days = max(1, math.ceil(seconds / 86_400))
+        months = days / 30
+        month_text = f"{months:.1f}".replace(".", ",")
+        return f"{days} gün · yaklaşık {month_text} ay"
+
+    def set_refreshing(self, refreshing: bool) -> None:
+        self.is_refreshing = refreshing
+        self.refresh_button.setEnabled(not refreshing)
+        self.refresh_button.setText("Yenileniyor…" if refreshing else "Şimdi yenile")
+
+    def show_error(self, message: str) -> None:
+        self.error_label.setText(f"Yenileme başarısız: {message} Son bilinen durum korundu.")
+
+    def closeEvent(self, event) -> None:
+        self.accepts_updates = False
+        self.closed.emit()
+        super().closeEvent(event)
 
 
 class SourceDialog(QDialog):

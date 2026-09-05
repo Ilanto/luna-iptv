@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMainWindow, QMenu, QMessageBox
 
-from .dialogs import GuideDialog, SourceDialog
+from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self._last_saved = 0.0
         self._loading = False
         self._idle = True
+        self._account_dialog = None
         self.setWindowTitle("Luna IPTV")
         self.resize(1340, 850)
         self.setMinimumSize(1040, 690)
@@ -76,13 +77,14 @@ class MainWindow(QMainWindow):
         if self._retry:
             self._retry()
 
-    def run_task(self, function, success, message, retry=None, busy=True):
+    def run_task(self, function, success, message, retry=None, busy=True, failure=None):
         if busy and self._busy:
             return
         if busy:
             self._busy = True
             self.add_button.setEnabled(False)
-        self.status(message)
+        if message:
+            self.status(message)
         task = Task(function)
         self._tasks.add(task)
 
@@ -111,7 +113,10 @@ class MainWindow(QMainWindow):
             finish()
             if self._closed:
                 return
-            self.status(error, retry)
+            if failure is None:
+                self.status(error, retry)
+            else:
+                failure(error)
 
         task.signals.done.connect(done)
         task.signals.failed.connect(failed)
@@ -181,6 +186,8 @@ class MainWindow(QMainWindow):
             source["epg_url"] = playlist.epg_urls[0]
         source_id = self.store.save_source(source)
         source["id"] = source_id
+        if playlist.account_profile is not None:
+            self.store.save_account_profile(source_id, playlist.account_profile)
         channels = list(playlist.channels)
         # A catalog has series parents only: retain cached episodes of surviving series.
         if source["type"] == "xtream":
@@ -515,18 +522,82 @@ class MainWindow(QMainWindow):
         menu.exec(self.cursor().pos())
 
     def source_menu(self):
+        menu = self.build_source_menu()
+        menu.exec(self.cursor().pos())
+
+    def build_source_menu(self):
         source_id = self.source_combo.currentData()
         source = next((s for s in self.store.sources() if s["id"] == source_id), None)
         menu = QMenu(self)
         refresh = menu.addAction("Seçili kaynağı yenile")
         refresh.setEnabled(source is not None and not self._busy)
         refresh.triggered.connect(lambda: self.import_source(source))
+        if source is not None and source["type"] == "xtream":
+            account = menu.addAction("Hesap durumu")
+            account.triggered.connect(lambda: self.open_account(source))
         remove = menu.addAction("Seçili kaynağı kaldır")
         remove.setEnabled(source is not None and not self._busy)
         remove.triggered.connect(lambda: self.remove_source(source))
         menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
-        menu.exec(self.cursor().pos())
+        return menu
+
+    def open_account(self, source):
+        if source is None or source.get("type") != "xtream":
+            return None
+        if self._account_dialog is not None:
+            try:
+                self._account_dialog.close()
+            except RuntimeError:
+                pass
+        dialog = AccountDialog(source["name"], self.store.account_profile(source["id"]), self)
+        dialog.source_id = source["id"]
+        self._account_dialog = dialog
+
+        def closed():
+            if self._account_dialog is dialog:
+                self._account_dialog = None
+
+        dialog.closed.connect(closed)
+        dialog.refresh_requested.connect(lambda: self.refresh_account(source, dialog))
+        dialog.show()
+        self.refresh_account(source, dialog)
+        return dialog
+
+    def refresh_account(self, source, dialog):
+        if dialog.is_refreshing or not dialog.accepts_updates:
+            return
+        dialog.set_refreshing(True)
+
+        def current_dialog():
+            return (
+                self._account_dialog is dialog
+                and dialog.accepts_updates
+                and any(item["id"] == source["id"] for item in self.store.sources())
+            )
+
+        def refreshed(profile):
+            if not current_dialog():
+                return
+            self.store.save_account_profile(source["id"], profile)
+            dialog.render(profile)
+            dialog.set_refreshing(False)
+
+        def failed(message):
+            if not current_dialog():
+                return
+            dialog.set_refreshing(False)
+            dialog.show_error(message)
+
+        self.run_task(
+            lambda: XtreamClient(
+                source["location"], source["username"], source["password"]
+            ).account_info(),
+            refreshed,
+            None,
+            busy=False,
+            failure=failed,
+        )
 
     def remove_source(self, source):
         if (
@@ -545,6 +616,11 @@ class MainWindow(QMainWindow):
             self.favorite_button.setEnabled(False)
             self.video_stack.setCurrentIndex(0)
             self.video_title.setText("İyi bir yayına yer aç.")
+        if (
+            self._account_dialog is not None
+            and getattr(self._account_dialog, "source_id", None) == source["id"]
+        ):
+            self._account_dialog.close()
         self.store.remove_source(source["id"])
         self._guide_data.pop(source["id"], None)
         (self.store.path.parent / f"epg-{source['id']}.xml").unlink(missing_ok=True)
