@@ -188,12 +188,22 @@ class Player(QObject):
         if self._closed or token is None or token != self._latest_load_token:
             return token
         if not url or "\x00" in url:
-            self.error.emit("Geçerli bir yayın adresi seçin.")
+            self._emit_entry_event(
+                token,
+                "finished",
+                "invalid",
+                "Geçerli bir yayın adresi seçin.",
+            )
             return token
         fields = []
         for name, value in (headers or {}).items():
             if any(c in str(name) + str(value) for c in "\r\n\x00") or ":" in str(name):
-                self.error.emit("Yayın HTTP başlıkları geçersiz.")
+                self._emit_entry_event(
+                    token,
+                    "finished",
+                    "invalid",
+                    "Yayın HTTP başlıkları geçersiz.",
+                )
                 return token
             fields.append(f"{name}: {value}")
         if self._mpv is None:

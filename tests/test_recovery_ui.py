@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from concurrent.futures import Future
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
@@ -173,6 +174,48 @@ def test_missing_player_backend_is_an_immediate_terminal_load_failure(
         assert window.recovery.state == "idle"
         assert window.recovery._timer.isActive() is False
         assert "motoru" in window.message.text().lower()
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected_message"),
+    [
+        ({"url": "https://example.test/a\x00b"}, "Geçerli bir yayın adresi seçin."),
+        ({"headers": {"X-Test": "bad\nvalue"}}, "Yayın HTTP başlıkları geçersiz."),
+    ],
+)
+def test_invalid_vod_request_is_an_immediate_terminal_failure(
+    qt_app,
+    tmp_path,
+    monkeypatch,
+    changes,
+    expected_message,
+) -> None:
+    backend = ImmediateLoadBackend(result={"playlist_entry_id": 41})
+    window, channel, _loads = make_immediate_backend_window(
+        qt_app,
+        tmp_path,
+        monkeypatch,
+        backend,
+        kind="movie",
+    )
+    channel = replace(channel, **changes)
+    window.store.save_progress(channel.id, 19, 90)
+    try:
+        window.play(channel)
+
+        assert window._playback_active is False
+        assert window._loading is False
+        assert window._idle is True
+        assert window.recovery.state == "idle"
+        assert window.recovery._timer.isActive() is False
+        assert window.store.progress(channel.id) == (19.0, 90.0)
+        assert window.message.text() == expected_message
+        assert window.retry_button.isHidden()
+        assert [args for args in backend.commands if args[0] == "loadfile"] == []
     finally:
         if isValid(window):
             window.close()
