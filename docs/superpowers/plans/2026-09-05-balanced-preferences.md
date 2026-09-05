@@ -20,17 +20,9 @@
 **Tests:** tests/test_preferences.py; tests/test_history.py; tests/test_resume_choice.py
 **Interfaces:** Source-scoped preference Store API, semantic TrackPreferences matcher/controller. request_play(channel) handles interactive resume choice then calls play(channel, *, start_override=None, recovering=False). Store.clear_history(source_id=None, reset_progress=False), save_progress(..., mark_recent=True) support preserved positions and cleared visible history.
 
-- [ ] Write focused behavior tests for: same language with changed numeric IDs is selected; missing preferred language uses default without overwriting preference; Off persists after reopen; cancel resume leaves old playback unchanged; restart sets position zero; clear history does not clear favorites or repopulate from active playback.
-- [ ] Run those tests and record the missing-feature RED before implementation.
-- [ ] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
-- [ ] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
+- [x] Write focused behavior tests for: same language with changed numeric IDs is selected; missing preferred language uses default without overwriting preference; Off persists after reopen; cancel resume leaves old playback unchanged; restart sets position zero; clear history does not clear favorites or repopulate from active playback.
+- [x] Run those tests and record the missing-feature RED before implementation.
+- [x] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
+- [x] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
 - [ ] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
 - [ ] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.
-
-Example behavioral acceptance (temporary fixtures, literal expected values):
-```python
-# The implementation-specific tests must assert the user-visible state and stored values.
-# same language with changed numeric IDs is selected.
-assert result.success is True
-assert result.player_count == 1
-```
