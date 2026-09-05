@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Luna IPTV
+GenericName=IPTV Player
+GenericName[tr]=IPTV Oynatıcı
+Comment=Watch your playlists, live TV, movies and series
+Comment[tr]=Listelerini, canlı yayınları, filmleri ve dizileri izle
+Exec=luna-iptv %f
+TryExec=luna-iptv
+Icon=luna-iptv
+Terminal=false
+StartupNotify=true
+Categories=AudioVideo;Video;Player;
+Keywords=IPTV;M3U;Xtream;XMLTV;TV;Wayland;
+MimeType=audio/x-mpegurl;audio/mpegurl;application/vnd.apple.mpegurl;application/x-mpegurl;video/mp4;video/x-matroska;video/mp2t;

@@ -1,0 +1,10 @@
+#!/usr/bin/python3
+"""Start the distribution-installed Luna IPTV package."""
+import sys
+
+sys.path.insert(0, "/usr/share/luna-iptv")
+
+from luna_iptv.app import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

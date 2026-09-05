@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "luna-iptv"
+version = "0.1.0"
+description = "A calm, native personal IPTV client for Linux"
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.8,<6.12", "python-mpv>=1.0.8,<2"]
+license = "MIT"
+
+[project.scripts]
+luna-iptv = "luna_iptv.app:main"
+
+[tool.setuptools.packages.find]
+include = ["luna_iptv*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
