@@ -129,15 +129,20 @@ def build_window(w):
     w.splitter.addWidget(w.library)
     w.watch = QWidget()
     view = QVBoxLayout(w.watch)
+    w.view_layout = view
     view.setContentsMargins(25, 24, 25, 20)
     view.setSpacing(14)
+    w.player_header = QWidget()
+    header = QVBoxLayout(w.player_header)
+    header.setContentsMargins(0, 0, 0, 0)
+    header.setSpacing(14)
     row = QHBoxLayout()
     w.video_badge = text_label("İZLEME ALANI", "eyebrow")
     row.addWidget(w.video_badge)
     row.addStretch()
     w.engine_label = text_label("mpv  ·  yerel oynatıcı", "muted")
     row.addWidget(w.engine_label)
-    view.addLayout(row)
+    header.addLayout(row)
     row = QHBoxLayout()
     w.video_title = text_label("İyi bir yayına yer aç.", "heading")
     w.video_title.setWordWrap(True)
@@ -145,7 +150,8 @@ def build_window(w):
     w.favorite_button = button("☆", w.toggle_favorite, tip="Favorilere ekle / çıkar")
     w.favorite_button.setEnabled(False)
     row.addWidget(w.favorite_button)
-    view.addLayout(row)
+    header.addLayout(row)
+    view.addWidget(w.player_header)
     w.video_stack = QStackedWidget()
     w.video_stack.setMinimumHeight(230)
     w.video_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -228,12 +234,36 @@ def build_window(w):
     w.seek.setRange(0, 1000)
     w.seek.setEnabled(False)
     w.seek.setAccessibleName("Oynatma konumu")
+    w.seek.sliderPressed.connect(lambda: w.transport.cancel(restore_pause=True))
     w.seek.sliderReleased.connect(w.seek_to_slider)
     ctrl.addWidget(w.seek)
     row = QHBoxLayout()
-    w.play_button = button("▶", w.toggle_play, tip="Oynat / duraklat (Boşluk)")
+    row.setSpacing(6)
+    w.seek_back_button = button(
+        "−5 sn", lambda: w.transport.seek_relative(-5), "transport", "5 saniye geri (←)"
+    )
+    row.addWidget(w.seek_back_button)
+    w.rewind_button = button(
+        "≪", lambda: w.transport.cycle(-1), "transport", "Geri tara: 2× / 4× / 8× / 16× (J)"
+    )
+    w.rewind_button.setCheckable(True)
+    row.addWidget(w.rewind_button)
+    w.play_button = button("▶", w.toggle_play, "transport", "Oynat / duraklat (Boşluk)")
     row.addWidget(w.play_button)
-    row.addWidget(button("■", w.stop_playback, tip="Durdur"))
+    w.forward_button = button(
+        "≫", lambda: w.transport.cycle(1), "transport", "İleri tara: 2× / 4× / 8× / 16× (L)"
+    )
+    w.forward_button.setCheckable(True)
+    row.addWidget(w.forward_button)
+    w.seek_forward_button = button(
+        "+5 sn", lambda: w.transport.seek_relative(5), "transport", "5 saniye ileri (→)"
+    )
+    row.addWidget(w.seek_forward_button)
+    row.addWidget(button("■", w.stop_playback, "transport", "Durdur"))
+    w.rate_button = button("1×", w.transport.normal_play, "transport", "Normal oynatmaya dön (K)")
+    w.rate_button.setMinimumWidth(54)
+    row.addWidget(w.rate_button)
+    row.addStretch()
     w.time_label = text_label("00:00", "muted")
     w.time_label.setFont(
         QFont("Hurmit Nerd Font Mono", 9)
@@ -241,6 +271,9 @@ def build_window(w):
         else QFontDatabase.systemFont(QFontDatabase.FixedFont)
     )
     row.addWidget(w.time_label)
+    ctrl.addLayout(row)
+    row = QHBoxLayout()
+    row.setSpacing(6)
     w.buffer_label = text_label("", "badge")
     w.buffer_label.setAccessibleName("Arabellek durumu")
     w.buffer_label.hide()
@@ -261,7 +294,8 @@ def build_window(w):
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
     row.addWidget(button("A / S", w.track_menu, tip="Ses parçası ve altyazı seç"))
-    row.addWidget(button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)"))
+    w.fullscreen_button = button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
+    row.addWidget(w.fullscreen_button)
     ctrl.addLayout(row)
     view.addWidget(w.controls)
     w.guide = QFrame()
@@ -303,8 +337,11 @@ def build_window(w):
         ("F", w.toggle_fullscreen),
         ("M", lambda: w.player.command(["cycle", "mute"])),
         ("Escape", w.leave_fullscreen),
-        ("Right", lambda: w.player.command(["seek", 10])),
-        ("Left", lambda: w.player.command(["seek", -10])),
+        ("Right", lambda: w.transport.seek_relative(5)),
+        ("Left", lambda: w.transport.seek_relative(-5)),
+        ("J", lambda: w.transport.cycle(-1)),
+        ("L", lambda: w.transport.cycle(1)),
+        ("K", w.transport.normal_play),
     ]:
         shortcut = QShortcut(QKeySequence(key), w)
         shortcut.activated.connect(lambda cb=callback, k=key: w.shortcut_action(k, cb))

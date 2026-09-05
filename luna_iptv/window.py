@@ -20,6 +20,7 @@ from . import __version__
 from .accounts import sanitize_profile
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
+from .fullscreen import FullscreenController
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
 from .media_info import MediaInfo
@@ -27,6 +28,7 @@ from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .player import Player
 from .tasks import Task
+from .transport import TransportController
 
 
 def clock_text(seconds):
@@ -66,7 +68,11 @@ class MainWindow(QMainWindow):
         self.proxy = ChannelFilter(self)
         self.proxy.setSourceModel(self.model)
         self.player = Player(self)
+        self.transport = TransportController(self.player, self)
         build_window(self)
+        self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
+        self.transport.changed.connect(self.refresh_transport)
+        self.refresh_transport()
         self.player.property_changed.connect(self.player_property)
         self.player.error.connect(self.playback_error)
         self.player.file_loaded.connect(self.loaded)
@@ -386,6 +392,7 @@ class MainWindow(QMainWindow):
         self._seekable = False
         self._last_saved = 0.0
         self._loading = True
+        self.transport.prepare(live=channel.kind == "live")
         self.media_info.begin_load()
         self.refresh_media_info()
         self.info_button.setEnabled(True)
@@ -416,6 +423,7 @@ class MainWindow(QMainWindow):
             return
         self._idle = False
         self._loading = False
+        self.transport.loaded()
         self.media_info.mark_loaded()
         self.refresh_media_info()
         self.info_button.setEnabled(self.current is not None)
@@ -429,9 +437,10 @@ class MainWindow(QMainWindow):
             return
         self._idle = True
         self._loading = False
+        self.transport.finished()
         self.media_info.reset()
         self.refresh_media_info()
-        self.info_panel.hide()
+        self.fullscreen.set_info_visible(False)
         self.info_button.setEnabled(False)
         self.status(message, lambda: self.play(self.current) if self.current else None)
 
@@ -439,20 +448,22 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         if not self._loading:
+            self.transport.finished()
             self.play_button.setText("▶")
             self.save_progress()
             self.media_info.reset()
             self.refresh_media_info()
-            self.info_panel.hide()
+            self.fullscreen.set_info_visible(False)
             self.info_button.setEnabled(False)
 
     def player_property(self, name, value):
         if self._closed:
             return
+        self.transport.observe(name, value)
         if self.media_info.update(name, value):
             self.refresh_media_info()
         if name == "idle-active" and value and not self._loading:
-            self.info_panel.hide()
+            self.fullscreen.set_info_visible(False)
             self.info_button.setEnabled(False)
         if name == "time-pos" and value is not None:
             self._position = float(value)
@@ -500,28 +511,46 @@ class MainWindow(QMainWindow):
 
     def seek_to_slider(self):
         if self._duration > 0 and self._seekable:
+            self.transport.cancel(restore_pause=True)
             self.player.command(["seek", self.seek.value() * self._duration / 1000, "absolute"])
 
     def toggle_play(self):
         if self.current and self._idle:
             self.play(self.current)
+        elif self.current and self.transport.rate:
+            self.transport.normal_play()
         elif self.current:
             self.player.pause_toggle()
 
+    def refresh_transport(self):
+        if self._closed:
+            return
+        for widget in (self.seek_back_button, self.seek_forward_button):
+            widget.setEnabled(self.transport.can_seek)
+        for widget in (self.rewind_button, self.forward_button):
+            widget.setEnabled(self.transport.can_scan)
+        self.rewind_button.setChecked(self.transport.rate < 0)
+        self.forward_button.setChecked(self.transport.rate > 0)
+        self.rate_button.setText(self.transport.label)
+        self.rate_button.setEnabled(bool(self.transport.rate))
+        if self.transport.rate:
+            self.play_button.setText("▶")
+
     def stop_playback(self):
         self.save_progress()
+        self.transport.finished()
         self._idle = True
         self._loading = False
         self.media_info.reset()
         self.refresh_media_info()
-        self.info_panel.hide()
+        self.fullscreen.set_info_visible(False)
         self.info_button.setEnabled(False)
         self.player.stop()
         self.status("Yayın durduruldu.")
         self.seek.setEnabled(False)
 
     def toggle_info_panel(self):
-        self.info_panel.setVisible(self.info_panel.isHidden())
+        self.fullscreen.toggle_info()
 
     def refresh_media_info(self):
         fields = {
@@ -817,10 +846,7 @@ class MainWindow(QMainWindow):
 
     def toggle_fullscreen(self):
         self._fullscreen = not self._fullscreen
-        self.sidebar.setVisible(not self._fullscreen)
-        self.library.setVisible(not self._fullscreen)
-        self.guide.setVisible(not self._fullscreen)
-        self.message_bar.setVisible(not self._fullscreen)
+        self.fullscreen.set_active(self._fullscreen)
         self.showFullScreen() if self._fullscreen else self.showNormal()
 
     def leave_fullscreen(self):
@@ -852,13 +878,14 @@ class MainWindow(QMainWindow):
             return
         if key in ("Right", "Left") and not self._seekable:
             return
+        self.fullscreen.reveal()
         callback()
 
     def about(self):
         QMessageBox.information(
             self,
             "Luna IPTV",
-            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  10 saniye sar\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
+            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
         )
 
     def dragEnterEvent(self, event):
@@ -876,6 +903,8 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self._closed = True
+        self.fullscreen.close()
+        self.transport.close()
         self._guide_timer.stop()
         self.logo_viewport.close()
         self.logos.close()

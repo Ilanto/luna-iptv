@@ -56,6 +56,8 @@ def apply_theme(app):
         QPushButton:focus { border-color: #e889a8; }
         QPushButton:pressed { background: #49343d; }
         QPushButton:disabled { color: #8b8386; border-color: #343637; }
+        QPushButton#transport { padding: 7px 10px; }
+        QPushButton#transport:checked { background: #3a2e34; color: #f2adc5; border-color: #624451; }
         QPushButton#primary { background: #e889a8; color: #201a1d; border: 1px solid #e889a8; font-weight: 600; }
         QPushButton#primary:hover { background: #efa0b9; }
         QPushButton#nav { text-align: left; border: 1px solid transparent; background: transparent; padding: 12px; }

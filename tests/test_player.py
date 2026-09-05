@@ -8,6 +8,38 @@ import time
 import pytest
 
 
+def test_set_property_returns_async_command_completion_future():
+    from PySide6.QtCore import QObject
+
+    from luna_iptv.player import Player
+
+    class Future:
+        def __init__(self):
+            self.callbacks = []
+
+        def add_done_callback(self, callback):
+            self.callbacks.append(callback)
+
+    class Backend:
+        def __init__(self):
+            self.args = None
+            self.future = Future()
+
+        def command_async(self, *args):
+            self.args = args
+            return self.future
+
+    player = Player.__new__(Player)
+    QObject.__init__(player)
+    player._closed = False
+    player._mpv = Backend()
+
+    result = player.set_property("pause", True)
+
+    assert result is player._mpv.future
+    assert player._mpv.args == ("set", "pause", "yes")
+
+
 def test_native_render_playback_controls_and_teardown(tmp_path, qt_app):
     if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
         pytest.skip("Native render integration requires a desktop display")
