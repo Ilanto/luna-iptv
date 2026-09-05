@@ -597,3 +597,45 @@ def test_blank_cached_episode_surfaces_refetch_message_instead_of_loading(window
     window.play(channel)
     assert loads == []
     assert "yeniden" in window.message.text().lower()
+
+
+def test_xtream_refresh_uses_reconciled_legacy_id_and_keeps_playback(window, monkeypatch):
+    source = xtream_source("https://provider.invalid")
+    window.store.save_source(source)
+    [legacy] = window.store.replace_channels(
+        "provider",
+        [
+            Channel(
+                "legacy-channel-id",
+                "Old title",
+                "https://provider.invalid/live/old-user/old-pass/11.ts",
+                provider_key="live:11",
+            )
+        ],
+    )
+    window.current = legacy
+    window._loading = True
+    stops = []
+    monkeypatch.setattr(window.player, "stop", lambda: stops.append(True))
+    monkeypatch.setattr(window, "save_progress", lambda: None)
+
+    window.accept_import(
+        source,
+        Playlist(
+            [
+                Channel(
+                    "new-host-derived-id",
+                    "New title",
+                    "https://provider.invalid/live/old-user/old-pass/11.ts",
+                    provider_key="live:11",
+                )
+            ],
+            [],
+            [],
+        ),
+    )
+
+    assert stops == []
+    assert window.current.id == "provider:legacy-channel-id"
+    assert window.current.name == "New title"
+    assert window._loading is True

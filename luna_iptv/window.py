@@ -220,11 +220,11 @@ class MainWindow(QMainWindow):
                 for c in self.store.channels(source_id)
                 if c.kind != "series" and c.series_id in series_ids
             )
-        incoming = {
-            c.id if c.id.startswith(source_id + ":") else source_id + ":" + c.id for c in channels
-        }
         if self.current and self.current.id.startswith(source_id + ":"):
             self.save_progress()
+        stored_channels = self.store.replace_channels(source_id, channels)
+        incoming = {channel.id for channel in stored_channels}
+        if self.current and self.current.id.startswith(source_id + ":"):
             if self.current.id not in incoming:
                 self.player.stop()
                 self.current = None
@@ -232,7 +232,6 @@ class MainWindow(QMainWindow):
                 self.favorite_button.setEnabled(False)
                 self.video_stack.setCurrentIndex(0)
                 self.video_title.setText("İyi bir yayına yer aç.")
-        self.store.replace_channels(source_id, channels)
         self.refresh_library(select_source=source_id)
         kind = playlist.channels[0].kind
         self.set_section(kind if kind in ("live", "movie", "series") else "live")
