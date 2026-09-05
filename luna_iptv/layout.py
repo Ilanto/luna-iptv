@@ -96,6 +96,9 @@ def build_window(w):
     lib.addWidget(w.section_title)
     w.count_label = text_label("0 yayın", "muted")
     lib.addWidget(w.count_label)
+    w.history_clear_button = button("Geçmişi temizle", w.confirm_clear_history)
+    w.history_clear_button.hide()
+    lib.addWidget(w.history_clear_button)
     w.search = QLineEdit()
     w.search.setPlaceholderText("Kütüphanede ara…")
     w.search.setClearButtonEnabled(True)
@@ -294,14 +297,23 @@ def build_window(w):
     w.info_button = button("Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle")
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
-    w.track_button = button("A / S", w.track_menu, tip="Ses parçası ve altyazı seç")
-    row.addWidget(w.track_button)
+    w.playback_menu_button = button(
+        "Oynatma", w.track_menu, tip="Ses, altyazı ve oynatma seçenekleri"
+    )
+    w.playback_menu_button.setProperty("mini_hidden", True)
+    row.addWidget(w.playback_menu_button)
     w.mini_button = button("Mini", w.toggle_mini_player, tip="Mini oynatıcıya geç")
     row.addWidget(w.mini_button)
     w.fullscreen_button = button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
     row.addWidget(w.fullscreen_button)
     ctrl.addLayout(row)
-    for widget in (w.rewind_button, w.forward_button, w.stop_button, w.info_button, w.track_button):
+    for widget in (
+        w.rewind_button,
+        w.forward_button,
+        w.stop_button,
+        w.info_button,
+        w.playback_menu_button,
+    ):
         widget.setProperty("mini_hidden", True)
     w.mini_status = text_label("Hazır.", "muted")
     w.mini_status.setAccessibleName("Oynatma durumu")

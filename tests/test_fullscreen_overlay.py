@@ -32,6 +32,7 @@ class OverlayHarness:
 @pytest.fixture
 def overlay(qt_app):
     window = QMainWindow()
+    window.setAttribute(Qt.WA_DeleteOnClose)
     window._fullscreen = False
     window.resize(980, 700)
 
@@ -376,3 +377,24 @@ def test_close_stops_filter_and_timer_even_after_overlay_widgets_are_deleted(qt_
     assert controller.active is False
     assert not controller._idle_timer.isActive()
     assert controller._application is None
+
+
+def test_overlay_window_close_releases_native_children_before_worker_collection(qt_app, overlay):
+    """The harness must mirror real MainWindow's native ownership on close."""
+    import gc
+    import threading
+
+    window = overlay.window
+    controller = FullscreenController(window, overlay.view, overlay.header)
+    child = window.video
+    controller.set_active(True)
+    controller.close()
+    window.close()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    assert not isValid(window)
+    assert not isValid(child)
+    assert not isValid(controller)
+    worker = threading.Thread(target=gc.collect)
+    worker.start()
+    worker.join(timeout=3)
+    assert not worker.is_alive()
