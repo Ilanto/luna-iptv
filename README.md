@@ -5,7 +5,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.2.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.2.1-1.noarch.rpm
 luna-iptv
 ```
 
@@ -16,6 +16,10 @@ Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlıl
 “Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Yıldız favoriye ekler. Xtream dizilerinde diziye tıklamak bölümleri açar; sezon seçimi kategori alanından yapılır. Kaynak işlemleri menüsünden listeyi yenileyin veya kaldırın. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi ve tam ekran içerir. Film/bölüm konumu otomatik kaydedilir; bitişe yakın konumlar yeniden başlatılır. Son izlenenler yerel geçmişten gelir. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.2.1 · görüntü düzeltmesi
+
+Altyazı gösterildikten sonra pencere değiştirirken veya video alanı yeniden çizilirken oluşabilen yatay bozulma/siyah görüntü düzeltildi. Qt ile mpv arasındaki OpenGL karıştırma durumu her karede doğru hazırlanır; native Wayland, donanım hızlandırma ve mevcut oynatıcı korunur. Teşhis ve test ayrıntıları `docs/render-state-fix.md` içindedir.
 
 ### 0.2.0 · günlük kullanım
 

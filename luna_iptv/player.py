@@ -9,6 +9,8 @@ from PySide6.QtCore import QByteArray, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+_GL_BLEND = 0x0BE2
+
 
 class Player(QObject):
     ready = Signal()
@@ -242,6 +244,9 @@ class VideoWidget(QOpenGLWidget):
         try:
             self._render.update()
             ratio = self.devicePixelRatioF()
+            # Qt enables blending before paintGL; libmpv expects it disabled.
+            # Otherwise subtitle blend factors leak into the next video frame.
+            self.context().functions().glDisable(_GL_BLEND)
             self._render.render(
                 opengl_fbo={
                     "fbo": self.defaultFramebufferObject(),
