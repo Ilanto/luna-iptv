@@ -12,7 +12,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from .models import Channel, Playlist
-from .playlist import parse_m3u
+from .playlist import parse_m3u, resolve_logo
 
 LIMIT = 64 * 1024 * 1024
 
@@ -151,7 +151,9 @@ class XtreamClient:
                         url=url,
                         group=categories.get(str(row.get("category_id")), "Diğer"),
                         tvg_id=str(row.get("epg_channel_id") or ""),
-                        logo=str(row.get("stream_icon") or row.get("cover") or ""),
+                        logo=resolve_logo(
+                            str(row.get("stream_icon") or row.get("cover") or ""), self.base + "/"
+                        ),
                         kind=kind,
                         series_id=str(item_id) if mode == "series" else "",
                     )
