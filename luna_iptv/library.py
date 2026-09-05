@@ -18,6 +18,7 @@ class ChannelModel(QAbstractListModel):
         super().__init__(parent)
         self.channels = []
         self.favorites = set()
+        self.search_keys = []
 
     def rowCount(self, parent=None):
         return 0 if parent is not None and parent.isValid() else len(self.channels)
@@ -39,6 +40,7 @@ class ChannelModel(QAbstractListModel):
         self.beginResetModel()
         self.channels = channels
         self.favorites = favorites
+        self.search_keys = [search_key(c.name + " " + c.group) for c in channels]
         self.endResetModel()
 
 
@@ -47,10 +49,23 @@ class ChannelFilter(QSortFilterProxyModel):
         super().__init__(parent)
         self.section = "live"
         self.query = ""
+        self._query_key = ""
         self.group = ""
         self.source = ""
         self.episode_ids = None
-        self.recent = set()
+        self.recent = {}
+
+    def set_recent_ids(self, channel_ids):
+        self.recent = {channel_id: rank for rank, channel_id in enumerate(channel_ids)}
+        self.invalidate()
+
+    def lessThan(self, left, right):
+        if self.section == "recent" and self.episode_ids is None:
+            channels = self.sourceModel().channels
+            return self.recent.get(channels[left.row()].id, len(self.recent)) < self.recent.get(
+                channels[right.row()].id, len(self.recent)
+            )
+        return left.row() < right.row()
 
     def filterAcceptsRow(self, row, parent):
         channel = self.sourceModel().channels[row]
@@ -69,11 +84,11 @@ class ChannelFilter(QSortFilterProxyModel):
             return False
         if self.group and channel.group != self.group:
             return False
-        return not self.query or search_key(self.query) in search_key(
-            channel.name + " " + channel.group
-        )
+        return not self._query_key or self._query_key in self.sourceModel().search_keys[row]
 
     def refresh(self):
+        self._query_key = search_key(self.query)
+        self.sort(0 if self.section == "recent" and self.episode_ids is None else -1)
         if hasattr(self, "endFilterChange"):
             self.beginFilterChange()
             self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
@@ -82,6 +97,10 @@ class ChannelFilter(QSortFilterProxyModel):
 
 
 class ChannelDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None, *, logos=None):
+        super().__init__(parent)
+        self.logos = logos
+
     def sizeHint(self, option, index):
         return QSize(240, 69)
 
@@ -111,7 +130,16 @@ class ChannelDelegate(QStyledItemDelegate):
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor("#e889a8" if selected else "#c2afb8"))
-        painter.drawText(icon, Qt.AlignCenter, channel.name[:2].upper())
+        logo = self.logos.prepared_logo(channel.logo) if self.logos else None
+        if logo is not None:
+            size = logo.size().scaled(icon.size(), Qt.KeepAspectRatio)
+            target = icon.adjusted(0, 0, 0, 0)
+            target.setSize(size)
+            target.moveCenter(icon.center())
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawPixmap(target, logo)
+        else:
+            painter.drawText(icon, Qt.AlignCenter, channel.name[:2].upper())
         title = rect.adjusted(60, 8, -25, -29)
         font.setPointSize(10)
         font.setBold(selected)

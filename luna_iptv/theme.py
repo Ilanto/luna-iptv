@@ -47,6 +47,7 @@ def apply_theme(app):
         QFrame#sidebar { background: #181b1c; border-right: 1px solid #343637; }
         QFrame#library { border-right: 1px solid #343637; }
         QFrame#controls { background: #242728; border-radius: 8px; }
+        QFrame#mediaInfo { background: #202324; border: 1px solid #393b3c; border-radius: 8px; }
         QFrame#guide { border-top: 1px solid #393b3c; }
         QLineEdit, QComboBox { background: #242728; border: 1px solid #48494a; border-radius: 6px; padding: 9px; selection-background-color: #583f49; }
         QLineEdit:focus, QComboBox:focus { border-color: #e889a8; }

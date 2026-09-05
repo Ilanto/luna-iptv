@@ -5,7 +5,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMainWindow, QMenu, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QInputDialog,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+)
 from shiboken6 import isValid
 
 from .accounts import sanitize_profile
@@ -13,6 +21,7 @@ from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
+from .media_info import MediaInfo
 from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .player import Player
@@ -47,6 +56,7 @@ class MainWindow(QMainWindow):
         self._loading = False
         self._idle = True
         self._account_dialog = None
+        self.media_info = MediaInfo()
         self.setWindowTitle("Luna IPTV")
         self.resize(1340, 850)
         self.setMinimumSize(1040, 690)
@@ -234,7 +244,7 @@ class MainWindow(QMainWindow):
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
         self.model.reset(self.store.channels(), self.store.favorites())
-        self.proxy.recent = set(self.store.recent_ids())
+        self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
             self.current = next(
                 (c for c in self.model.channels if c.id == self.current.id), self.current
@@ -269,7 +279,7 @@ class MainWindow(QMainWindow):
             }[section]
         )
         self.search.clear()
-        self.proxy.recent = set(self.store.recent_ids())
+        self.proxy.set_recent_ids(self.store.recent_ids())
         self.refresh_categories()
         self.filter_changed()
 
@@ -375,6 +385,9 @@ class MainWindow(QMainWindow):
         self._seekable = False
         self._last_saved = 0.0
         self._loading = True
+        self.media_info.begin_load()
+        self.refresh_media_info()
+        self.info_button.setEnabled(True)
         self.video_title.setText(channel.name)
         self.video_badge.setText(
             "CANLI YAYIN" if channel.kind == "live" else channel.group.upper() or "FİLM / VİDEO"
@@ -402,6 +415,9 @@ class MainWindow(QMainWindow):
             return
         self._idle = False
         self._loading = False
+        self.media_info.mark_loaded()
+        self.refresh_media_info()
+        self.info_button.setEnabled(self.current is not None)
         self.status("Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
         if self.current:
@@ -412,6 +428,10 @@ class MainWindow(QMainWindow):
             return
         self._idle = True
         self._loading = False
+        self.media_info.reset()
+        self.refresh_media_info()
+        self.info_panel.hide()
+        self.info_button.setEnabled(False)
         self.status(message, lambda: self.play(self.current) if self.current else None)
 
     def ended(self):
@@ -420,10 +440,19 @@ class MainWindow(QMainWindow):
         if not self._loading:
             self.play_button.setText("▶")
             self.save_progress()
+            self.media_info.reset()
+            self.refresh_media_info()
+            self.info_panel.hide()
+            self.info_button.setEnabled(False)
 
     def player_property(self, name, value):
         if self._closed:
             return
+        if self.media_info.update(name, value):
+            self.refresh_media_info()
+        if name == "idle-active" and value and not self._loading:
+            self.info_panel.hide()
+            self.info_button.setEnabled(False)
         if name == "time-pos" and value is not None:
             self._position = float(value)
             if not self.seek.isSliderDown() and self._duration > 0:
@@ -482,9 +511,38 @@ class MainWindow(QMainWindow):
         self.save_progress()
         self._idle = True
         self._loading = False
+        self.media_info.reset()
+        self.refresh_media_info()
+        self.info_panel.hide()
+        self.info_button.setEnabled(False)
         self.player.stop()
         self.status("Yayın durduruldu.")
         self.seek.setEnabled(False)
+
+    def toggle_info_panel(self):
+        self.info_panel.setVisible(self.info_panel.isHidden())
+
+    def refresh_media_info(self):
+        fields = {
+            self.info_dimensions: self.media_info.dimensions,
+            self.info_quality: self.media_info.quality,
+            self.info_video_codec: self.media_info.video_codec,
+            self.info_audio_codec: self.media_info.audio_codec,
+            self.info_audio_layout: self.media_info.audio_layout,
+            self.info_fps: self.media_info.fps,
+            self.info_bitrate: self.media_info.bitrate,
+            self.info_dynamic_range: self.media_info.dynamic_range,
+        }
+        for label, value in fields.items():
+            if label.text() != value:
+                label.setText(value)
+        for label, kind in ((self.info_video_codec, "video"), (self.info_audio_codec, "audio")):
+            description = self.media_info.codec_description(kind)
+            label.setToolTip(description)
+            label.setAccessibleDescription(description)
+        buffer_text = self.media_info.buffer_text
+        self.buffer_label.setText(buffer_text)
+        self.buffer_label.setVisible(bool(buffer_text))
 
     def toggle_favorite(self):
         if not self.current:
@@ -531,6 +589,9 @@ class MainWindow(QMainWindow):
         source_id = self.source_combo.currentData()
         source = next((s for s in self.store.sources() if s["id"] == source_id), None)
         menu = QMenu(self)
+        rename = menu.addAction("Seçili kaynağı yeniden adlandır")
+        rename.setEnabled(source is not None and not self._busy)
+        rename.triggered.connect(lambda: self.rename_source(source))
         refresh = menu.addAction("Seçili kaynağı yenile")
         refresh.setEnabled(source is not None and not self._busy)
         refresh.triggered.connect(lambda: self.import_source(source))
@@ -610,6 +671,27 @@ class MainWindow(QMainWindow):
             busy=False,
             failure=failed,
         )
+
+    def rename_source(self, source):
+        if source is None:
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Kaynağı yeniden adlandır", "Kaynak adı", QLineEdit.Normal, source["name"]
+        )
+        if not accepted:
+            return
+        try:
+            renamed = self.store.rename_source(source["id"], name)
+        except ValueError as error:
+            self.status(str(error))
+            return
+        if not renamed:
+            self.status("Kaynak artık mevcut değil.")
+            return
+        index = self.source_combo.findData(source["id"])
+        if index >= 0:
+            self.source_combo.setItemText(index, name.strip())
+        self.status("Kaynak adı güncellendi.")
 
     def remove_source(self, source):
         if (
@@ -794,6 +876,8 @@ class MainWindow(QMainWindow):
         self.save_progress()
         self._closed = True
         self._guide_timer.stop()
+        self.logo_viewport.close()
+        self.logos.close()
         self.player.shutdown()
         self.store.close()
         event.accept()
