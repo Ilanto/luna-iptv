@@ -262,18 +262,19 @@ def build_window(w):
         "+5 sn", lambda: w.transport.seek_relative(5), "transport", "5 saniye ileri (→)"
     )
     row.addWidget(w.seek_forward_button)
-    row.addWidget(button("■", w.stop_playback, "transport", "Durdur"))
+    w.stop_button = button("■", w.stop_playback, "transport", "Durdur")
+    row.addWidget(w.stop_button)
     w.rate_button = button("1×", w.transport.normal_play, "transport", "Normal oynatmaya dön (K)")
     w.rate_button.setMinimumWidth(54)
     row.addWidget(w.rate_button)
-    row.addStretch()
     w.time_label = text_label("00:00", "muted")
     w.time_label.setFont(
         QFont("Hurmit Nerd Font Mono", 9)
         if "Hurmit Nerd Font Mono" in QFontDatabase.families()
         else QFontDatabase.systemFont(QFontDatabase.FixedFont)
     )
-    row.addWidget(w.time_label)
+    w.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    row.addWidget(w.time_label, 1)
     ctrl.addLayout(row)
     row = QHBoxLayout()
     row.setSpacing(6)
@@ -301,9 +302,24 @@ def build_window(w):
     )
     w.playback_menu_button.setProperty("mini_hidden", True)
     row.addWidget(w.playback_menu_button)
+    w.mini_button = button("Mini", w.toggle_mini_player, tip="Mini oynatıcıya geç")
+    row.addWidget(w.mini_button)
     w.fullscreen_button = button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
     row.addWidget(w.fullscreen_button)
     ctrl.addLayout(row)
+    for widget in (
+        w.rewind_button,
+        w.forward_button,
+        w.stop_button,
+        w.info_button,
+        w.playback_menu_button,
+    ):
+        widget.setProperty("mini_hidden", True)
+    w.mini_status = text_label("Hazır.", "muted")
+    w.mini_status.setAccessibleName("Oynatma durumu")
+    w.mini_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    w.mini_status.hide()
+    ctrl.addWidget(w.mini_status)
     view.addWidget(w.controls)
     w.guide = QFrame()
     w.guide.setObjectName("guide")

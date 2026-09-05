@@ -26,6 +26,7 @@ from .fullscreen import FullscreenController
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
 from .media_info import MediaInfo
+from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .playback_dialogs import HistoryDialog, ResumeDialog
@@ -84,6 +85,7 @@ class MainWindow(QMainWindow):
         self.track_preferences = TrackPreferences(store, self.player)
         build_window(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
+        self.mini_player = MiniPlayerController(self)
         self.transport.changed.connect(self.refresh_transport)
         self.refresh_transport()
         self.player.property_changed.connect(self.player_property)
@@ -101,6 +103,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.load_cached_guides)
 
     def status(self, message, retry=None):
+        self.mini_status.setText(message)
+        self.mini_status.setToolTip(message)
         self.message.setText(message)
         self._retry = retry
         self.retry_button.setVisible(retry is not None)
@@ -1136,14 +1140,55 @@ class MainWindow(QMainWindow):
             else "Rehber kanal kimliği, listedeki tvg-id ile eşleşmelidir."
         )
 
+    def toggle_mini_player(self):
+        if self.mini_player.active or self.mini_player.pending:
+            self.leave_mini_player()
+        elif self._fullscreen:
+            self.mini_player.enter_after_fullscreen(
+                self._fullscreen_return_geometry, self._fullscreen_return_maximized
+            )
+            self.toggle_fullscreen()
+        else:
+            self.mini_player.enter()
+
+    def leave_mini_player(self):
+        if self._fullscreen:
+            self.toggle_fullscreen()
+        self.mini_player.leave()
+        # Late fullscreen acknowledgements must restore the latest windowed mode.
+        self._fullscreen_return_maximized = self.isMaximized()
+        self._fullscreen_return_geometry = (
+            self.normalGeometry() if self.isMaximized() else self.geometry()
+        )
+
     def toggle_fullscreen(self):
+        if not self._fullscreen:
+            self.mini_player.cancel_pending()
+            self._fullscreen_return_maximized = self.isMaximized()
+            self._fullscreen_return_geometry = (
+                self.normalGeometry() if self.isMaximized() else self.geometry()
+            )
         self._fullscreen = not self._fullscreen
-        self.fullscreen.set_active(self._fullscreen)
-        self.showFullScreen() if self._fullscreen else self.showNormal()
+        if self.mini_player.active:
+            self.mini_player.set_fullscreen(self._fullscreen)
+        else:
+            self.fullscreen.set_active(self._fullscreen)
+        self.showFullScreen() if self._fullscreen else self._restore_windowed_state()
+
+    def _restore_windowed_state(self):
+        self.showNormal()
+        if self.mini_player.active:
+            self.mini_player.restore_mini_geometry()
+        elif hasattr(self, "_fullscreen_return_geometry"):
+            self.setGeometry(self._fullscreen_return_geometry)
+            if self._fullscreen_return_maximized:
+                self.showMaximized()
 
     def leave_fullscreen(self):
         if self._fullscreen:
             self.toggle_fullscreen()
+        elif self.mini_player.active or self.mini_player.pending:
+            self.leave_mini_player()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -1159,7 +1204,7 @@ class MainWindow(QMainWindow):
     def _reconcile_fullscreen(self):
         if self._closed or self.isFullScreen() == self._fullscreen:
             return
-        self.showFullScreen() if self._fullscreen else self.showNormal()
+        self.showFullScreen() if self._fullscreen else self._restore_windowed_state()
 
     def shortcut_action(self, key, callback):
         if isinstance(QApplication.focusWidget(), QLineEdit) and key not in (
@@ -1195,6 +1240,7 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self._closed = True
+        self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()
         self.dismiss_resume()
