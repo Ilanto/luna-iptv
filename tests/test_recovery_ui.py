@@ -12,7 +12,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtWidgets import QLabel
 from shiboken6 import isValid
 
 from luna_iptv.models import Channel, Playlist
@@ -460,10 +459,9 @@ def test_status_is_mirrored_when_compact_player_status_exists(
 ) -> None:
     window, _channel, _loads = make_window(qt_app, tmp_path, monkeypatch)
     try:
-        window.mini_status_label = QLabel(window)
         window.status("Canlı yayın arabelleğe alınıyor…")
 
-        assert window.mini_status_label.text() == "Canlı yayın arabelleğe alınıyor…"
+        assert window.mini_status.text() == "Canlı yayın arabelleğe alınıyor…"
     finally:
         if isValid(window):
             window.close()

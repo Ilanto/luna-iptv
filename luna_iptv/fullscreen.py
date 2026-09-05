@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 from shiboken6 import isValid
 
 
@@ -22,6 +22,9 @@ class FullscreenController(QObject):
         self._view_layout = view_layout
         self._header = header
         self.active = False
+        self.compact = False
+        self._compact_hidden = []
+        self._compact_time_policy = None
         self._closed = False
         self._controls_visible = False
         self._info_open = False
@@ -61,6 +64,41 @@ class FullscreenController(QObject):
             self._leave()
             self.active = False
 
+    def set_compact(self, compact: bool):
+        """Use compact controls without changing the native fullscreen state."""
+        compact = bool(compact)
+        if self._closed or compact == self.compact:
+            return
+        self.compact = compact
+        controls = self._widget("controls")
+        if compact and controls is not None:
+            self._compact_hidden = [
+                (widget, widget.isHidden())
+                for widget in controls.findChildren(QWidget)
+                if widget.property("mini_hidden")
+            ]
+            for widget, _hidden in self._compact_hidden:
+                widget.hide()
+        else:
+            for widget, hidden in self._compact_hidden:
+                if self._valid(widget):
+                    widget.setVisible(not hidden)
+            self._compact_hidden = []
+        time_label = self._widget("time_label")
+        if time_label is not None:
+            if compact:
+                self._compact_time_policy = time_label.sizePolicy()
+                time_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            elif self._compact_time_policy is not None:
+                time_label.setSizePolicy(self._compact_time_policy)
+                self._compact_time_policy = None
+        status = self._widget("mini_status_row") or self._widget("mini_status")
+        if status is not None:
+            status.setVisible(compact)
+        if self.active:
+            self.reveal()
+            self.layout_overlays()
+
     def reveal(self):
         if self._closed or not self.active:
             return
@@ -71,10 +109,12 @@ class FullscreenController(QObject):
 
         needs_layout = not self._controls_visible or controls.isHidden()
         if info_panel is not None:
-            needs_layout = needs_layout or info_panel.isHidden() == self._info_open
+            needs_layout = needs_layout or info_panel.isHidden() == (
+                self._info_open and not self.compact
+            )
         controls.show()
         if info_panel is not None:
-            info_panel.setVisible(self._info_open)
+            info_panel.setVisible(self._info_open and not self.compact)
         if not self._controls_visible:
             self._restore_cursors()
         self._controls_visible = True
@@ -121,7 +161,7 @@ class FullscreenController(QObject):
             return
 
         bounds = watch.rect()
-        available_width = max(0, bounds.width() - 2 * self.OVERLAY_MARGIN)
+        available_width = max(0, bounds.width() - 2 * (8 if self.compact else self.OVERLAY_MARGIN))
         overlay_width = min(available_width, self.OVERLAY_MAX_WIDTH)
         if overlay_width <= 0 or bounds.height() <= 0:
             return
@@ -130,7 +170,7 @@ class FullscreenController(QObject):
         controls_x = bounds.x() + (bounds.width() - overlay_width) // 2
         controls_y = max(
             bounds.y(),
-            bounds.bottom() - self.OVERLAY_MARGIN - controls_height + 1,
+            bounds.bottom() - (8 if self.compact else self.OVERLAY_MARGIN) - controls_height + 1,
         )
         controls.setGeometry(controls_x, controls_y, overlay_width, controls_height)
         controls.raise_()

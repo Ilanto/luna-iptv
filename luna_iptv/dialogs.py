@@ -167,9 +167,11 @@ class AccountDialog(QDialog):
 
 
 class SourceDialog(QDialog):
-    def __init__(self, parent=None, location=""):
+    def __init__(self, parent=None, location="", source=None):
         super().__init__(parent)
-        self.setWindowTitle("Luna IPTV · Kaynak ekle")
+        self._source = dict(source) if source is not None else None
+        editing = self._source is not None
+        self.setWindowTitle("Luna IPTV · Kaynağı düzenle" if editing else "Luna IPTV · Kaynak ekle")
         self.setMinimumWidth(580)
         layout = QVBoxLayout(self)
         layout.setSpacing(18)
@@ -235,12 +237,32 @@ class SourceDialog(QDialog):
         layout.addWidget(self.feedback)
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Cancel).setText("Vazgeç")
-        save = buttons.addButton("Kaynağı ekle", QDialogButtonBox.AcceptRole)
+        save = buttons.addButton(
+            "Bağlantıyı doğrula ve kaydet" if editing else "Kaynağı ekle",
+            QDialogButtonBox.AcceptRole,
+        )
         save.setObjectName("primary")
         buttons.accepted.connect(self.validate)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        if location:
+        if editing:
+            source_type = self._source.get("type", "m3u")
+            mode = {"m3u": 0, "xtream": 1, "direct": 2}.get(source_type, 0)
+            self.tabs.setCurrentIndex(mode)
+            for index in range(self.tabs.count()):
+                self.tabs.setTabEnabled(index, index == mode)
+            self.name.setText(self._source.get("name", ""))
+            self.name.setEnabled(False)
+            if mode == 0:
+                self.location.setText(self._source.get("location", ""))
+                self.epg.setText(self._source.get("epg_url", ""))
+            elif mode == 1:
+                self.host.setText(self._source.get("location", ""))
+                self.username.setText(self._source.get("username", ""))
+                self.password.setText(self._source.get("password", ""))
+            else:
+                self.direct.setText(self._source.get("location", ""))
+        elif location:
             self.name.setText(Path(location).stem)
             if Path(location).suffix.lower() not in (".m3u", ".m3u8"):
                 self.tabs.setCurrentIndex(2)
@@ -276,7 +298,7 @@ class SourceDialog(QDialog):
 
     def source(self):
         mode = self.tabs.currentIndex()
-        return {
+        result = {
             "name": self.name.text().strip(),
             "type": ["m3u", "xtream", "direct"][mode],
             "location": [self.location.text(), self.host.text(), self.direct.text()][mode].strip(),
@@ -284,6 +306,9 @@ class SourceDialog(QDialog):
             "password": self.password.text() if mode == 1 else "",
             "epg_url": self.epg.text().strip() if mode == 0 else "",
         }
+        if self._source is not None:
+            result["id"] = self._source["id"]
+        return result
 
 
 class GuideDialog(QDialog):

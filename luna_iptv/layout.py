@@ -96,6 +96,9 @@ def build_window(w):
     lib.addWidget(w.section_title)
     w.count_label = text_label("0 yayın", "muted")
     lib.addWidget(w.count_label)
+    w.history_clear_button = button("Geçmişi temizle", w.confirm_clear_history)
+    w.history_clear_button.hide()
+    lib.addWidget(w.history_clear_button)
     w.search = QLineEdit()
     w.search.setPlaceholderText("Kütüphanede ara…")
     w.search.setClearButtonEnabled(True)
@@ -259,18 +262,19 @@ def build_window(w):
         "+5 sn", lambda: w.transport.seek_relative(5), "transport", "5 saniye ileri (→)"
     )
     row.addWidget(w.seek_forward_button)
-    row.addWidget(button("■", w.stop_playback, "transport", "Durdur"))
+    w.stop_button = button("■", w.stop_playback, "transport", "Durdur")
+    row.addWidget(w.stop_button)
     w.rate_button = button("1×", w.transport.normal_play, "transport", "Normal oynatmaya dön (K)")
     w.rate_button.setMinimumWidth(54)
     row.addWidget(w.rate_button)
-    row.addStretch()
     w.time_label = text_label("00:00", "muted")
     w.time_label.setFont(
         QFont("Hurmit Nerd Font Mono", 9)
         if "Hurmit Nerd Font Mono" in QFontDatabase.families()
         else QFontDatabase.systemFont(QFontDatabase.FixedFont)
     )
-    row.addWidget(w.time_label)
+    w.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    row.addWidget(w.time_label, 1)
     ctrl.addLayout(row)
     row = QHBoxLayout()
     row.setSpacing(6)
@@ -293,10 +297,36 @@ def build_window(w):
     w.info_button = button("Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle")
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
-    row.addWidget(button("A / S", w.track_menu, tip="Ses parçası ve altyazı seç"))
+    w.playback_menu_button = button(
+        "Oynatma", w.track_menu, tip="Ses, altyazı ve oynatma seçenekleri"
+    )
+    w.playback_menu_button.setProperty("mini_hidden", True)
+    row.addWidget(w.playback_menu_button)
+    w.mini_button = button("Mini", w.toggle_mini_player, tip="Mini oynatıcıya geç")
+    row.addWidget(w.mini_button)
     w.fullscreen_button = button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
     row.addWidget(w.fullscreen_button)
     ctrl.addLayout(row)
+    for widget in (
+        w.rewind_button,
+        w.forward_button,
+        w.stop_button,
+        w.info_button,
+        w.playback_menu_button,
+    ):
+        widget.setProperty("mini_hidden", True)
+    w.mini_status = text_label("Hazır.", "muted")
+    w.mini_status.setAccessibleName("Oynatma durumu")
+    w.mini_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    w.mini_status_row = QWidget()
+    mini_status_layout = QHBoxLayout(w.mini_status_row)
+    mini_status_layout.setContentsMargins(0, 0, 0, 0)
+    mini_status_layout.addWidget(w.mini_status, 1)
+    w.mini_cancel_button = button("İptal", w.cancel_recovery, tip="Yeniden bağlanmayı iptal et")
+    w.mini_cancel_button.hide()
+    mini_status_layout.addWidget(w.mini_cancel_button)
+    w.mini_status_row.hide()
+    ctrl.addWidget(w.mini_status_row)
     view.addWidget(w.controls)
     w.guide = QFrame()
     w.guide.setObjectName("guide")

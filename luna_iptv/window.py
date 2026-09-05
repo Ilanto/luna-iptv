@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import gzip
+import math
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -24,10 +26,14 @@ from .fullscreen import FullscreenController
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
 from .media_info import MediaInfo
+from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
+from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
+from .preferences import TrackPreferences
 from .recovery import RecoveryController
+from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
 from .transport import TransportController
 
@@ -45,6 +51,7 @@ class MainWindow(QMainWindow):
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
         self.current = None
+        self._current_persistent = True
         self._position = 0.0
         self._duration = 0.0
         self._seekable = False
@@ -63,6 +70,12 @@ class MainWindow(QMainWindow):
         self._untracked_playback_token = None
         self._playback_active = False
         self._account_dialog = None
+        self._source_edit_tokens = {}
+        self._source_health_tokens = {}
+        self._resume_dialog = None
+        self._history_dialog = None
+        self._record_recent = True
+        self._record_progress = True
         self.media_info = MediaInfo()
         self.setWindowTitle("Luna IPTV")
         self.resize(1340, 850)
@@ -74,8 +87,10 @@ class MainWindow(QMainWindow):
         self.player = Player(self)
         self.transport = TransportController(self.player, self)
         self.recovery = RecoveryController(self)
+        self.track_preferences = TrackPreferences(store, self.player)
         build_window(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
+        self.mini_player = MiniPlayerController(self)
         self.transport.changed.connect(self.refresh_transport)
         self.recovery.changed.connect(self.refresh_recovery)
         self.recovery.retry_requested.connect(self._retry_live)
@@ -86,7 +101,7 @@ class MainWindow(QMainWindow):
         self.player.playback_property_changed.connect(self.playback_property)
         self.player.playback_finished.connect(self.playback_finished)
         self.player.playback_tracking_lost.connect(self.playback_tracking_lost)
-        self.player.file_loaded.connect(self.loaded)
+        self.player.file_loaded.connect(self._legacy_loaded)
         self.player.ended.connect(self.ended)
         self.player.ready.connect(
             lambda: self.engine_label.setText("mpv  ·  " + QApplication.platformName())
@@ -99,9 +114,9 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.load_cached_guides)
 
     def status(self, message, retry=None):
+        self.mini_status.setText(message)
+        self.mini_status.setToolTip(message)
         self.message.setText(message)
-        if hasattr(self, "mini_status_label"):
-            self.mini_status_label.setText(message)
         self._retry = retry
         self.retry_button.setVisible(retry is not None)
 
@@ -236,11 +251,11 @@ class MainWindow(QMainWindow):
                 for c in self.store.channels(source_id)
                 if c.kind != "series" and c.series_id in series_ids
             )
-        incoming = {
-            c.id if c.id.startswith(source_id + ":") else source_id + ":" + c.id for c in channels
-        }
         if self.current and self.current.id.startswith(source_id + ":"):
             self.save_progress()
+        stored_channels = self.store.replace_channels(source_id, channels)
+        incoming = {channel.id for channel in stored_channels}
+        if self.current and self.current.id.startswith(source_id + ":"):
             if self.current.id not in incoming:
                 self._playback_active = False
                 self.player.stop()
@@ -249,7 +264,6 @@ class MainWindow(QMainWindow):
                 self.favorite_button.setEnabled(False)
                 self.video_stack.setCurrentIndex(0)
                 self.video_title.setText("İyi bir yayına yer aç.")
-        self.store.replace_channels(source_id, channels)
         self.refresh_library(select_source=source_id)
         kind = playlist.channels[0].kind
         self.set_section(kind if kind in ("live", "movie", "series") else "live")
@@ -274,9 +288,13 @@ class MainWindow(QMainWindow):
         self.model.reset(self.store.channels(), self.store.favorites())
         self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
-            self.current = next(
-                (c for c in self.model.channels if c.id == self.current.id), self.current
-            )
+            stored_current = next((c for c in self.model.channels if c.id == self.current.id), None)
+            if stored_current is None:
+                self._current_persistent = False
+                self.favorite_button.setEnabled(False)
+            else:
+                self.current = stored_current
+                self._current_persistent = True
             self.video_title.setText(self.current.name)
             self.update_guide()
         self.refresh_categories()
@@ -292,6 +310,7 @@ class MainWindow(QMainWindow):
 
     def set_section(self, section):
         self.proxy.section = section
+        self.history_clear_button.setVisible(section == "recent")
         self.proxy.episode_ids = None
         self.back_button.hide()
         self._episodes_title = ""
@@ -363,7 +382,7 @@ class MainWindow(QMainWindow):
         if channel.kind == "series":
             self.open_series(channel)
         else:
-            self.play(channel)
+            self.request_play(channel)
 
     def source_for(self, channel):
         prefix = channel.id.split(":", 1)[0]
@@ -378,14 +397,17 @@ class MainWindow(QMainWindow):
             return
 
         def loaded(episodes):
-            if not any(s["id"] == source["id"] for s in self.store.sources()):
+            stored_source = next(
+                (item for item in self.store.sources() if item["id"] == source["id"]), None
+            )
+            if stored_source is None or not self._same_source(stored_source, source):
                 return
             if not episodes:
                 self.status("Bu dizide henüz bölüm bulunmuyor.")
                 return
-            self.store.upsert_channels(source["id"], episodes)
+            stored_episodes = self.store.upsert_channels(source["id"], episodes)
             self.model.reset(self.store.channels(), self.store.favorites())
-            self.proxy.episode_ids = {source["id"] + ":" + c.id for c in episodes}
+            self.proxy.episode_ids = {channel.id for channel in stored_episodes}
             self._episodes_title = channel.name
             self.section_title.setText("Bölümler")
             self.back_button.show()
@@ -403,22 +425,91 @@ class MainWindow(QMainWindow):
             lambda: self.open_series(channel),
         )
 
-    def play(self, channel, *, start_override=None, recovering=False):
-        if self.current and self.current.id == channel.id and self._loading and not recovering:
+    def resume_position(self, channel):
+        position, duration = self.store.progress(channel.id)
+        if (
+            channel.kind != "live"
+            and math.isfinite(position)
+            and math.isfinite(duration)
+            and position > 5
+            and duration > 0
+            and position < duration - 10
+        ):
+            return position
+        return 0
+
+    def dismiss_resume(self):
+        dialog, self._resume_dialog = self._resume_dialog, None
+        if dialog is not None and isValid(dialog):
+            dialog.reject()
+
+    def request_play(self, channel):
+        self.dismiss_resume()
+        position = self.resume_position(channel)
+        if not position:
+            self.play(channel, start_override=0)
             return
-        if recovering:
-            if self.current is None or self.current.id != channel.id:
+        dialog = ResumeDialog(channel.name, clock_text(position), self)
+        self._resume_dialog = dialog
+
+        def finished(result):
+            if self._closed or self._resume_dialog is not dialog:
                 return
-        else:
+            self._resume_dialog = None
+            if result != QDialog.Accepted:
+                return
+            fresh = next((c for c in self.model.channels if c.id == channel.id), None)
+            if fresh is not None:
+                self.play(fresh, start_override=position if dialog.choice == "resume" else 0)
+
+        dialog.finished.connect(finished)
+        dialog.open()
+
+    def restart_current(self):
+        if self.current and self._current_persistent and self.current.kind != "live":
+            self.play(self.current, start_override=0)
+
+    def play(self, channel, *, start_override=None, recovering=False):
+        if not channel.url:
+            self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
+            return
+        if (
+            self.current
+            and self.current.id == channel.id
+            and self._loading
+            and start_override is None
+            and not recovering
+        ):
+            return
+        if recovering and (
+            self.current is None or self.current.id != channel.id or not self._current_persistent
+        ):
+            self.recovery.cancel()
+            return
+        self.dismiss_resume()
+        self.save_progress()
+        if not recovering:
             self.recovery.begin(channel.id, live=channel.kind == "live")
-            if self.current is None or self.current.id != channel.id or self._duration > 0:
-                self.save_progress()
+            self._record_recent = True
+            self._record_progress = True
+        start = self.resume_position(channel) if start_override is None else start_override
         self.current = channel
-        self._position = 0.0
-        self._duration = 0.0
+        self._current_persistent = True
+        self._position = float(start)
+        # Retain known duration until mpv publishes metadata; an early close
+        # after file-loaded must not erase a valid saved resume position.
+        known_duration = self.store.progress(channel.id)[1]
+        self._duration = (
+            known_duration
+            if channel.kind != "live" and math.isfinite(known_duration) and known_duration > 0
+            else 0.0
+        )
         self._seekable = False
         self._last_saved = 0.0
         self._loading = True
+        self._tracks = []
+        source = self.source_for(channel)
+        self.track_preferences.begin(source["id"] if source else None)
         self.transport.prepare(live=channel.kind == "live")
         self.media_info.begin_load()
         self.refresh_media_info()
@@ -433,24 +524,14 @@ class MainWindow(QMainWindow):
         self.seek.setEnabled(False)
         self.time_label.setText("Bağlanıyor…")
         self.update_guide()
-        position, duration = self.store.progress(channel.id)
-        start = (
-            max(0, float(start_override))
-            if start_override is not None
-            else (
-                position
-                if channel.kind != "live"
-                and position > 5
-                and duration > 0
-                and position < duration - 10
-                else 0
-            )
-        )
         self._playback_token = self.player.reserve_load()
         self._untracked_playback_token = None
         self._playback_active = self._playback_token is not None
         self.recovery.watch(self._playback_token)
-        self.status("Yayın açılıyor…", lambda: self.play(self.current) if self.current else None)
+        self.status(
+            "Yayın açılıyor…",
+            lambda: self.play(self.current) if self.current and self._current_persistent else None,
+        )
         self.refresh_recovery()
         if self._playback_token is not None:
             self.player.load(channel.url, channel.headers, start=start)
@@ -458,7 +539,7 @@ class MainWindow(QMainWindow):
         if source and source.get("epg_url") and source["id"] not in self._guide_data:
             self.load_guide(source)
 
-    def loaded(self):
+    def _legacy_loaded(self):
         if not self._playback_active or self._untracked_playback_token != self._playback_token:
             return
         self.recovery.loaded(self._playback_token)
@@ -470,19 +551,23 @@ class MainWindow(QMainWindow):
         self.recovery.loaded(token)
         self._mark_loaded()
 
+    def loaded(self):
+        """Update the loaded UI; native callbacks validate their token first."""
+        self._mark_loaded()
+
     def _mark_loaded(self):
         if self._closed:
             return
         self._idle = False
         self._loading = False
         self.transport.loaded()
+        self.track_preferences.loaded()
         self.media_info.mark_loaded()
         self.refresh_media_info()
         self.info_button.setEnabled(self.current is not None)
         self.status(self.recovery.message or "Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
-        if self.current:
-            self.store.save_progress(self.current.id, self._position, self._duration)
+        self.save_progress()
 
     def playback_error(self, message):
         if self._closed:
@@ -515,14 +600,25 @@ class MainWindow(QMainWindow):
         if recovery_handled and self.recovery.state == "failed":
             self.status(
                 self.recovery.message,
-                lambda: self.play(self.current) if self.current else None,
+                lambda: (
+                    self.play(self.current) if self.current and self._current_persistent else None
+                ),
             )
         elif recovery_handled and self.recovery.message:
             self.status(self.recovery.message)
         elif message:
             retry = (
-                (lambda: self.play(self.current) if self.current else None)
-                if reason == "error" and self.current and self.current.kind != "live"
+                (
+                    lambda: (
+                        self.play(self.current)
+                        if self.current and self._current_persistent
+                        else None
+                    )
+                )
+                if reason == "error"
+                and self.current
+                and self._current_persistent
+                and self.current.kind != "live"
                 else None
             )
             self.status(message, retry)
@@ -530,6 +626,7 @@ class MainWindow(QMainWindow):
     def _finish_playback(self, *, end_session=True):
         if end_session:
             self._playback_active = False
+            self.track_preferences.finish()
         self._idle = True
         self._loading = False
         self.transport.finished()
@@ -584,7 +681,8 @@ class MainWindow(QMainWindow):
             self.volume.setValue(round(value))
             self.volume.blockSignals(False)
         elif name == "track-list":
-            self._tracks = value or []
+            self._tracks = value if isinstance(value, list) else []
+            self.track_preferences.update_tracks(self._tracks)
         elif name == "idle-active":
             self._idle = bool(value)
         elif name == "paused-for-cache" and value:
@@ -599,8 +697,51 @@ class MainWindow(QMainWindow):
             self.status("Yayın oynatılıyor.")
 
     def save_progress(self):
-        if self.current and not self._closed:
-            self.store.save_progress(self.current.id, self._position, self._duration)
+        if self.current and self._current_persistent and not self._closed and self._record_progress:
+            self.store.save_progress(
+                self.current.id, self._position, self._duration, mark_recent=self._record_recent
+            )
+
+    def confirm_clear_history(self):
+        if self._history_dialog is not None and isValid(self._history_dialog):
+            self._history_dialog.raise_()
+            return
+        source = next(
+            (s for s in self.store.sources() if s["id"] == self.source_combo.currentData()), None
+        )
+        dialog = HistoryDialog(source, self)
+        self._history_dialog = dialog
+
+        def finished(result):
+            if self._closed or self._history_dialog is not dialog:
+                return
+            self._history_dialog = None
+            if result == QDialog.Accepted:
+                self.clear_history(
+                    dialog.scope.currentData(), reset_progress=dialog.reset_positions.isChecked()
+                )
+
+        dialog.finished.connect(finished)
+        dialog.open()
+
+    def clear_history(self, source_id=None, *, reset_progress=False):
+        self.store.clear_history(source_id, reset_progress=reset_progress)
+        if self.current and (source_id is None or self.current.id.startswith(source_id + ":")):
+            self._record_recent = False
+            if reset_progress:
+                self._record_progress = False
+        if reset_progress:
+            self.dismiss_resume()
+        self.proxy.set_recent_ids(self.store.recent_ids())
+        self.filter_changed()
+        self.status(
+            "İzleme geçmişi temizlendi."
+            + (
+                " Devam etme konumları sıfırlandı."
+                if reset_progress
+                else " Kaldığın yerler korundu."
+            )
+        )
 
     def seek_to_slider(self):
         if self._duration > 0 and self._seekable:
@@ -608,6 +749,9 @@ class MainWindow(QMainWindow):
             self.player.command(["seek", self.seek.value() * self._duration / 1000, "absolute"])
 
     def toggle_play(self):
+        if self.current and not self._current_persistent:
+            self.status("Bu yayın artık kaynakta bulunmuyor. Listeden başka bir yayın seç.")
+            return
         if self.current and self._idle:
             self.play(self.current)
         elif self.current and self.transport.rate:
@@ -630,10 +774,12 @@ class MainWindow(QMainWindow):
             self.play_button.setText("▶")
 
     def stop_playback(self):
+        self.dismiss_resume()
         self.save_progress()
         self.recovery.cancel()
         self._untracked_playback_token = None
         self._playback_active = False
+        self.track_preferences.finish()
         self.transport.finished()
         self._idle = True
         self._loading = False
@@ -649,7 +795,12 @@ class MainWindow(QMainWindow):
         self.stop_playback()
 
     def _retry_live(self, channel_id):
-        if self._closed or self.current is None or self.current.id != channel_id:
+        if (
+            self._closed
+            or self.current is None
+            or self.current.id != channel_id
+            or not self._current_persistent
+        ):
             self.recovery.cancel()
             return
         self.play(self.current, recovering=True)
@@ -669,9 +820,16 @@ class MainWindow(QMainWindow):
             if terminal:
                 self.player.stop()
         self.recovery_cancel_button.setVisible(self.recovery.can_cancel)
+        self.mini_cancel_button.setVisible(self.recovery.can_cancel)
         if self.recovery.message:
             retry = (
-                (lambda: self.play(self.current) if self.current else None)
+                (
+                    lambda: (
+                        self.play(self.current)
+                        if self.current and self._current_persistent
+                        else None
+                    )
+                )
                 if self.recovery.state in {"failed", "untracked-failed"}
                 else None
             )
@@ -703,7 +861,7 @@ class MainWindow(QMainWindow):
         self.buffer_label.setVisible(bool(buffer_text))
 
     def toggle_favorite(self):
-        if not self.current:
+        if not self.current or not self._current_persistent:
             return
         favorite = self.current.id not in self.store.favorites()
         self.store.set_favorite(self.current.id, favorite)
@@ -716,28 +874,58 @@ class MainWindow(QMainWindow):
         self.filter_changed()
 
     def track_menu(self):
+        menu = self.build_track_menu()
+        menu.exec(self.cursor().pos())
+        menu.deleteLater()
+
+    def build_track_menu(self):
         menu = QMenu(self)
+        generation = self.track_preferences.generation
+
+        def guarded(callback):
+            if not self._closed and self.track_preferences.generation == generation:
+                callback()
+
         for mode, title in [("audio", "Ses parçaları"), ("sub", "Altyazılar")]:
             sub = menu.addMenu(title)
+            sub.setEnabled(self.current is not None and not self._idle)
+            tracks = [t for t in self._tracks if isinstance(t, dict) and t.get("type") == mode]
             off = sub.addAction("Kapalı")
+            off.setCheckable(True)
+            off.setChecked(not any(t.get("selected") for t in tracks))
             off.triggered.connect(
-                lambda checked=False, m=mode: self.player.set_property(
-                    "aid" if m == "audio" else "sid", "no"
+                lambda checked=False, m=mode: self.track_preferences.select(
+                    m, None, generation=generation
                 )
             )
-            for track in self._tracks:
-                if track.get("type") != mode:
-                    continue
+            for track in tracks:
                 label = track.get("title") or track.get("lang") or f"Parça {track.get('id', '')}"
-                action = sub.addAction(str(label))
+                action = sub.addAction(str(label).replace("&", "&&"))
                 action.setCheckable(True)
                 action.setChecked(bool(track.get("selected")))
                 action.triggered.connect(
-                    lambda checked=False, m=mode, i=track["id"]: self.player.set_property(
-                        "aid" if m == "audio" else "sid", i
+                    lambda checked=False, m=mode, t=track: self.track_preferences.select(
+                        m, t, generation=generation
                     )
                 )
-        menu.exec(self.cursor().pos())
+        menu.addSeparator()
+        remember = menu.addAction("Bu kaynak için tercihleri hatırla")
+        remember.setCheckable(True)
+        remember.setChecked(self.track_preferences.remember)
+        remember.setEnabled(self.track_preferences.source_id is not None)
+        remember.triggered.connect(
+            lambda checked: guarded(lambda: self.track_preferences.set_remember(checked))
+        )
+        reset = menu.addAction("Ses ve altyazı tercihlerini sıfırla")
+        reset.setEnabled(self.track_preferences.source_id is not None)
+        reset.triggered.connect(lambda: guarded(self.track_preferences.reset))
+        menu.addSeparator()
+        restart = menu.addAction("Baştan başlat")
+        restart.setEnabled(
+            self.current is not None and self._current_persistent and self.current.kind != "live"
+        )
+        restart.triggered.connect(lambda: guarded(self.restart_current))
+        return menu
 
     def source_menu(self):
         menu = self.build_source_menu()
@@ -750,9 +938,31 @@ class MainWindow(QMainWindow):
         rename = menu.addAction("Seçili kaynağı yeniden adlandır")
         rename.setEnabled(source is not None and not self._busy)
         rename.triggered.connect(lambda: self.rename_source(source))
+        edit = menu.addAction("Bağlantıyı düzenle")
+        edit.setEnabled(source is not None and not self._busy)
+        edit.triggered.connect(lambda: self.edit_source(source))
         refresh = menu.addAction("Seçili kaynağı yenile")
         refresh.setEnabled(source is not None and not self._busy)
         refresh.triggered.connect(lambda: self.import_source(source))
+        check = menu.addAction("Bağlantıyı kontrol et")
+        check.setEnabled(source is not None)
+        check.triggered.connect(lambda: self.check_source(source))
+        if source is not None:
+            snapshot = self.store.source_health(source["id"])
+            if snapshot is not None:
+                status, checked_at = snapshot
+                label = {
+                    "available": "Ulaşılabilir",
+                    "responding": "Sunucu yanıt veriyor",
+                    "unverified": "Akış doğrulanmadı",
+                    "unavailable": "Ulaşılamıyor",
+                }.get(status, "Bilinmiyor")
+                moment = datetime.fromtimestamp(checked_at).strftime("%d.%m.%Y %H:%M")
+                last_check = menu.addAction(f"Son kontrol: {label} · {moment}")
+                last_check.setEnabled(False)
+            else:
+                last_check = menu.addAction("Son kontrol: Henüz kontrol edilmedi")
+                last_check.setEnabled(False)
         if source is not None and source["type"] == "xtream":
             account = menu.addAction("Hesap durumu")
             account.triggered.connect(lambda: self.open_account(source))
@@ -762,6 +972,107 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
         return menu
+
+    @staticmethod
+    def _same_source(left, right):
+        fields = ("id", "name", "type", "location", "username", "password", "epg_url")
+        return all(str(left.get(field, "")) == str(right.get(field, "")) for field in fields)
+
+    def edit_source(self, source):
+        if source is None or self._busy:
+            return
+        expected = dict(source)
+        dialog = SourceDialog(self, source=expected)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        candidate = dialog.source()
+        token = object()
+        self._source_edit_tokens[expected["id"]] = token
+
+        def is_current():
+            if self._closed or self._source_edit_tokens.get(expected["id"]) is not token:
+                return False
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == expected["id"]), None
+            )
+            return stored is not None and self._same_source(stored, expected)
+
+        def completed(playlist):
+            if not is_current():
+                return
+            self._source_edit_tokens.pop(expected["id"], None)
+            if not playlist.channels:
+                self.status("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
+                return
+            if not self.store.apply_source_connection(expected, candidate, playlist):
+                self.status("Kaynak bu sırada değişti. Düzenleme uygulanmadı.")
+                return
+            if self.current and self.current.id.startswith(expected["id"] + ":"):
+                if self._playback_active and self._playback_token is not None:
+                    self.recovery.suppress_retries(self._playback_token)
+                else:
+                    self.recovery.cancel()
+            self.refresh_library(select_source=expected["id"])
+            self.status("Kaynak bağlantısı doğrulandı ve güncellendi.")
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == expected["id"]), None
+            )
+            if stored is not None and stored.get("epg_url"):
+                self.load_guide(stored)
+
+        def failed(message):
+            if not is_current():
+                return
+            self._source_edit_tokens.pop(expected["id"], None)
+            self.status(message)
+
+        self.run_task(
+            lambda: validate_candidate(candidate),
+            completed,
+            "Yeni bağlantı doğrulanıyor…",
+            busy=True,
+            failure=failed,
+        )
+
+    def check_source(self, source):
+        if source is None:
+            return
+        expected = dict(source)
+        token = object()
+        self._source_health_tokens[expected["id"]] = token
+
+        def is_current():
+            if self._closed or self._source_health_tokens.get(expected["id"]) is not token:
+                return False
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == expected["id"]), None
+            )
+            return stored is not None and self._same_source(stored, expected)
+
+        def completed(result):
+            if not is_current():
+                return
+            self._source_health_tokens.pop(expected["id"], None)
+            if not self.store.save_source_health(expected["id"], result.status, result.checked_at):
+                return
+            message = {
+                "available": "Bağlantı kullanılabilir.",
+                "responding": "Sunucu yanıt veriyor; video akışı açılmadı.",
+                "unverified": "Adres geçerli; video akışı açılmadan doğrulanamıyor.",
+                "unavailable": "Bağlantıya ulaşılamadı.",
+            }.get(result.status, "Bağlantı durumu belirlenemedi.")
+            self.status(message)
+
+        def failed(_message):
+            completed(HealthResult("unavailable", int(datetime.now().timestamp())))
+
+        self.run_task(
+            lambda: check_connection(expected),
+            completed,
+            "Bağlantı kontrol ediliyor…",
+            busy=False,
+            failure=failed,
+        )
 
     def open_account(self, source):
         if source is None or source.get("type") != "xtream":
@@ -793,8 +1104,11 @@ class MainWindow(QMainWindow):
         def current_dialog():
             if self._account_dialog is not dialog or not isValid(dialog):
                 return False
-            return dialog.accepts_updates and any(
-                item["id"] == source["id"] for item in self.store.sources()
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == source["id"]), None
+            )
+            return (
+                dialog.accepts_updates and stored is not None and self._same_source(stored, source)
             )
 
         def refreshed(profile):
@@ -862,9 +1176,12 @@ class MainWindow(QMainWindow):
             != QMessageBox.Yes
         ):
             return
+        self._source_edit_tokens.pop(source["id"], None)
+        self._source_health_tokens.pop(source["id"], None)
         if self.current and self.current.id.startswith(source["id"] + ":"):
             self.stop_playback()
             self.current = None
+            self._current_persistent = False
             self.favorite_button.setEnabled(False)
             self.video_stack.setCurrentIndex(0)
             self.video_title.setText("İyi bir yayına yer aç.")
@@ -956,7 +1273,9 @@ class MainWindow(QMainWindow):
             return
         if self.current.kind != "live":
             self.now_title.setText("Kaldığın yer hatırlanır.")
-            self.next_title.setText("Ses ve altyazı parçalarını A / S menüsünden seçebilirsin.")
+            self.next_title.setText(
+                "Ses, altyazı ve baştan başlatma seçenekleri Oynatma menüsünde."
+            )
             return
         source = self.source_for(self.current)
         programmes = self._guide_data.get(source["id"], []) if source else []
@@ -972,14 +1291,55 @@ class MainWindow(QMainWindow):
             else "Rehber kanal kimliği, listedeki tvg-id ile eşleşmelidir."
         )
 
+    def toggle_mini_player(self):
+        if self.mini_player.active or self.mini_player.pending:
+            self.leave_mini_player()
+        elif self._fullscreen:
+            self.mini_player.enter_after_fullscreen(
+                self._fullscreen_return_geometry, self._fullscreen_return_maximized
+            )
+            self.toggle_fullscreen()
+        else:
+            self.mini_player.enter()
+
+    def leave_mini_player(self):
+        if self._fullscreen:
+            self.toggle_fullscreen()
+        self.mini_player.leave()
+        # Late fullscreen acknowledgements must restore the latest windowed mode.
+        self._fullscreen_return_maximized = self.isMaximized()
+        self._fullscreen_return_geometry = (
+            self.normalGeometry() if self.isMaximized() else self.geometry()
+        )
+
     def toggle_fullscreen(self):
+        if not self._fullscreen:
+            self.mini_player.cancel_pending()
+            self._fullscreen_return_maximized = self.isMaximized()
+            self._fullscreen_return_geometry = (
+                self.normalGeometry() if self.isMaximized() else self.geometry()
+            )
         self._fullscreen = not self._fullscreen
-        self.fullscreen.set_active(self._fullscreen)
-        self.showFullScreen() if self._fullscreen else self.showNormal()
+        if self.mini_player.active:
+            self.mini_player.set_fullscreen(self._fullscreen)
+        else:
+            self.fullscreen.set_active(self._fullscreen)
+        self.showFullScreen() if self._fullscreen else self._restore_windowed_state()
+
+    def _restore_windowed_state(self):
+        self.showNormal()
+        if self.mini_player.active:
+            self.mini_player.restore_mini_geometry()
+        elif hasattr(self, "_fullscreen_return_geometry"):
+            self.setGeometry(self._fullscreen_return_geometry)
+            if self._fullscreen_return_maximized:
+                self.showMaximized()
 
     def leave_fullscreen(self):
         if self._fullscreen:
             self.toggle_fullscreen()
+        elif self.mini_player.active or self.mini_player.pending:
+            self.leave_mini_player()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -995,7 +1355,7 @@ class MainWindow(QMainWindow):
     def _reconcile_fullscreen(self):
         if self._closed or self.isFullScreen() == self._fullscreen:
             return
-        self.showFullScreen() if self._fullscreen else self.showNormal()
+        self.showFullScreen() if self._fullscreen else self._restore_windowed_state()
 
     def shortcut_action(self, key, callback):
         if isinstance(QApplication.focusWidget(), QLineEdit) and key not in (
@@ -1031,6 +1391,11 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self._closed = True
+        self.mini_player.close()
+        self._source_edit_tokens.clear()
+        self._source_health_tokens.clear()
+        self.dismiss_resume()
+        self.track_preferences.finish()
         self.fullscreen.close()
         self.transport.close()
         self.recovery.close()

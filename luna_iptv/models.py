@@ -17,6 +17,7 @@ class Channel:
     kind: str = "live"
     series_id: str = ""
     headers: dict[str, str] = field(default_factory=dict)
+    provider_key: str = ""
 
 
 @dataclass
