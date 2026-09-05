@@ -6,7 +6,9 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMainWindow, QMenu, QMessageBox
+from shiboken6 import isValid
 
+from .accounts import sanitize_profile
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
 from .layout import build_window
@@ -546,19 +548,19 @@ class MainWindow(QMainWindow):
         if source is None or source.get("type") != "xtream":
             return None
         if self._account_dialog is not None:
-            try:
+            if isValid(self._account_dialog):
                 self._account_dialog.close()
-            except RuntimeError:
-                pass
+            self._account_dialog = None
         dialog = AccountDialog(source["name"], self.store.account_profile(source["id"]), self)
         dialog.source_id = source["id"]
         self._account_dialog = dialog
 
-        def closed():
+        def closed(*_args):
             if self._account_dialog is dialog:
                 self._account_dialog = None
 
         dialog.closed.connect(closed)
+        dialog.destroyed.connect(closed)
         dialog.refresh_requested.connect(lambda: self.refresh_account(source, dialog))
         dialog.show()
         self.refresh_account(source, dialog)
@@ -570,24 +572,34 @@ class MainWindow(QMainWindow):
         dialog.set_refreshing(True)
 
         def current_dialog():
-            return (
-                self._account_dialog is dialog
-                and dialog.accepts_updates
-                and any(item["id"] == source["id"] for item in self.store.sources())
+            if self._account_dialog is not dialog or not isValid(dialog):
+                return False
+            return dialog.accepts_updates and any(
+                item["id"] == source["id"] for item in self.store.sources()
             )
 
         def refreshed(profile):
             if not current_dialog():
                 return
-            self.store.save_account_profile(source["id"], profile)
-            dialog.render(profile)
-            dialog.set_refreshing(False)
+            try:
+                profile = sanitize_profile(profile)
+                self.store.save_account_profile(source["id"], profile)
+                dialog.render(profile)
+            except Exception:
+                if current_dialog():
+                    dialog.show_error("Hesap profili güvenli biçimde işlenemedi.")
+            finally:
+                if current_dialog():
+                    dialog.set_refreshing(False)
 
         def failed(message):
             if not current_dialog():
                 return
-            dialog.set_refreshing(False)
-            dialog.show_error(message)
+            try:
+                dialog.show_error(message)
+            finally:
+                if current_dialog():
+                    dialog.set_refreshing(False)
 
         self.run_task(
             lambda: XtreamClient(
@@ -616,11 +628,12 @@ class MainWindow(QMainWindow):
             self.favorite_button.setEnabled(False)
             self.video_stack.setCurrentIndex(0)
             self.video_title.setText("İyi bir yayına yer aç.")
-        if (
-            self._account_dialog is not None
-            and getattr(self._account_dialog, "source_id", None) == source["id"]
-        ):
-            self._account_dialog.close()
+        account_dialog = self._account_dialog
+        if account_dialog is not None:
+            if not isValid(account_dialog):
+                self._account_dialog = None
+            elif getattr(account_dialog, "source_id", None) == source["id"]:
+                account_dialog.close()
         self.store.remove_source(source["id"])
         self._guide_data.pop(source["id"], None)
         (self.store.path.parent / f"epg-{source['id']}.xml").unlink(missing_ok=True)

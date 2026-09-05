@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .accounts import bounded_timestamp, sanitize_profile
+
 
 def text_label(text, name=None):
     label = QLabel(text)
@@ -37,6 +39,7 @@ class AccountDialog(QDialog):
         self.setMinimumWidth(500)
         self._now = now
         self.accepts_updates = True
+        self._invalidated = False
         self.is_refreshing = False
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
@@ -70,7 +73,7 @@ class AccountDialog(QDialog):
         self.refresh_button = buttons.addButton("Şimdi yenile", QDialogButtonBox.ActionRole)
         self.refresh_button.setObjectName("primary")
         self.refresh_button.clicked.connect(self.refresh_requested)
-        buttons.rejected.connect(self.close)
+        buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.render(profile)
 
@@ -85,6 +88,8 @@ class AccountDialog(QDialog):
             self.connections_value.setText("Bilinmiyor / Bilinmiyor · son kontrolde")
             self.checked_value.setText("Henüz başarılı kontrol yok.")
             return
+
+        profile = sanitize_profile(profile)
 
         labels = {
             "active": "Aktif",
@@ -101,22 +106,23 @@ class AccountDialog(QDialog):
         self.expiry_value.setText(self._date(profile.expires_at))
         self.remaining_value.setText(self._remaining(profile.expires_at))
         active = (
-            "Bilinmiyor"
-            if profile.active_connections is None
-            else str(profile.active_connections)
+            "Bilinmiyor" if profile.active_connections is None else str(profile.active_connections)
         )
-        maximum = (
-            "Bilinmiyor" if profile.max_connections is None else str(profile.max_connections)
-        )
+        maximum = "Bilinmiyor" if profile.max_connections is None else str(profile.max_connections)
         self.connections_value.setText(f"{active} / {maximum} · son kontrolde")
         self.checked_value.setText(self._date(profile.checked_at))
 
     def _date(self, timestamp) -> str:
+        timestamp = bounded_timestamp(timestamp)
         if timestamp is None:
             return "Bilinmiyor"
-        return datetime.fromtimestamp(timestamp).astimezone().strftime("%d.%m.%Y %H:%M")
+        try:
+            return datetime.fromtimestamp(timestamp).astimezone().strftime("%d.%m.%Y %H:%M")
+        except (OSError, OverflowError, ValueError):
+            return "Bilinmiyor"
 
     def _remaining(self, expires_at) -> str:
+        expires_at = bounded_timestamp(expires_at)
         if expires_at is None:
             return "Bilinmiyor · sağlayıcı tarih vermedi."
         now = self._now if self._now is not None else datetime.now().timestamp()
@@ -136,9 +142,27 @@ class AccountDialog(QDialog):
     def show_error(self, message: str) -> None:
         self.error_label.setText(f"Yenileme başarısız: {message} Son bilinen durum korundu.")
 
-    def closeEvent(self, event) -> None:
+    def _invalidate(self) -> None:
+        if self._invalidated:
+            return
+        self._invalidated = True
         self.accepts_updates = False
         self.closed.emit()
+
+    def done(self, result: int) -> None:
+        self._invalidate()
+        super().done(result)
+
+    def reject(self) -> None:
+        self._invalidate()
+        super().reject()
+
+    def accept(self) -> None:
+        self._invalidate()
+        super().accept()
+
+    def closeEvent(self, event) -> None:
+        self._invalidate()
         super().closeEvent(event)
 
 

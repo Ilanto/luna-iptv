@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .accounts import AccountProfile
+from .accounts import AccountProfile, sanitize_profile
 from .models import Channel
 
 _SOURCE_FIELDS = ("id", "name", "type", "location", "username", "password", "epg_url")
@@ -240,6 +240,9 @@ class Store:
         ]
 
     def save_account_profile(self, source_id: str, profile: AccountProfile) -> None:
+        profile = sanitize_profile(profile)
+        if profile.checked_at is None:
+            raise ValueError("Account profile check timestamp is invalid")
         with self._db:
             self._db.execute(
                 """
@@ -273,7 +276,7 @@ class Store:
             """,
             (source_id,),
         ).fetchone()
-        return AccountProfile(*row) if row is not None else None
+        return sanitize_profile(AccountProfile(*row)) if row is not None else None
 
     def remove_source(self, source_id: str) -> None:
         with self._db:

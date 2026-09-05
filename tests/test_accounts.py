@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 from shiboken6 import isValid
 
@@ -82,9 +84,7 @@ def profile_server():
                 "get_live_categories": [],
                 "get_vod_categories": [],
                 "get_series_categories": [],
-                "get_live_streams": [
-                    {"stream_id": 1, "name": "One", "category_id": "1"}
-                ],
+                "get_live_streams": [{"stream_id": 1, "name": "One", "category_id": "1"}],
                 "get_vod_streams": [],
                 "get_series": [],
             }.get(action, {})
@@ -166,7 +166,9 @@ def test_normalize_profile_keeps_auth_and_explicit_status_semantics_separate(
     assert normalize_profile({"user_info": user_info}, checked_at=100).status == expected
 
 
-def test_normalize_profile_rejects_bad_missing_and_non_positive_dates_without_inventing_limits() -> None:
+def test_normalize_profile_rejects_bad_missing_and_non_positive_dates_without_inventing_limits() -> (
+    None
+):
     profile = normalize_profile(
         {
             "user_info": {
@@ -186,6 +188,41 @@ def test_normalize_profile_rejects_bad_missing_and_non_positive_dates_without_in
     assert profile.expires_at is None
     assert profile.active_connections is None
     assert profile.max_connections is None
+
+
+def test_normalize_profile_bounds_dates_and_sqlite_counts_without_float_rounding() -> None:
+    profile = normalize_profile(
+        {
+            "user_info": {
+                "auth": 1,
+                "status": "Active",
+                "created_at": "1609459200000",
+                "exp_date": "253402214400",
+                "active_cons": str(2**63),
+                "max_connections": "9007199254740993",
+            }
+        },
+        checked_at=2_000_000_000,
+    )
+
+    assert profile.created_at is None
+    assert profile.expires_at is None
+    assert profile.active_connections is None
+    assert profile.max_connections == 9_007_199_254_740_993
+
+    boundary = normalize_profile(
+        {
+            "user_info": {
+                "auth": 1,
+                "status": "Active",
+                "created_at": "253402214399",
+                "active_cons": str(2**63 - 1),
+            }
+        },
+        checked_at=2_000_000_000,
+    )
+    assert boundary.created_at == 253_402_214_399
+    assert boundary.active_connections == 2**63 - 1
 
 
 def test_playlist_keeps_three_argument_constructor_compatible() -> None:
@@ -288,6 +325,63 @@ def test_store_migrates_existing_database_and_snapshot_cascades_with_source(tmp_
 
     assert store.account_profile("old") is None
     assert store._db.execute("SELECT COUNT(*) FROM account_snapshots").fetchone() == (0,)
+    store.close()
+
+
+def test_store_sanitizes_unsafe_profile_values_before_sqlite_binding(tmp_path: Path) -> None:
+    store = Store(tmp_path / "library.db")
+    source_id = store.save_source(xtream_source())
+
+    store.save_account_profile(
+        source_id,
+        AccountProfile(
+            "active",
+            1_609_459_200_000,
+            1_893_456_000_000,
+            2**63,
+            2**63 - 1,
+            2_000_000_000,
+        ),
+    )
+
+    assert store.account_profile(source_id) == AccountProfile(
+        "active", None, None, None, 2**63 - 1, 2_000_000_000
+    )
+    store.close()
+
+
+def test_existing_invalid_snapshot_renders_unknown_instead_of_raising(
+    app: QApplication, tmp_path: Path
+) -> None:
+    store = Store(tmp_path / "library.db")
+    source_id = store.save_source(xtream_source())
+    store._db.execute(
+        """
+        INSERT INTO account_snapshots(
+            source_id,status,created_at,expires_at,
+            active_connections,max_connections,checked_at
+        ) VALUES(?,?,?,?,?,?,?)
+        """,
+        (
+            source_id,
+            "active",
+            1_609_459_200_000,
+            1_893_456_000_000,
+            1,
+            2,
+            1_800_000_000_000,
+        ),
+    )
+    store._db.commit()
+
+    dialog = AccountDialog("Legacy", store.account_profile(source_id))
+
+    assert dialog.created_value.text() == "Bilinmiyor"
+    assert dialog.expiry_value.text() == "Bilinmiyor"
+    assert dialog.remaining_value.text().startswith("Bilinmiyor")
+    assert dialog.checked_value.text() == "Bilinmiyor"
+    dialog.close()
+    app.processEvents()
     store.close()
 
 
@@ -413,6 +507,45 @@ def test_account_refresh_failure_keeps_cached_profile_and_timestamp(
     assert dialog.checked_value.text() != "Henüz başarılı kontrol yok."
 
 
+def test_malformed_refresh_values_become_unknown_and_refresh_finishes(
+    app: QApplication, window: MainWindow, monkeypatch
+) -> None:
+    source_id = window.store.save_source(xtream_source())
+    source = window.store.sources()[0]
+
+    class MillisecondClient:
+        def __init__(self, *_args):
+            pass
+
+        def account_info(self):
+            return normalize_profile(
+                {
+                    "user_info": {
+                        "auth": 1,
+                        "status": "Active",
+                        "created_at": "1609459200000",
+                        "exp_date": "1893456000000",
+                        "active_cons": str(2**63),
+                        "max_connections": "4",
+                    }
+                },
+                checked_at=2_000_000_000,
+            )
+
+    monkeypatch.setattr("luna_iptv.window.XtreamClient", MillisecondClient)
+
+    dialog = window.open_account(source)
+    wait_until(app, lambda: not dialog.is_refreshing)
+
+    assert dialog.refresh_button.isEnabled()
+    assert dialog.created_value.text() == "Bilinmiyor"
+    assert dialog.expiry_value.text() == "Bilinmiyor"
+    assert dialog.connections_value.text() == "Bilinmiyor / 4 · son kontrolde"
+    assert window.store.account_profile(source_id) == AccountProfile(
+        "active", None, None, None, 4, 2_000_000_000
+    )
+
+
 @pytest.mark.parametrize("finish_by", ["close", "delete"])
 def test_late_account_reply_is_ignored_after_dialog_close_or_source_deletion(
     app: QApplication,
@@ -453,3 +586,47 @@ def test_late_account_reply_is_ignored_after_dialog_close_or_source_deletion(
         assert window.store.account_profile(source_id) == cached
     else:
         assert window.store.sources() == []
+
+
+@pytest.mark.parametrize("late_result", ["success", "failure"])
+def test_escape_invalidates_late_account_callbacks_and_source_removal_stays_safe(
+    app: QApplication,
+    window: MainWindow,
+    monkeypatch,
+    late_result: str,
+) -> None:
+    source_id = window.store.save_source(xtream_source())
+    source = window.store.sources()[0]
+    cached = AccountProfile("active", None, None, 1, 2, 1_800_000_000)
+    window.store.save_account_profile(source_id, cached)
+    initial_status = window.message.text()
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingClient:
+        def __init__(self, *_args):
+            pass
+
+        def account_info(self):
+            started.set()
+            assert release.wait(5)
+            if late_result == "failure":
+                raise NetworkError("Geç yanıt hatası")
+            return AccountProfile("expired", None, 1_900_000_000, 0, 2, 2_000_000_000)
+
+    monkeypatch.setattr("luna_iptv.window.XtreamClient", BlockingClient)
+    dialog = window.open_account(source)
+    assert started.wait(2)
+
+    QTest.keyClick(dialog, Qt.Key_Escape)
+    app.processEvents()
+
+    assert window._account_dialog is None
+    release.set()
+    wait_until(app, lambda: not window._tasks)
+    assert window.store.account_profile(source_id) == cached
+    assert window.message.text() == initial_status
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *_a, **_k: QMessageBox.Yes)
+    window.remove_source(source)
+    assert window.store.sources() == []

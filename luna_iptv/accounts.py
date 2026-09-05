@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
-import math
 import time
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+
+SQLITE_INTEGER_MAX = 2**63 - 1
+# One UTC day below datetime.max stays renderable after every civil-time offset.
+MAX_UNIX_SECONDS = 253_402_214_399
 
 
 @dataclass(frozen=True)
@@ -15,7 +19,7 @@ class AccountProfile:
     expires_at: int | None
     active_connections: int | None
     max_connections: int | None
-    checked_at: int
+    checked_at: int | None
 
 
 def normalize_profile(response: object, *, checked_at: int | None = None) -> AccountProfile:
@@ -33,11 +37,11 @@ def normalize_profile(response: object, *, checked_at: int | None = None) -> Acc
 
     return AccountProfile(
         status=status,
-        created_at=_number(user_info.get("created_at"), positive=True),
-        expires_at=_number(user_info.get("exp_date"), positive=True),
-        active_connections=_number(user_info.get("active_cons"), positive=False),
-        max_connections=_number(user_info.get("max_connections"), positive=False),
-        checked_at=int(time.time()) if checked_at is None else int(checked_at),
+        created_at=bounded_timestamp(user_info.get("created_at")),
+        expires_at=bounded_timestamp(user_info.get("exp_date")),
+        active_connections=bounded_count(user_info.get("active_cons")),
+        max_connections=bounded_count(user_info.get("max_connections")),
+        checked_at=bounded_timestamp(int(time.time()) if checked_at is None else checked_at),
     )
 
 
@@ -57,16 +61,40 @@ def serialize_profile(profile: AccountProfile) -> str:
     )
 
 
-def _number(value: object, *, positive: bool) -> int | None:
+def bounded_timestamp(value: object) -> int | None:
+    return _bounded_integer(value, minimum=1, maximum=MAX_UNIX_SECONDS)
+
+
+def bounded_count(value: object) -> int | None:
+    return _bounded_integer(value, minimum=0, maximum=SQLITE_INTEGER_MAX)
+
+
+def sanitize_profile(profile: AccountProfile) -> AccountProfile:
+    status = (
+        profile.status
+        if profile.status in {"active", "expired", "disabled", "banned"}
+        else "unknown"
+    )
+    return AccountProfile(
+        status=status,
+        created_at=bounded_timestamp(profile.created_at),
+        expires_at=bounded_timestamp(profile.expires_at),
+        active_connections=bounded_count(profile.active_connections),
+        max_connections=bounded_count(profile.max_connections),
+        checked_at=bounded_timestamp(profile.checked_at),
+    )
+
+
+def _bounded_integer(value: object, *, minimum: int, maximum: int) -> int | None:
     if isinstance(value, bool) or value is None:
         return None
     try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
+        number = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, AttributeError):
         return None
-    if not math.isfinite(number) or not number.is_integer():
+    if not number.is_finite() or number != number.to_integral_value():
         return None
     result = int(number)
-    if result < 0 or (positive and result == 0):
+    if result < minimum or result > maximum:
         return None
     return result
