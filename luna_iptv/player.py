@@ -32,6 +32,15 @@ class Player(QObject):
         "media-title",
         "seekable",
     )
+    OPTIONAL_OBSERVED = (
+        "video-dec-params",
+        "video-params",
+        "video-frame-info/interlaced",
+        "container-fps",
+        "video-bitrate",
+        "audio-bitrate",
+        "audio-params",
+    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -60,6 +69,13 @@ class Player(QObject):
             )
             for name in self.OBSERVED:
                 self._mpv.observe_property(name, self._on_property)
+            for name in self.OPTIONAL_OBSERVED:
+                try:
+                    self._mpv.observe_property(name, self._on_property)
+                except (AttributeError, OSError, ValueError, RuntimeError):
+                    # Older supported mpv builds may not expose every detail.
+                    # Missing metadata must not disable playback.
+                    continue
             self._mpv.event_callback("file-loaded")(self._on_loaded)
             self._mpv.event_callback("end-file")(self._on_end)
         except (ImportError, OSError, ValueError, RuntimeError):

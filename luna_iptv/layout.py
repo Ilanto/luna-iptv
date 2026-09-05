@@ -7,6 +7,7 @@ from PySide6.QtGui import QFont, QFontDatabase, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QListView,
@@ -184,6 +185,36 @@ def build_window(w):
     w.video = VideoWidget(w.player, w)
     w.video_stack.addWidget(w.video)
     view.addWidget(w.video_stack, 1)
+    w.info_panel = QFrame()
+    w.info_panel.setObjectName("mediaInfo")
+    info = QGridLayout(w.info_panel)
+    info.setContentsMargins(12, 9, 12, 9)
+    info.setHorizontalSpacing(10)
+    info.setVerticalSpacing(5)
+    info.setColumnStretch(1, 1)
+    info.setColumnStretch(3, 1)
+    info.addWidget(text_label("YAYIN BİLGİSİ", "eyebrow"), 0, 0, 1, 4)
+
+    def info_field(attribute, title, row, column):
+        info.addWidget(text_label(title, "eyebrow"), row, column)
+        value = text_label("Bilgi yok", "muted")
+        value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        value.setMinimumWidth(0)
+        value.setWordWrap(True)
+        value.setAccessibleName(title.title())
+        setattr(w, attribute, value)
+        info.addWidget(value, row, column + 1)
+
+    info_field("info_dimensions", "BOYUT", 1, 0)
+    info_field("info_quality", "KALİTE", 1, 2)
+    info_field("info_video_codec", "VİDEO", 2, 0)
+    info_field("info_audio_codec", "SES", 2, 2)
+    info_field("info_audio_layout", "KANALLAR", 3, 0)
+    info_field("info_fps", "KARE HIZI", 3, 2)
+    info_field("info_bitrate", "BİT HIZI", 4, 0)
+    info_field("info_dynamic_range", "KAYNAK ARALIĞI", 4, 2)
+    w.info_panel.hide()
+    view.addWidget(w.info_panel)
     w.controls = QFrame()
     w.controls.setObjectName("controls")
     ctrl = QVBoxLayout(w.controls)
@@ -206,6 +237,10 @@ def build_window(w):
         else QFontDatabase.systemFont(QFontDatabase.FixedFont)
     )
     row.addWidget(w.time_label)
+    w.buffer_label = text_label("", "badge")
+    w.buffer_label.setAccessibleName("Arabellek durumu")
+    w.buffer_label.hide()
+    row.addWidget(w.buffer_label)
     row.addStretch()
     w.mute_button = button(
         "Ses", lambda: w.player.command(["cycle", "mute"]), tip="Sesi aç / kapat (M)"
@@ -218,6 +253,9 @@ def build_window(w):
     w.volume.setAccessibleName("Ses seviyesi")
     w.volume.valueChanged.connect(lambda v: w.player.set_property("volume", v))
     row.addWidget(w.volume)
+    w.info_button = button("Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle")
+    w.info_button.setEnabled(False)
+    row.addWidget(w.info_button)
     row.addWidget(button("A / S", w.track_menu, tip="Ses parçası ve altyazı seç"))
     row.addWidget(button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)"))
     ctrl.addLayout(row)
