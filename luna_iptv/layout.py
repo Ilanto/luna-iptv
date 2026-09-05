@@ -328,6 +328,10 @@ def build_window(w):
     w.retry_button = button("Yeniden dene", w.retry)
     w.retry_button.hide()
     bar.addWidget(w.retry_button)
+    w.recovery_cancel_button = button("İptal", w.cancel_recovery)
+    w.recovery_cancel_button.setAccessibleName("Otomatik yeniden bağlanmayı iptal et")
+    w.recovery_cancel_button.hide()
+    bar.addWidget(w.recovery_cancel_button)
     outer.addWidget(w.message_bar)
     w.setCentralWidget(root)
     for key, callback in [

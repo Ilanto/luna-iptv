@@ -18,6 +18,14 @@ class Player(QObject):
     error = Signal(str)
     file_loaded = Signal()
     ended = Signal()
+    playback_loaded = Signal(int)
+    playback_property_changed = Signal(int, str, object)
+    playback_finished = Signal(int, str, str)
+    playback_tracking_lost = Signal(int)
+
+    _HEALTH_PROPERTIES = {"time-pos", "pause", "paused-for-cache"}
+    _MAX_TRACKED_ENTRIES = 16
+    _MAX_PENDING_EVENTS = 64
 
     OBSERVED = (
         "time-pos",
@@ -55,6 +63,13 @@ class Player(QObject):
         self._pending_load = None
         self._closed = False
         self._termination = None
+        self._load_generation = 0
+        self._latest_load_token = 0
+        self._entry_tokens: dict[int, int] = {}
+        self._pending_entry_events: dict[int, list[tuple[str, tuple[Any, ...]]]] = {}
+        self._current_entry_id: int | None = None
+        self._untracked_token: int | None = None
+        self._untracked_entry_id: int | None = None
         try:
             import mpv
 
@@ -80,6 +95,7 @@ class Player(QObject):
                     # Older supported mpv builds may not expose every detail.
                     # Missing metadata must not disable playback.
                     continue
+            self._mpv.event_callback("start-file")(self._on_start)
             self._mpv.event_callback("file-loaded")(self._on_loaded)
             self._mpv.event_callback("end-file")(self._on_end)
         except (ImportError, OSError, ValueError, RuntimeError):
@@ -97,52 +113,176 @@ class Player(QObject):
             )
 
     def _on_property(self, name, value):
-        if not self._closed:
-            self.property_changed.emit(name, value)
+        if self._closed:
+            return
+        name = str(name)
+        self.property_changed.emit(name, value)
+        if name in self._HEALTH_PROPERTIES and self._current_entry_id is not None:
+            self._dispatch_entry_event(self._current_entry_id, "property", name, value)
+
+    def _on_start(self, event):
+        if self._closed:
+            return
+        detail = event.data
+        entry_id = int(detail.playlist_entry_id)
+        self._current_entry_id = entry_id
+        if self._untracked_token == self._latest_load_token:
+            self._untracked_entry_id = entry_id
 
     def _on_loaded(self, _event):
-        if not self._closed:
-            self.file_loaded.emit()
+        if not self._closed and self._current_entry_id is not None:
+            self._dispatch_entry_event(self._current_entry_id, "loaded")
 
     def _on_end(self, event):
         if self._closed:
             return
         detail = event.data
-        if detail is not None and (detail.reason == detail.ERROR or detail.error < 0):
-            self.error.emit(
-                "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
-            )
-        self.ended.emit()
+        entry_id = int(detail.playlist_entry_id) if detail is not None else self._current_entry_id
+        if entry_id is None:
+            return
+        reason_value = int(detail.reason) if detail is not None else -1
+        error_value = int(detail.error) if detail is not None else 0
+        reasons = {0: "eof", 1: "restarted", 2: "stop", 3: "quit", 4: "error", 5: "redirect"}
+        reason = "error" if error_value < 0 else reasons.get(reason_value, "unknown")
+        message = "Yayın açılamadı veya bağlantı kesildi." if reason == "error" else ""
+        self._dispatch_entry_event(entry_id, "finished", reason, message)
+        if self._current_entry_id == entry_id:
+            self._current_entry_id = None
 
     def _ready(self):
         self._render_ready = True
         self.ready.emit()
         if self._pending_load:
             args, self._pending_load = self._pending_load, None
-            self.load(*args)
+            self._issue_load(*args)
 
     def load(self, url: str, headers: dict | None = None, start: float = 0):
         if self._closed:
             return
+        self._load_generation += 1
+        token = self._load_generation
+        self._latest_load_token = token
+        # The old entry may finish before mpv starts this request. Do not let a
+        # missing result ID attach the new request to that superseded entry.
+        self._current_entry_id = None
+        self._untracked_token = None
+        self._untracked_entry_id = None
         if not url or "\x00" in url:
             self.error.emit("Geçerli bir yayın adresi seçin.")
-            return
+            return token
         fields = []
         for name, value in (headers or {}).items():
             if any(c in str(name) + str(value) for c in "\r\n\x00") or ":" in str(name):
                 self.error.emit("Yayın HTTP başlıkları geçersiz.")
-                return
+                return token
             fields.append(f"{name}: {value}")
         if not self._render_ready:
-            self._pending_load = (url, headers, start)
-            return
+            self._pending_load = (url, fields, start, token)
+            return token
+        self._issue_load(url, fields, start, token)
+        return token
+
+    def _issue_load(self, url: str, fields: list[str], start: float, token: int):
         # Reset per-source headers for every load; escape mpv string-list separators.
         encoded = ",".join(v.replace("\\", "\\\\").replace(",", "\\,") for v in fields)
         options = (
             f"start={max(0, start)},http-header-fields=%{len(encoded.encode('utf-8'))}%{encoded}"
         )
         self.set_property("pause", False)
-        self.command(["loadfile", url, "replace", -1, options])
+        if self._closed or self._mpv is None:
+            self.playback_tracking_lost.emit(token)
+            return
+        try:
+            future = self._mpv.command_async("loadfile", url, "replace", -1, options)
+            future.add_done_callback(lambda done: self._load_command_done(token, done))
+        except (ValueError, RuntimeError, OSError):
+            self._emit_entry_event(token, "finished", "error", "Yayın açılamadı.")
+
+    def _load_command_done(self, token: int, future) -> None:
+        if self._closed:
+            return
+        try:
+            result = future.result()
+        except Exception:
+            self._emit_entry_event(token, "finished", "error", "Yayın açılamadı.")
+            return
+        try:
+            entry_id = int(result["playlist_entry_id"])
+            if entry_id <= 0:
+                raise ValueError
+        except (KeyError, TypeError, ValueError, RuntimeError, OSError):
+            self.playback_tracking_lost.emit(token)
+            if token == self._latest_load_token:
+                self._untracked_token = token
+                self._untracked_entry_id = self._current_entry_id
+                if self._untracked_entry_id is not None:
+                    for kind, values in self._pending_entry_events.pop(
+                        self._untracked_entry_id, []
+                    ):
+                        self._emit_untracked_event(kind, *values)
+            return
+        self._entry_tokens[entry_id] = token
+        while len(self._entry_tokens) > self._MAX_TRACKED_ENTRIES:
+            self._entry_tokens.pop(next(iter(self._entry_tokens)))
+        for kind, values in self._pending_entry_events.pop(entry_id, []):
+            self._emit_entry_event(token, kind, *values)
+
+    def _dispatch_entry_event(self, entry_id: int, kind: str, *values: Any) -> None:
+        token = self._entry_tokens.get(entry_id)
+        if token is not None:
+            self._emit_entry_event(token, kind, *values)
+            if kind == "finished":
+                self._entry_tokens.pop(entry_id, None)
+            return
+        if (
+            entry_id == self._untracked_entry_id
+            and self._untracked_token == self._latest_load_token
+        ):
+            self._emit_untracked_event(kind, *values)
+            return
+        events = self._pending_entry_events.setdefault(entry_id, [])
+        events.append((kind, tuple(values)))
+        while (
+            sum(len(items) for items in self._pending_entry_events.values())
+            > self._MAX_PENDING_EVENTS
+        ):
+            oldest = next(iter(self._pending_entry_events))
+            self._pending_entry_events[oldest].pop(0)
+            if not self._pending_entry_events[oldest]:
+                self._pending_entry_events.pop(oldest)
+
+    def _emit_entry_event(self, token: int, kind: str, *values: Any) -> None:
+        if self._closed:
+            return
+        current = token == self._latest_load_token
+        if kind == "property":
+            self.playback_property_changed.emit(token, values[0], values[1])
+        elif kind == "loaded":
+            self.playback_loaded.emit(token)
+            if current:
+                self.file_loaded.emit()
+        elif kind == "finished":
+            reason, message = values
+            if current:
+                if message:
+                    self.error.emit(
+                        "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
+                    )
+                self.ended.emit()
+            self.playback_finished.emit(token, reason, message)
+
+    def _emit_untracked_event(self, kind: str, *values: Any) -> None:
+        if self._closed:
+            return
+        if kind == "loaded":
+            self.file_loaded.emit()
+        elif kind == "finished":
+            _reason, message = values
+            if message:
+                self.error.emit(
+                    "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
+                )
+            self.ended.emit()
 
     def command(self, args: list[Any]):
         if self._closed or self._mpv is None or not args:
@@ -175,6 +315,11 @@ class Player(QObject):
             return
         self._closed = True
         self._pending_load = None
+        self._entry_tokens.clear()
+        self._pending_entry_events.clear()
+        self._current_entry_id = None
+        self._untracked_token = None
+        self._untracked_entry_id = None
         if self._video is not None:
             self._video.release_render_context()
         backend, self._mpv = self._mpv, None

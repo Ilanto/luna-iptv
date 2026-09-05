@@ -27,6 +27,7 @@ from .media_info import MediaInfo
 from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .player import Player
+from .recovery import RecoveryController
 from .tasks import Task
 from .transport import TransportController
 
@@ -58,6 +59,8 @@ class MainWindow(QMainWindow):
         self._last_saved = 0.0
         self._loading = False
         self._idle = True
+        self._playback_token = None
+        self._untracked_playback_token = None
         self._account_dialog = None
         self.media_info = MediaInfo()
         self.setWindowTitle("Luna IPTV")
@@ -69,12 +72,19 @@ class MainWindow(QMainWindow):
         self.proxy.setSourceModel(self.model)
         self.player = Player(self)
         self.transport = TransportController(self.player, self)
+        self.recovery = RecoveryController(self)
         build_window(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.transport.changed.connect(self.refresh_transport)
+        self.recovery.changed.connect(self.refresh_recovery)
+        self.recovery.retry_requested.connect(self._retry_live)
         self.refresh_transport()
         self.player.property_changed.connect(self.player_property)
         self.player.error.connect(self.playback_error)
+        self.player.playback_loaded.connect(self.playback_loaded)
+        self.player.playback_property_changed.connect(self.playback_property)
+        self.player.playback_finished.connect(self.playback_finished)
+        self.player.playback_tracking_lost.connect(self.playback_tracking_lost)
         self.player.file_loaded.connect(self.loaded)
         self.player.ended.connect(self.ended)
         self.player.ready.connect(
@@ -89,6 +99,8 @@ class MainWindow(QMainWindow):
 
     def status(self, message, retry=None):
         self.message.setText(message)
+        if hasattr(self, "mini_status_label"):
+            self.mini_status_label.setText(message)
         self._retry = retry
         self.retry_button.setVisible(retry is not None)
 
@@ -205,6 +217,9 @@ class MainWindow(QMainWindow):
             source["epg_url"] = playlist.epg_urls[0]
         source_id = self.store.save_source(source)
         source["id"] = source_id
+        if self.current and self.current.id.startswith(source_id + ":"):
+            # A refreshed/edited source must not retry with superseded connection data.
+            self.recovery.cancel()
         if playlist.account_profile is not None:
             self.store.save_account_profile(source_id, playlist.account_profile)
         channels = list(playlist.channels)
@@ -382,10 +397,15 @@ class MainWindow(QMainWindow):
             lambda: self.open_series(channel),
         )
 
-    def play(self, channel):
-        if self.current and self.current.id == channel.id and self._loading:
+    def play(self, channel, *, start_override=None, recovering=False):
+        if self.current and self.current.id == channel.id and self._loading and not recovering:
             return
-        self.save_progress()
+        if recovering:
+            if self.current is None or self.current.id != channel.id:
+                return
+        else:
+            self.recovery.begin(channel.id, live=channel.kind == "live")
+            self.save_progress()
         self.current = channel
         self._position = 0.0
         self._duration = 0.0
@@ -408,17 +428,37 @@ class MainWindow(QMainWindow):
         self.update_guide()
         position, duration = self.store.progress(channel.id)
         start = (
-            position
-            if channel.kind != "live" and position > 5 and duration > 0 and position < duration - 10
-            else 0
+            max(0, float(start_override))
+            if start_override is not None
+            else (
+                position
+                if channel.kind != "live"
+                and position > 5
+                and duration > 0
+                and position < duration - 10
+                else 0
+            )
         )
-        self.player.load(channel.url, channel.headers, start=start)
+        self._playback_token = self.player.load(channel.url, channel.headers, start=start)
+        self._untracked_playback_token = None
+        self.recovery.watch(self._playback_token)
         self.status("Yayın açılıyor…", lambda: self.play(self.current) if self.current else None)
+        self.refresh_recovery()
         source = self.source_for(channel)
         if source and source.get("epg_url") and source["id"] not in self._guide_data:
             self.load_guide(source)
 
     def loaded(self):
+        if self._untracked_playback_token != self._playback_token:
+            return
+        self._mark_loaded()
+
+    def playback_loaded(self, token):
+        if token != self._playback_token or not self.recovery.loaded(token):
+            return
+        self._mark_loaded()
+
+    def _mark_loaded(self):
         if self._closed:
             return
         self._idle = False
@@ -427,7 +467,7 @@ class MainWindow(QMainWindow):
         self.media_info.mark_loaded()
         self.refresh_media_info()
         self.info_button.setEnabled(self.current is not None)
-        self.status("Yayın oynatılıyor.")
+        self.status(self.recovery.message or "Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
         if self.current:
             self.store.save_progress(self.current.id, self._position, self._duration)
@@ -435,26 +475,58 @@ class MainWindow(QMainWindow):
     def playback_error(self, message):
         if self._closed:
             return
+        self.status(message)
+
+    def playback_tracking_lost(self, token):
+        if self._closed or token != self._playback_token:
+            return
+        self._untracked_playback_token = token
+        self.recovery.cancel()
+
+    def playback_property(self, token, name, value):
+        if token != self._playback_token:
+            return
+        if name == "time-pos":
+            self.recovery.progress(token, value)
+        elif name == "pause":
+            self.recovery.paused(token, bool(value))
+        elif name == "paused-for-cache":
+            self.recovery.buffering(token, bool(value))
+
+    def playback_finished(self, token, reason, message):
+        if token != self._playback_token or not self.recovery.failure(token, reason):
+            return
+        if self.current and self.current.kind != "live":
+            self.save_progress()
+        self._finish_playback()
+        if self.recovery.state == "failed":
+            self.status(
+                self.recovery.message,
+                lambda: self.play(self.current) if self.current else None,
+            )
+        elif self.recovery.message:
+            self.status(self.recovery.message)
+        elif message:
+            self.status(message, lambda: self.play(self.current) if self.current else None)
+
+    def _finish_playback(self):
         self._idle = True
         self._loading = False
         self.transport.finished()
+        self.play_button.setText("▶")
         self.media_info.reset()
         self.refresh_media_info()
         self.fullscreen.set_info_visible(False)
         self.info_button.setEnabled(False)
-        self.status(message, lambda: self.play(self.current) if self.current else None)
+        self.seek.setEnabled(False)
 
     def ended(self):
         if self._closed:
             return
-        if not self._loading:
-            self.transport.finished()
-            self.play_button.setText("▶")
-            self.save_progress()
-            self.media_info.reset()
-            self.refresh_media_info()
-            self.fullscreen.set_info_visible(False)
-            self.info_button.setEnabled(False)
+        if self._untracked_playback_token == self._playback_token:
+            if self.current and self.current.kind != "live":
+                self.save_progress()
+            self._finish_playback()
 
     def player_property(self, name, value):
         if self._closed:
@@ -538,6 +610,8 @@ class MainWindow(QMainWindow):
 
     def stop_playback(self):
         self.save_progress()
+        self.recovery.cancel()
+        self._untracked_playback_token = None
         self.transport.finished()
         self._idle = True
         self._loading = False
@@ -548,6 +622,34 @@ class MainWindow(QMainWindow):
         self.player.stop()
         self.status("Yayın durduruldu.")
         self.seek.setEnabled(False)
+
+    def cancel_recovery(self):
+        self.stop_playback()
+
+    def _retry_live(self, channel_id):
+        if self._closed or self.current is None or self.current.id != channel_id:
+            self.recovery.cancel()
+            return
+        self.play(self.current, recovering=True)
+
+    def refresh_recovery(self):
+        if self._closed:
+            return
+        if (
+            self.recovery.state in {"waiting", "failed"}
+            and self.current
+            and self.current.kind == "live"
+            and (self._loading or not self._idle)
+        ):
+            self._finish_playback()
+        self.recovery_cancel_button.setVisible(self.recovery.can_cancel)
+        if self.recovery.message:
+            retry = (
+                (lambda: self.play(self.current) if self.current else None)
+                if self.recovery.state == "failed"
+                else None
+            )
+            self.status(self.recovery.message, retry)
 
     def toggle_info_panel(self):
         self.fullscreen.toggle_info()
@@ -905,6 +1007,7 @@ class MainWindow(QMainWindow):
         self._closed = True
         self.fullscreen.close()
         self.transport.close()
+        self.recovery.close()
         self._guide_timer.stop()
         self.logo_viewport.close()
         self.logos.close()

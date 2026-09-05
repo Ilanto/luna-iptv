@@ -3,9 +3,176 @@
 import os
 import shutil
 import subprocess
+import sys
 import time
+from concurrent.futures import Future
+from types import SimpleNamespace
 
 import pytest
+
+
+class EventBackend:
+    def __init__(self):
+        self.events = {}
+        self.observer = None
+        self.commands = []
+
+    def observe_property(self, _name, callback):
+        self.observer = callback
+
+    def event_callback(self, name):
+        return lambda callback: self.events.__setitem__(name, callback) or callback
+
+    def command_async(self, *args):
+        future = Future()
+        self.commands.append((args, future))
+        if args[0] != "loadfile":
+            future.set_result(None)
+        return future
+
+    def terminate(self):
+        pass
+
+
+@pytest.fixture
+def event_player(monkeypatch):
+    from luna_iptv.player import Player
+
+    backend = EventBackend()
+    monkeypatch.setitem(sys.modules, "mpv", SimpleNamespace(MPV=lambda **_kwargs: backend))
+    player = Player()
+    player._render_ready = True
+    try:
+        yield player, backend
+    finally:
+        player.shutdown()
+        if player._termination:
+            player._termination.join(timeout=2)
+
+
+def mpv_event(**data):
+    return SimpleNamespace(data=SimpleNamespace(**data))
+
+
+def test_pending_render_load_keeps_the_token_returned_to_caller(event_player):
+    player, backend = event_player
+    player._render_ready = False
+
+    token = player.load("https://example.test/live")
+    player._ready()
+
+    load_args, _future = next(item for item in backend.commands if item[0][0] == "loadfile")
+    assert token == 1
+    assert load_args[1] == "https://example.test/live"
+    assert player._pending_load is None
+
+
+def test_tagged_events_wait_for_loadfile_playlist_id_result(event_player):
+    player, backend = event_player
+    loaded = []
+    properties = []
+    player.playback_loaded.connect(loaded.append)
+    player.playback_property_changed.connect(
+        lambda token, name, value: properties.append((token, name, value))
+    )
+
+    token = player.load("https://example.test/live")
+    _args, load_future = next(item for item in backend.commands if item[0][0] == "loadfile")
+    backend.events["start-file"](mpv_event(playlist_entry_id=41))
+    backend.observer("time-pos", 2.5)
+    backend.events["file-loaded"](mpv_event())
+    assert loaded == []
+    assert properties == []
+
+    load_future.set_result({"playlist_entry_id": 41})
+    assert loaded == [token]
+    assert properties == [(token, "time-pos", 2.5)]
+
+
+def test_old_entry_failure_is_tagged_but_not_emitted_as_current_legacy_error(event_player):
+    player, backend = event_player
+    tagged = []
+    legacy_errors = []
+    legacy_ended = []
+    player.playback_finished.connect(
+        lambda token, reason, message: tagged.append((token, reason, message))
+    )
+    player.error.connect(legacy_errors.append)
+    player.ended.connect(lambda: legacy_ended.append(True))
+
+    first = player.load("https://example.test/one")
+    first_future = [item for item in backend.commands if item[0][0] == "loadfile"][-1][1]
+    backend.events["start-file"](mpv_event(playlist_entry_id=41))
+    first_future.set_result({"playlist_entry_id": 41})
+
+    second = player.load("https://example.test/two")
+    second_future = [item for item in backend.commands if item[0][0] == "loadfile"][-1][1]
+    second_future.set_result({"playlist_entry_id": 42})
+    backend.events["start-file"](mpv_event(playlist_entry_id=42))
+
+    backend.events["end-file"](mpv_event(playlist_entry_id=41, reason=4, error=-13))
+    assert tagged == [(first, "error", "Yayın açılamadı veya bağlantı kesildi.")]
+    assert legacy_errors == []
+    assert legacy_ended == []
+
+    backend.events["end-file"](mpv_event(playlist_entry_id=42, reason=0, error=0))
+    assert tagged[-1] == (second, "eof", "")
+    assert legacy_ended == [True]
+
+
+def test_missing_playlist_id_disables_tracking_without_stalling_legacy_playback(event_player):
+    player, backend = event_player
+    lost = []
+    loaded = []
+    tagged = []
+    player.playback_tracking_lost.connect(lost.append)
+    player.file_loaded.connect(lambda: loaded.append(True))
+    player.playback_loaded.connect(tagged.append)
+
+    token = player.load("https://example.test/live")
+    load_future = [item for item in backend.commands if item[0][0] == "loadfile"][-1][1]
+    backend.events["start-file"](mpv_event(playlist_entry_id=41))
+    backend.events["file-loaded"](mpv_event())
+    load_future.set_result({})
+
+    assert lost == [token]
+    assert loaded == [True]
+    assert tagged == []
+
+
+def test_missing_playlist_id_does_not_treat_previous_entry_end_as_current(event_player):
+    player, backend = event_player
+    legacy_ended = []
+    player.ended.connect(lambda: legacy_ended.append(True))
+
+    player.load("https://example.test/one")
+    first_future = [item for item in backend.commands if item[0][0] == "loadfile"][-1][1]
+    backend.events["start-file"](mpv_event(playlist_entry_id=41))
+    first_future.set_result({})
+
+    player.load("https://example.test/two")
+    second_future = [item for item in backend.commands if item[0][0] == "loadfile"][-1][1]
+    second_future.set_result({})
+    backend.events["end-file"](mpv_event(playlist_entry_id=41, reason=4, error=-13))
+    assert legacy_ended == []
+
+    backend.events["start-file"](mpv_event(playlist_entry_id=42))
+    backend.events["end-file"](mpv_event(playlist_entry_id=42, reason=0, error=0))
+    assert legacy_ended == [True]
+
+
+def test_loadfile_command_failure_is_reported_as_tagged_playback_failure(event_player):
+    player, backend = event_player
+    finished = []
+    player.playback_finished.connect(
+        lambda token, reason, message: finished.append((token, reason, message))
+    )
+
+    token = player.load("https://example.test/live")
+    load_future = [item for item in backend.commands if item[0][0] == "loadfile"][-1][1]
+    load_future.set_exception(RuntimeError("private URL must not escape"))
+
+    assert finished == [(token, "error", "Yayın açılamadı.")]
 
 
 def test_set_property_returns_async_command_completion_future():
