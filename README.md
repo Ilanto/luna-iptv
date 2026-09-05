@@ -5,7 +5,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.1.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.2.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -16,6 +16,16 @@ Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlıl
 “Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Yıldız favoriye ekler. Xtream dizilerinde diziye tıklamak bölümleri açar; sezon seçimi kategori alanından yapılır. Kaynak işlemleri menüsünden listeyi yenileyin veya kaldırın. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi ve tam ekran içerir. Film/bölüm konumu otomatik kaydedilir; bitişe yakın konumlar yeniden başlatılır. Son izlenenler yerel geçmişten gelir. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.2.0 · günlük kullanım
+
+- Kaynak menüsünden görünen adı sonradan değiştirebilirsiniz. Hesap bilgileri, favoriler ve oynayan yayın korunur.
+- Son izlenenler en yeni izlenenden eskiye sıralanır; arama, kategori ve kaynak filtreleri bu sırayı korur. Türkçe/aksan duyarsız arama, kanal başına hazırlanan anahtarlarla büyük kataloglarda daha az iş yapar.
+- M3U `tvg-logo` ve Xtream `stream_icon`/`cover` alanlarından kanal logoları görünür. Yalnız ekrandaki satırlar yüklenir; eksik veya bozuk görsellerde baş harfler gösterilir.
+- Oynatıcının **Bilgi** düğmesi gerçek decoder boyutlarını, kaliteyi, seçili video/ses codec'lerini, FPS ve ses kanal düzenini gösterir. MPV bildirirse bitrate ve kaynak HDR/SDR bilgisi de görünür; bilinmeyen değerler uydurulmaz. HDR etiketi ekranın HDR çıkışını doğrulamaz. Bağlanma/arabellek beklemesi sade bir durum etiketiyle belirtilir.
+- Seçili Xtream kaynağında **Hesap durumu**, hesap açılışı, bitiş/kalan süre, sağlayıcı durumu ve son kontroldeki aktif/izin verilen bağlantı sayısını gösterir. Kayıtlı bilgi hemen açılır; yenileme katalog indirmeden arka planda yapılır. Eksik tarih veya sıfır limit “sınırsız” sayılmaz. Hata durumunda son başarılı kontrol zamanı ve bilgi korunur.
+
+Logo önbelleği veritabanının yanındaki `<veritabanı-adı>.logos/` klasöründedir; içerik URL yerine hash ile adlandırılır. En fazla dört eşzamanlı iş, 5 saniye ağ sınırı, 2 MiB indirme/4 milyon piksel decode sınırı, 256 bellek girdisi ve 64 MiB disk kotası kullanılır. Başarılı görseller 7 gün, başarısız istekler 15 dakika hatırlanır. Bu klasör uygulama kapalıyken silinerek temizlenebilir; kişisel kütüphaneye dokunulmaz. Logo URL'leri kendi sunucularından istenir; yayın HTTP kimlik başlıkları logo sunucularına aktarılmaz.
 
 | Kısayol | İşlem |
 |---|---|
@@ -53,6 +63,8 @@ python3 -m venv --system-site-packages .venv
 ./scripts/test.sh
 ./scripts/build-rpm.sh
 ```
+
+Ek doğrulamalar: `scripts/balanced_probe.py` birleşik logo/hesap/medya arayüzünü, `scripts/benchmark-search.py` 10 bin–100 bin kanallık aramayı, `scripts/benchmark-zapping.py` yerel yayınlar arasında görünür kareye kadar geçiş süresini ölçer. Sonuçlar `work/qa/` altında kalır. Bu sentetik ölçümler internet sağlayıcısının gecikmesini ölçmez.
 
 Medya testleri FFmpeg ile yerel sentetik görüntü/ses üretir; gerçek bir sağlayıcı yayını gibi sunulmaz. Parser/depolama/provider testleri ağ sağlayıcısına bağımlı değildir. Renderer ve GUI smoke testleri çalışan bir Wayland ya da X11 oturumu gerektirir. Kesin sonuç ve sınırlar `docs/verification.md` dosyasındadır. Native Wayland kanıtı: `env -u DISPLAY -u GDK_BACKEND QT_QPA_PLATFORM=wayland ./scripts/test.sh`.
 

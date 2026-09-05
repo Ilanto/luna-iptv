@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from . import __version__
 from .accounts import sanitize_profile
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
@@ -857,7 +858,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Luna IPTV",
-            "Luna IPTV 0.1.0\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  10 saniye sar\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
+            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  10 saniye sar\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
         )
 
     def dragEnterEvent(self, event):
