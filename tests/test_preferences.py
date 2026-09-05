@@ -191,3 +191,27 @@ def test_old_settings_actions_and_deleted_source_cannot_write(library):
     preferences.set_remember(False)
     assert preferences.source_id is None
     assert store.playback_preferences(other) == {}
+
+
+def test_explicit_unlabelled_choice_is_not_overridden_by_saved_language(library):
+    from luna_iptv.preferences import TrackPreferences
+
+    store, source = library
+    player = Commands()
+    preferences = TrackPreferences(store, player)
+    tur = {"id": 2, "type": "audio", "lang": "tur"}
+    unknown = {"id": 8, "type": "audio"}
+    preferences.begin(source)
+    preferences.select("audio", tur)
+    preferences.begin(source)
+    preferences.update_tracks([tur, unknown])
+    preferences.loaded()
+    player.values.clear()
+    preferences.select("audio", unknown)
+    preferences.update_tracks([tur, unknown | {"selected": True}])
+    assert player.values == [("aid", 8)]
+    assert store.playback_preferences(source)["audio"]["lang"] == "tr"
+    preferences.begin(source)
+    preferences.update_tracks([tur, unknown])
+    preferences.loaded()
+    assert player.values[-1] == ("aid", 2)

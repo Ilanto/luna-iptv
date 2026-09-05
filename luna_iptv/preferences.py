@@ -104,6 +104,7 @@ class TrackPreferences:
         self._tracks = []
         self._loaded = False
         self._applied = {}
+        self._manual_modes = set()
 
     @property
     def remember(self):
@@ -116,6 +117,7 @@ class TrackPreferences:
         self._tracks = []
         self._loaded = False
         self._applied = {}
+        self._manual_modes = set()
         for mode, prop in _MODES.items():
             choice = self._preferences.get(mode, {}) if self.remember else {}
             value = "no" if choice.get("mode") == "off" else "auto"
@@ -142,13 +144,14 @@ class TrackPreferences:
         self.source_id = None
         self._preferences = {}
         self._applied = {}
+        self._manual_modes = set()
 
     def _apply(self):
         if not self._loaded or not self.remember:
             return
         for mode, prop in _MODES.items():
             choice = self._preferences.get(mode)
-            if not choice:
+            if not choice or mode in self._manual_modes:
                 continue
             selected = match_track(self._tracks, mode, choice)
             if selected is not None and self._applied.get(mode) != selected:
@@ -170,6 +173,7 @@ class TrackPreferences:
             ):
                 return False
             choice = track_preference(track)
+        self._manual_modes.add(mode)
         self._applied[mode] = value
         self.player.set_property(_MODES[mode], value)
         if self.source_id and self.remember and choice:
@@ -184,6 +188,7 @@ class TrackPreferences:
         self._save()
         if enabled:
             self._applied.clear()
+            self._manual_modes.clear()
             self._apply()
 
     def reset(self, *, generation=None):
@@ -192,6 +197,7 @@ class TrackPreferences:
         self._preferences = {"remember": self.remember}
         self._save()
         self._applied.clear()
+        self._manual_modes.clear()
         for prop in _MODES.values():
             self.player.set_property(prop, "auto")
 
