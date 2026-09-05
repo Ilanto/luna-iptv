@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .dialogs import text_label
 from .library import ChannelDelegate
+from .logos import LogoCache, LogoViewportController
 from .player import VideoWidget
 
 
@@ -114,7 +115,9 @@ def build_window(w):
     w.channel_list.setMouseTracking(True)
     w.channel_list.setUniformItemSizes(True)
     w.channel_list.setModel(w.proxy)
-    w.channel_list.setItemDelegate(ChannelDelegate(w.channel_list))
+    w.logos = LogoCache(w.store.path, w)
+    w.channel_list.setItemDelegate(ChannelDelegate(w.channel_list, logos=w.logos))
+    w.logo_viewport = LogoViewportController(w.channel_list, w.logos)
     w.channel_list.clicked.connect(w.activate_index)
     w.channel_list.activated.connect(w.activate_index)
     lib.addWidget(w.channel_list, 1)

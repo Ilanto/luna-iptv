@@ -787,6 +787,8 @@ class MainWindow(QMainWindow):
         self.save_progress()
         self._closed = True
         self._guide_timer.stop()
+        self.logo_viewport.close()
+        self.logos.close()
         self.player.shutdown()
         self.store.close()
         event.accept()
