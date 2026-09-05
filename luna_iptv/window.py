@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -27,6 +28,7 @@ from .media_info import MediaInfo
 from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .player import Player
+from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
 from .transport import TransportController
 
@@ -59,6 +61,8 @@ class MainWindow(QMainWindow):
         self._loading = False
         self._idle = True
         self._account_dialog = None
+        self._source_edit_tokens = {}
+        self._source_health_tokens = {}
         self.media_info = MediaInfo()
         self.setWindowTitle("Luna IPTV")
         self.resize(1340, 850)
@@ -357,14 +361,17 @@ class MainWindow(QMainWindow):
             return
 
         def loaded(episodes):
-            if not any(s["id"] == source["id"] for s in self.store.sources()):
+            stored_source = next(
+                (item for item in self.store.sources() if item["id"] == source["id"]), None
+            )
+            if stored_source is None or not self._same_source(stored_source, source):
                 return
             if not episodes:
                 self.status("Bu dizide henüz bölüm bulunmuyor.")
                 return
-            self.store.upsert_channels(source["id"], episodes)
+            stored_episodes = self.store.upsert_channels(source["id"], episodes)
             self.model.reset(self.store.channels(), self.store.favorites())
-            self.proxy.episode_ids = {source["id"] + ":" + c.id for c in episodes}
+            self.proxy.episode_ids = {channel.id for channel in stored_episodes}
             self._episodes_title = channel.name
             self.section_title.setText("Bölümler")
             self.back_button.show()
@@ -383,6 +390,9 @@ class MainWindow(QMainWindow):
         )
 
     def play(self, channel):
+        if not channel.url:
+            self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
+            return
         if self.current and self.current.id == channel.id and self._loading:
             return
         self.save_progress()
@@ -622,9 +632,31 @@ class MainWindow(QMainWindow):
         rename = menu.addAction("Seçili kaynağı yeniden adlandır")
         rename.setEnabled(source is not None and not self._busy)
         rename.triggered.connect(lambda: self.rename_source(source))
+        edit = menu.addAction("Bağlantıyı düzenle")
+        edit.setEnabled(source is not None and not self._busy)
+        edit.triggered.connect(lambda: self.edit_source(source))
         refresh = menu.addAction("Seçili kaynağı yenile")
         refresh.setEnabled(source is not None and not self._busy)
         refresh.triggered.connect(lambda: self.import_source(source))
+        check = menu.addAction("Bağlantıyı kontrol et")
+        check.setEnabled(source is not None)
+        check.triggered.connect(lambda: self.check_source(source))
+        if source is not None:
+            snapshot = self.store.source_health(source["id"])
+            if snapshot is not None:
+                status, checked_at = snapshot
+                label = {
+                    "available": "Ulaşılabilir",
+                    "responding": "Sunucu yanıt veriyor",
+                    "unverified": "Akış doğrulanmadı",
+                    "unavailable": "Ulaşılamıyor",
+                }.get(status, "Bilinmiyor")
+                moment = datetime.fromtimestamp(checked_at).strftime("%d.%m.%Y %H:%M")
+                last_check = menu.addAction(f"Son kontrol: {label} · {moment}")
+                last_check.setEnabled(False)
+            else:
+                last_check = menu.addAction("Son kontrol: Henüz kontrol edilmedi")
+                last_check.setEnabled(False)
         if source is not None and source["type"] == "xtream":
             account = menu.addAction("Hesap durumu")
             account.triggered.connect(lambda: self.open_account(source))
@@ -634,6 +666,102 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
         return menu
+
+    @staticmethod
+    def _same_source(left, right):
+        fields = ("id", "name", "type", "location", "username", "password", "epg_url")
+        return all(str(left.get(field, "")) == str(right.get(field, "")) for field in fields)
+
+    def edit_source(self, source):
+        if source is None or self._busy:
+            return
+        expected = dict(source)
+        dialog = SourceDialog(self, source=expected)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        candidate = dialog.source()
+        token = object()
+        self._source_edit_tokens[expected["id"]] = token
+
+        def is_current():
+            if self._closed or self._source_edit_tokens.get(expected["id"]) is not token:
+                return False
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == expected["id"]), None
+            )
+            return stored is not None and self._same_source(stored, expected)
+
+        def completed(playlist):
+            if not is_current():
+                return
+            self._source_edit_tokens.pop(expected["id"], None)
+            if not playlist.channels:
+                self.status("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
+                return
+            if not self.store.apply_source_connection(expected, candidate, playlist):
+                self.status("Kaynak bu sırada değişti. Düzenleme uygulanmadı.")
+                return
+            self.refresh_library(select_source=expected["id"])
+            self.status("Kaynak bağlantısı doğrulandı ve güncellendi.")
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == expected["id"]), None
+            )
+            if stored is not None and stored.get("epg_url"):
+                self.load_guide(stored)
+
+        def failed(message):
+            if not is_current():
+                return
+            self._source_edit_tokens.pop(expected["id"], None)
+            self.status(message)
+
+        self.run_task(
+            lambda: validate_candidate(candidate),
+            completed,
+            "Yeni bağlantı doğrulanıyor…",
+            busy=True,
+            failure=failed,
+        )
+
+    def check_source(self, source):
+        if source is None:
+            return
+        expected = dict(source)
+        token = object()
+        self._source_health_tokens[expected["id"]] = token
+
+        def is_current():
+            if self._closed or self._source_health_tokens.get(expected["id"]) is not token:
+                return False
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == expected["id"]), None
+            )
+            return stored is not None and self._same_source(stored, expected)
+
+        def completed(result):
+            if not is_current():
+                return
+            self._source_health_tokens.pop(expected["id"], None)
+            if not self.store.save_source_health(expected["id"], result.status, result.checked_at):
+                return
+            message = {
+                "available": "Bağlantı kullanılabilir.",
+                "responding": "Sunucu yanıt veriyor; video akışı açılmadı.",
+                "unverified": "Adres geçerli; video akışı açılmadan doğrulanamıyor.",
+                "unavailable": "Bağlantıya ulaşılamadı.",
+            }.get(result.status, "Bağlantı durumu belirlenemedi.")
+            self.status(message)
+
+        def failed(_message):
+            completed(HealthResult("unavailable", int(datetime.now().timestamp())))
+
+        self.run_task(
+            lambda: check_connection(expected),
+            completed,
+            "Bağlantı kontrol ediliyor…",
+            busy=False,
+            failure=failed,
+        )
 
     def open_account(self, source):
         if source is None or source.get("type") != "xtream":
@@ -665,8 +793,11 @@ class MainWindow(QMainWindow):
         def current_dialog():
             if self._account_dialog is not dialog or not isValid(dialog):
                 return False
-            return dialog.accepts_updates and any(
-                item["id"] == source["id"] for item in self.store.sources()
+            stored = next(
+                (item for item in self.store.sources() if item["id"] == source["id"]), None
+            )
+            return (
+                dialog.accepts_updates and stored is not None and self._same_source(stored, source)
             )
 
         def refreshed(profile):
@@ -734,6 +865,8 @@ class MainWindow(QMainWindow):
             != QMessageBox.Yes
         ):
             return
+        self._source_edit_tokens.pop(source["id"], None)
+        self._source_health_tokens.pop(source["id"], None)
         if self.current and self.current.id.startswith(source["id"] + ":"):
             self.stop_playback()
             self.current = None
@@ -903,6 +1036,8 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self._closed = True
+        self._source_edit_tokens.clear()
+        self._source_health_tokens.clear()
         self.fullscreen.close()
         self.transport.close()
         self._guide_timer.stop()

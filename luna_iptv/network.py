@@ -83,6 +83,10 @@ def channel_id(url: str) -> str:
     return hashlib.sha256(url.encode()).hexdigest()[:24]
 
 
+def provider_channel_id(provider_key: str) -> str:
+    return channel_id("xtream:" + provider_key)
+
+
 class XtreamClient:
     def __init__(self, url: str, username: str, password: str):
         self.base = http_url(url).rstrip("/")
@@ -104,7 +108,7 @@ class XtreamClient:
         except (json.JSONDecodeError, UnicodeDecodeError):
             raise NetworkError("Sağlayıcı geçerli JSON yanıtı vermedi.") from None
 
-    def _stream(self, kind: str, item_id, extension="ts") -> str:
+    def stream_url(self, kind: str, item_id, extension="ts") -> str:
         extension = str(extension)
         if not extension.isalnum() or len(extension) > 8:
             extension = "ts" if kind == "live" else "mp4"
@@ -149,16 +153,16 @@ class XtreamClient:
                 url = (
                     ""
                     if mode == "series"
-                    else self._stream(
+                    else self.stream_url(
                         "movie" if mode == "vod" else mode,
                         item_id,
                         row.get("container_extension") or ("ts" if mode == "live" else "mp4"),
                     )
                 )
-                identity = f"{self.base}/{mode}/{item_id}"
+                provider_key = f"{kind}:{quote(str(item_id), safe='')}"
                 channels.append(
                     Channel(
-                        id=channel_id(identity),
+                        id=provider_channel_id(provider_key),
                         name=str(row.get("name") or "İsimsiz yayın"),
                         url=url,
                         group=categories.get(str(row.get("category_id")), "Diğer"),
@@ -168,6 +172,7 @@ class XtreamClient:
                         ),
                         kind=kind,
                         series_id=str(item_id) if mode == "series" else "",
+                        provider_key=provider_key,
                     )
                 )
         return Playlist(
@@ -200,15 +205,19 @@ class XtreamClient:
             ):
                 if row.get("id") is None or str(row["id"]).strip() == "":
                     continue
-                url = self._stream("series", row["id"], row.get("container_extension") or "mp4")
+                provider_key = (
+                    f"episode:{quote(str(series_id), safe='')}:{quote(str(row['id']), safe='')}"
+                )
+                url = self.stream_url("series", row["id"], row.get("container_extension") or "mp4")
                 channels.append(
                     Channel(
-                        id=channel_id(f"{self.base}/episode/{row['id']}"),
+                        id=provider_channel_id(provider_key),
                         name=str(row.get("title") or f"Bölüm {row.get('episode_num', '')}"),
                         url=url,
                         group=f"Sezon {season}",
                         kind="movie",
                         series_id=series_id,
+                        provider_key=provider_key,
                     )
                 )
         return channels
