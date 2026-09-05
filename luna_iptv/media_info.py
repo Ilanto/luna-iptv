@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,9 +14,9 @@ def _positive_number(value: Any) -> float | None:
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    return number if number > 0 else None
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def _positive_dimension(value: Any) -> int | None:
@@ -26,15 +27,16 @@ def _positive_dimension(value: Any) -> int | None:
 
 
 def _decimal(value: float, precision: int = 2) -> str:
-    return f"{value:.{precision}f}".rstrip("0").rstrip(".").replace(".", ",")
+    text = f"{value:.{precision}f}"
+    if precision:
+        text = text.rstrip("0").rstrip(".")
+    return text.replace(".", ",")
 
 
 def _codec_name(track: dict[str, Any] | None) -> str:
     if not track:
         return UNKNOWN
     description = str(track.get("codec-desc") or "").strip()
-    if description:
-        return description
     codec = str(track.get("codec") or "").strip().lower()
     known = {
         "aac": "AAC",
@@ -49,7 +51,7 @@ def _codec_name(track: dict[str, Any] | None) -> str:
         "opus": "Opus",
         "vp9": "VP9",
     }
-    return known.get(codec, codec.upper() if codec else UNKNOWN)
+    return known.get(codec, description or (codec.upper() if codec else UNKNOWN))
 
 
 @dataclass
@@ -128,13 +130,11 @@ class MediaInfo:
             number = _positive_number(value)
             if value == 0:
                 number = 0
-            self._buffer_percent = (
-                min(100, max(0, round(number))) if number is not None else None
-            )
+            self._buffer_percent = min(100, max(0, round(number))) if number is not None else None
         elif name == "idle-active":
-            if value:
+            if value and not self._loading:
                 self.reset()
-            else:
+            elif not value:
                 self._idle = False
         else:
             handled = False
@@ -190,6 +190,10 @@ class MediaInfo:
     @property
     def audio_codec(self) -> str:
         return _codec_name(self._selected_track("audio"))
+
+    def codec_description(self, kind: str) -> str:
+        track = self._selected_track(kind)
+        return str((track or {}).get("codec-desc") or "").strip()
 
     @property
     def audio_layout(self) -> str:

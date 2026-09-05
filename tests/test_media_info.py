@@ -122,7 +122,11 @@ def test_buffer_indicator_handles_percent_and_playback_transitions() -> None:
     info.update("paused-for-cache", True)
     assert info.buffer_text == "Arabellek…"
 
-    for value, expected in [(0, "Arabellek · %0"), (43.6, "Arabellek · %44"), (100, "Arabellek · %100")]:
+    for value, expected in [
+        (0, "Arabellek · %0"),
+        (43.6, "Arabellek · %44"),
+        (100, "Arabellek · %100"),
+    ]:
         info.update("cache-buffering-state", value)
         assert info.buffer_text == expected
 
@@ -224,3 +228,113 @@ def test_info_panel_buffer_and_fullscreen_controls_reset_between_streams(
         if isValid(window):
             window.close()
         qt_app.processEvents()
+
+
+def test_idle_notification_during_queued_load_does_not_disable_loaded_info(
+    qt_app, tmp_path, monkeypatch
+):
+    window = MainWindow(Store(tmp_path / "library.sqlite3"))
+    monkeypatch.setattr(window.player, "load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(window.player, "set_property", lambda *args, **kwargs: None)
+    sid = window.store.save_source({"name": "Fixture", "type": "m3u", "location": "unused"})
+    window.store.replace_channels(sid, [Channel("one", "Fixture", "/tmp/unused-fixture")])
+    try:
+        window.play(window.store.channels()[0])
+        window.player_property("idle-active", True)
+        assert window.buffer_label.text() == "Bağlanıyor…"
+        window.player_property("idle-active", False)
+        window.player_property("video-dec-params", {"w": 1280, "h": 720})
+        window.loaded()
+        assert window.info_button.isEnabled()
+        window.info_button.click()
+        assert not window.info_panel.isHidden()
+        assert window.info_dimensions.text() == "1280 × 720"
+        window.stop_playback()
+        assert not window.info_button.isEnabled()
+        assert window.info_panel.isHidden()
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_real_codec_descriptions_keep_panel_compact_and_full_details_accessible(qt_app, tmp_path):
+    from PySide6.QtWidgets import QStyleFactory
+
+    window = MainWindow(Store(tmp_path / "library.sqlite3"))
+    # Deterministic widget metrics without replacing the application's global theme.
+    window.setStyle(QStyleFactory.create("Fusion"))
+    baseline_width = window.minimumSizeHint().width()
+    tracks = [
+        {
+            "type": "video",
+            "selected": True,
+            "codec": "h264",
+            "codec-desc": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+        },
+        {
+            "type": "audio",
+            "selected": True,
+            "codec": "aac",
+            "codec-desc": "AAC (Advanced Audio Coding)",
+        },
+    ]
+    try:
+        window.player_property("track-list", tracks)
+        assert window.info_video_codec.text() == "H.264 / AVC"
+        assert window.info_audio_codec.text() == "AAC"
+        assert window.info_video_codec.toolTip() == tracks[0]["codec-desc"]
+        assert window.info_video_codec.accessibleDescription() == tracks[0]["codec-desc"]
+        window.info_panel.show()
+        window.info_panel.ensurePolished()
+        window.info_panel.layout().activate()
+        assert window.minimumSizeHint().width() <= baseline_width
+        # Also constrain provider/backend strings that have no known short mapping.
+        window.player_property(
+            "track-list",
+            [
+                {"type": "video", "selected": True, "codec-desc": "LongDescriptor" * 40},
+                {"type": "audio", "selected": True, "codec-desc": "LongAudioDescription" * 40},
+            ],
+        )
+        window.info_panel.layout().activate()
+        assert window.minimumSizeHint().width() <= baseline_width
+        window.media_info.reset()
+        window.refresh_media_info()
+        assert window.info_video_codec.toolTip() == ""
+        assert window.info_video_codec.accessibleDescription() == ""
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (10, "10 b/sn"),
+        (100, "100 b/sn"),
+        (800, "800 b/sn"),
+        (999, "999 b/sn"),
+        (1000, "1 kb/sn"),
+        (1500, "1,5 kb/sn"),
+    ],
+)
+def test_bitrate_preserves_integer_trailing_zeroes(value, expected):
+    state = MediaInfo()
+    state.update("audio-bitrate", value)
+    assert state.bitrate == "Ses " + expected
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), "inf", "nan"])
+def test_nonfinite_optional_numbers_remain_unknown_without_exceptions(value):
+    state = MediaInfo()
+    state.begin_load()
+    state.update("container-fps", value)
+    state.update("video-bitrate", value)
+    state.update("audio-bitrate", value)
+    state.update("cache-buffering-state", value)
+    state.update("paused-for-cache", True)
+    assert state.fps == "Bilgi yok"
+    assert state.bitrate == "Bilgi yok"
+    assert state.buffer_text == "Arabellek…"

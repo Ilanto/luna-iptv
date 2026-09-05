@@ -191,11 +191,16 @@ def build_window(w):
     info.setContentsMargins(12, 9, 12, 9)
     info.setHorizontalSpacing(10)
     info.setVerticalSpacing(5)
+    info.setColumnStretch(1, 1)
+    info.setColumnStretch(3, 1)
     info.addWidget(text_label("YAYIN BİLGİSİ", "eyebrow"), 0, 0, 1, 4)
 
     def info_field(attribute, title, row, column):
         info.addWidget(text_label(title, "eyebrow"), row, column)
         value = text_label("Bilgi yok", "muted")
+        value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        value.setMinimumWidth(0)
+        value.setWordWrap(True)
         value.setAccessibleName(title.title())
         setattr(w, attribute, value)
         info.addWidget(value, row, column + 1)
@@ -248,9 +253,7 @@ def build_window(w):
     w.volume.setAccessibleName("Ses seviyesi")
     w.volume.valueChanged.connect(lambda v: w.player.set_property("volume", v))
     row.addWidget(w.volume)
-    w.info_button = button(
-        "Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle"
-    )
+    w.info_button = button("Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle")
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
     row.addWidget(button("A / S", w.track_menu, tip="Ses parçası ve altyazı seç"))

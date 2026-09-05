@@ -400,6 +400,7 @@ class MainWindow(QMainWindow):
         self._loading = False
         self.media_info.mark_loaded()
         self.refresh_media_info()
+        self.info_button.setEnabled(self.current is not None)
         self.status("Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
         if self.current:
@@ -432,7 +433,7 @@ class MainWindow(QMainWindow):
             return
         if self.media_info.update(name, value):
             self.refresh_media_info()
-        if name == "idle-active" and value:
+        if name == "idle-active" and value and not self._loading:
             self.info_panel.hide()
             self.info_button.setEnabled(False)
         if name == "time-pos" and value is not None:
@@ -518,6 +519,10 @@ class MainWindow(QMainWindow):
         for label, value in fields.items():
             if label.text() != value:
                 label.setText(value)
+        for label, kind in ((self.info_video_codec, "video"), (self.info_audio_codec, "audio")):
+            description = self.media_info.codec_description(kind)
+            label.setToolTip(description)
+            label.setAccessibleDescription(description)
         buffer_text = self.media_info.buffer_text
         self.buffer_label.setText(buffer_text)
         self.buffer_label.setVisible(bool(buffer_text))
