@@ -251,6 +251,21 @@ def test_late_health_events_cannot_replace_a_scheduled_retry(recovery) -> None:
     assert controller._timer.timeout.callback is retry_callback
 
 
+def test_suppressed_recovery_bounds_untracked_load_without_retry(recovery) -> None:
+    controller, retries, _clock = recovery
+    begin_live(controller)
+
+    assert controller.suppress_retries(10) is True
+    assert controller.state == "untracked-connecting"
+    assert controller._timer.interval == 12_000
+    controller._timer.fire()
+
+    assert controller.state == "untracked-failed"
+    assert controller.message == "Yayın başlatılamadı."
+    assert controller.attempt == 0
+    assert retries == []
+
+
 def test_live_eof_recovers_but_stop_and_close_do_not(recovery) -> None:
     controller, retries, _clock = recovery
     begin_live(controller)

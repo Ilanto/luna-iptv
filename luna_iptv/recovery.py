@@ -32,6 +32,7 @@ class RecoveryController(QObject):
         self._active = False
         self._channel_id = ""
         self._live = False
+        self._retry_enabled = True
         self._current_token: int | None = None
         self._attempt = 0
         self._state = "idle"
@@ -63,6 +64,7 @@ class RecoveryController(QObject):
             and self._state
             in {
                 "connecting",
+                "untracked-connecting",
                 "buffering",
                 "waiting",
             }
@@ -76,6 +78,8 @@ class RecoveryController(QObject):
                 if self._attempt
                 else "Canlı yayına bağlanılıyor…"
             )
+        if self._state == "untracked-connecting":
+            return "Yayın açılıyor…"
         if self._state == "buffering":
             return "Canlı yayın arabelleğe alınıyor…"
         if self._state == "waiting":
@@ -87,6 +91,8 @@ class RecoveryController(QObject):
             return "Yayın duraklatıldı."
         if self._state == "failed":
             return "Canlı yayına üç denemeden sonra bağlanılamadı."
+        if self._state == "untracked-failed":
+            return "Yayın başlatılamadı."
         return ""
 
     def begin(self, channel_id: str, live: bool) -> None:
@@ -95,6 +101,7 @@ class RecoveryController(QObject):
         self._active = True
         self._channel_id = str(channel_id)
         self._live = bool(live)
+        self._retry_enabled = True
         self._current_token = None
         self._attempt = 0
         self._state = "connecting" if self._live else "idle"
@@ -121,6 +128,30 @@ class RecoveryController(QObject):
         self._emit_if_changed(before)
         return True
 
+    def suppress_retries(self, token: int) -> bool:
+        """Keep observing this request, but never reopen it automatically."""
+
+        if not self._matches(token):
+            return False
+        before = self._visible_state()
+        self._retry_enabled = False
+        self._attempt = 0
+        self._clear_stability()
+        if not self._loaded:
+            self._state = "untracked-connecting"
+            self._schedule("connect", self._CONNECT_TIMEOUT_MS)
+        elif self._paused:
+            self._stop_timer()
+            self._state = "paused"
+        elif self._buffering:
+            self._state = "buffering"
+            self._schedule("buffer", self._BUFFER_TIMEOUT_MS)
+        else:
+            self._stop_timer()
+            self._state = "playing"
+        self._emit_if_changed(before)
+        return True
+
     def loaded(self, token: int) -> bool:
         if not self._matches(token):
             return False
@@ -135,7 +166,7 @@ class RecoveryController(QObject):
     def progress(self, token: int, position: Any) -> bool:
         if not self._matches(token):
             return False
-        if self._state == "waiting":
+        if self._state in {"waiting", "untracked-connecting"}:
             return True
         number = self._number(position)
         if number is None:
@@ -161,7 +192,7 @@ class RecoveryController(QObject):
     def paused(self, token: int, paused: bool) -> bool:
         if not self._matches(token):
             return False
-        if self._state == "waiting":
+        if self._state in {"waiting", "untracked-connecting"}:
             return True
         before = self._visible_state()
         self._paused = bool(paused)
@@ -184,7 +215,7 @@ class RecoveryController(QObject):
     def buffering(self, token: int, buffering: bool) -> bool:
         if not self._matches(token):
             return False
-        if self._state == "waiting":
+        if self._state in {"waiting", "untracked-connecting"}:
             return True
         before = self._visible_state()
         self._buffering = bool(buffering)
@@ -212,7 +243,12 @@ class RecoveryController(QObject):
         self._buffering = False
         self._last_progress = None
         self._clear_stability()
-        if was_paused or not self._live or reason not in self._RECOVERABLE_REASONS:
+        if (
+            was_paused
+            or not self._retry_enabled
+            or not self._live
+            or reason not in self._RECOVERABLE_REASONS
+        ):
             self._active = False
             self._state = "idle"
         else:
@@ -228,6 +264,7 @@ class RecoveryController(QObject):
         self._active = False
         self._channel_id = ""
         self._live = False
+        self._retry_enabled = True
         self._current_token = None
         self._attempt = 0
         self._state = "idle"
@@ -278,7 +315,11 @@ class RecoveryController(QObject):
         self._stop_timer()
         if kind in {"connect", "buffer"}:
             before = self._visible_state()
-            self._schedule_retry()
+            if self._retry_enabled:
+                self._schedule_retry()
+            else:
+                self._active = False
+                self._state = "untracked-failed"
             self._emit_if_changed(before)
         elif kind == "retry":
             before = self._visible_state()

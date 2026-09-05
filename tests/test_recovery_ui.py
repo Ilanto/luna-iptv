@@ -24,6 +24,7 @@ class ImmediateLoadBackend:
         self.result = result
         self.error = error
         self.events = {}
+        self.commands = []
 
     def observe_property(self, _name, _callback) -> None:
         pass
@@ -32,6 +33,7 @@ class ImmediateLoadBackend:
         return lambda callback: self.events.__setitem__(name, callback) or callback
 
     def command_async(self, *args):
+        self.commands.append(args)
         future = Future()
         if args[0] == "loadfile" and self.error is not None:
             future.set_exception(self.error)
@@ -80,9 +82,15 @@ def fire_recovery_timer(window):
     window.recovery._timer.timeout.emit()
 
 
-def make_immediate_backend_window(qt_app, tmp_path, monkeypatch, backend):
+def make_immediate_backend_window(qt_app, tmp_path, monkeypatch, backend, *, kind="live"):
     monkeypatch.setitem(sys.modules, "mpv", SimpleNamespace(MPV=lambda **_kwargs: backend))
-    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch, stub_player=False)
+    window, channel, loads = make_window(
+        qt_app,
+        tmp_path,
+        monkeypatch,
+        kind=kind,
+        stub_player=False,
+    )
     window.player._render_ready = True
     return window, channel, loads
 
@@ -97,8 +105,95 @@ def test_synchronous_missing_load_id_is_registered_before_tracking_lost(
 
         assert window._playback_token == 1
         assert window._untracked_playback_token == 1
+        assert window.recovery.state == "untracked-connecting"
+        assert window.recovery._timer.interval() == 12_000
+        fire_recovery_timer(window)
+        assert window.recovery.state == "untracked-failed"
+        assert window._playback_active is False
+        assert window._loading is False
+        assert window._idle is True
+        assert window.message.text() == "Yayın başlatılamadı."
+        assert [args[0] for args in backend.commands].count("loadfile") == 1
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_untracked_vod_timeout_cleans_up_and_manual_retry_preserves_progress(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    backend = ImmediateLoadBackend(result={})
+    window, channel, _loads = make_immediate_backend_window(
+        qt_app,
+        tmp_path,
+        monkeypatch,
+        backend,
+        kind="movie",
+    )
+    window.store.save_progress(channel.id, 19, 90)
+    try:
+        window.play(channel)
+        fire_recovery_timer(window)
+
+        assert window.recovery.state == "untracked-failed"
+        assert window._playback_active is False
+        assert window._loading is False
+        assert window._idle is True
+        assert [args[0] for args in backend.commands].count("stop") == 1
+        assert not window.retry_button.isHidden()
+
+        window.retry_button.click()
+
+        load_commands = [args for args in backend.commands if args[0] == "loadfile"]
+        assert len(load_commands) == 2
+        assert "start=19.0" in load_commands[-1][4]
+        assert window.store.progress(channel.id) == (19.0, 90.0)
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_missing_player_backend_is_an_immediate_terminal_load_failure(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    def fail_backend(**_kwargs):
+        raise OSError("fixture backend unavailable")
+
+    monkeypatch.setitem(sys.modules, "mpv", SimpleNamespace(MPV=fail_backend))
+    window, channel, _loads = make_window(qt_app, tmp_path, monkeypatch, stub_player=False)
+    window.player._render_ready = True
+    try:
+        window.play(channel)
+
+        assert window._playback_token == 1
+        assert window._playback_active is False
+        assert window._loading is False
+        assert window._idle is True
         assert window.recovery.state == "idle"
         assert window.recovery._timer.isActive() is False
+        assert "motoru" in window.message.text().lower()
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_legacy_loaded_event_cancels_untracked_connect_watchdog(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    backend = ImmediateLoadBackend(result={})
+    window, channel, _loads = make_immediate_backend_window(qt_app, tmp_path, monkeypatch, backend)
+    try:
+        window.play(channel)
+        backend.events["start-file"](SimpleNamespace(data=SimpleNamespace(playlist_entry_id=41)))
+        backend.events["file-loaded"](SimpleNamespace(data=None))
+
+        assert window.recovery.state == "playing"
+        assert window.recovery._timer.isActive() is False
+        assert window._loading is False
+        assert window._idle is False
     finally:
         if isValid(window):
             window.close()
@@ -230,6 +325,8 @@ def test_final_connect_watchdog_failure_allows_visible_manual_retry(
     qt_app, tmp_path, monkeypatch
 ) -> None:
     window, channel, loads = make_window(qt_app, tmp_path, monkeypatch)
+    stops = []
+    monkeypatch.setattr(window.player, "stop", lambda: stops.append(True))
     try:
         window.play(channel)
         for expected_loads in (2, 3, 4):
@@ -240,7 +337,12 @@ def test_final_connect_watchdog_failure_allows_visible_manual_retry(
 
         assert window.recovery.state == "failed"
         assert window._loading is False
+        assert window._playback_active is False
+        assert stops == [True]
         assert not window.retry_button.isHidden()
+        window.playback_loaded(13)
+        assert window._idle is True
+        assert window.info_button.isEnabled() is False
         window.retry_button.click()
         assert len(loads) == 5
         assert window.recovery.attempt == 0
@@ -283,7 +385,7 @@ def test_status_is_mirrored_when_compact_player_status_exists(
         qt_app.processEvents()
 
 
-def test_current_playback_still_cleans_up_after_source_refresh_cancels_recovery(
+def test_current_playback_still_cleans_up_after_source_refresh_suppresses_retries(
     qt_app, tmp_path, monkeypatch
 ) -> None:
     window, channel, loads = make_window(qt_app, tmp_path, monkeypatch)
@@ -306,7 +408,7 @@ def test_current_playback_still_cleans_up_after_source_refresh_cancels_recovery(
                 [],
             ),
         )
-        assert window.recovery.state == "idle"
+        assert window.recovery.state == "playing"
         assert window._idle is False
 
         window.playback_finished(10, "error", "Yayın açılamadı.")
@@ -316,6 +418,72 @@ def test_current_playback_still_cleans_up_after_source_refresh_cancels_recovery(
         assert window._loading is False
         assert window.info_button.isEnabled() is False
         assert window.message.text() == "Yayın açılamadı."
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_source_refresh_while_connecting_keeps_a_bounded_nonretrying_watchdog(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch)
+    try:
+        window.play(channel)
+        source = window.source_for(channel)
+        window.accept_import(
+            source,
+            Playlist([Channel(channel.id, channel.name, channel.url, kind="live")], [], []),
+        )
+
+        assert window.recovery.state == "untracked-connecting"
+        assert window.recovery._timer.interval() == 12_000
+        window.playback_property(10, "pause", True)
+        window.playback_property(10, "paused-for-cache", True)
+        window.playback_property(10, "paused-for-cache", False)
+        assert window.recovery.state == "untracked-connecting"
+        assert window.recovery._timer.interval() == 12_000
+        fire_recovery_timer(window)
+
+        assert len(loads) == 1
+        assert window.recovery.state == "untracked-failed"
+        assert window._playback_active is False
+        assert window._loading is False
+        assert window._idle is True
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_source_refresh_during_retry_wait_still_reaches_terminal_cleanup(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch)
+    stops = []
+    monkeypatch.setattr(window.player, "stop", lambda: stops.append(True))
+    try:
+        window.play(channel)
+        fire_recovery_timer(window)
+        assert window.recovery.state == "waiting"
+        source = window.source_for(channel)
+        window.accept_import(
+            source,
+            Playlist([Channel(channel.id, channel.name, channel.url, kind="live")], [], []),
+        )
+
+        assert window.recovery.state == "untracked-connecting"
+        window.playback_property(10, "pause", True)
+        window.playback_property(10, "paused-for-cache", True)
+        assert window.recovery.state == "untracked-connecting"
+        fire_recovery_timer(window)
+
+        assert len(loads) == 1
+        assert window.recovery.state == "untracked-failed"
+        assert window._playback_active is False
+        assert window._loading is False
+        assert window._idle is True
+        assert stops == [True]
     finally:
         if isValid(window):
             window.close()

@@ -219,8 +219,12 @@ class MainWindow(QMainWindow):
         source_id = self.store.save_source(source)
         source["id"] = source_id
         if self.current and self.current.id.startswith(source_id + ":"):
-            # A refreshed/edited source must not retry with superseded connection data.
-            self.recovery.cancel()
+            # Keep the current native request observable, but never reopen it
+            # with connection data that this refresh has just superseded.
+            if not self._playback_active or self._playback_token is None:
+                self.recovery.cancel()
+            else:
+                self.recovery.suppress_retries(self._playback_token)
         if playlist.account_profile is not None:
             self.store.save_account_profile(source_id, playlist.account_profile)
         channels = list(playlist.channels)
@@ -407,7 +411,8 @@ class MainWindow(QMainWindow):
                 return
         else:
             self.recovery.begin(channel.id, live=channel.kind == "live")
-            self.save_progress()
+            if self.current is None or self.current.id != channel.id or self._duration > 0:
+                self.save_progress()
         self.current = channel
         self._position = 0.0
         self._duration = 0.0
@@ -456,6 +461,7 @@ class MainWindow(QMainWindow):
     def loaded(self):
         if not self._playback_active or self._untracked_playback_token != self._playback_token:
             return
+        self.recovery.loaded(self._playback_token)
         self._mark_loaded()
 
     def playback_loaded(self, token):
@@ -487,7 +493,7 @@ class MainWindow(QMainWindow):
         if self._closed or token != self._playback_token:
             return
         self._untracked_playback_token = token
-        self.recovery.cancel()
+        self.recovery.suppress_retries(token)
 
     def playback_property(self, token, name, value):
         if token != self._playback_token:
@@ -535,6 +541,7 @@ class MainWindow(QMainWindow):
         if self._playback_active and self._untracked_playback_token == self._playback_token:
             if self.current and self.current.kind != "live":
                 self.save_progress()
+            self.recovery.failure(self._playback_token, "unknown")
             self._finish_playback()
 
     def player_property(self, name, value):
@@ -645,18 +652,22 @@ class MainWindow(QMainWindow):
     def refresh_recovery(self):
         if self._closed:
             return
-        if (
-            self.recovery.state in {"waiting", "failed"}
-            and self.current
+        terminal = self.recovery.state in {"failed", "untracked-failed"}
+        live_wait = (
+            self.recovery.state == "waiting"
+            and self.current is not None
             and self.current.kind == "live"
-            and (self._loading or not self._idle)
-        ):
-            self._finish_playback(end_session=self.recovery.state == "failed")
+        )
+        terminal_cleanup = terminal and (self._playback_active or self._loading or not self._idle)
+        if terminal_cleanup or (live_wait and (self._loading or not self._idle)):
+            self._finish_playback(end_session=terminal)
+            if terminal:
+                self.player.stop()
         self.recovery_cancel_button.setVisible(self.recovery.can_cancel)
         if self.recovery.message:
             retry = (
                 (lambda: self.play(self.current) if self.current else None)
-                if self.recovery.state == "failed"
+                if self.recovery.state in {"failed", "untracked-failed"}
                 else None
             )
             self.status(self.recovery.message, retry)

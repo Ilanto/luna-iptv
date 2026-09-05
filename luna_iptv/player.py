@@ -209,8 +209,15 @@ class Player(QObject):
             f"start={max(0, start)},http-header-fields=%{len(encoded.encode('utf-8'))}%{encoded}"
         )
         self.set_property("pause", False)
-        if self._closed or self._mpv is None:
-            self.playback_tracking_lost.emit(token)
+        if self._closed:
+            return
+        if self._mpv is None:
+            self._emit_entry_event(
+                token,
+                "finished",
+                "engine",
+                "Video motoru açılamadı.",
+            )
             return
         try:
             future = self._mpv.command_async("loadfile", url, "replace", -1, options)
