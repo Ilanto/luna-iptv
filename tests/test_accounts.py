@@ -13,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 from shiboken6 import isValid
 
+import luna_iptv.accounts as accounts
 from luna_iptv.accounts import AccountProfile, normalize_profile, serialize_profile
 from luna_iptv.dialogs import AccountDialog
 from luna_iptv.models import Channel, Playlist
@@ -223,6 +224,22 @@ def test_normalize_profile_bounds_dates_and_sqlite_counts_without_float_rounding
     )
     assert boundary.created_at == 253_402_214_399
     assert boundary.active_connections == 2**63 - 1
+
+
+def test_bounded_count_rejects_extreme_exponent_before_integer_conversion(
+    monkeypatch,
+) -> None:
+    converted = False
+
+    def trap_integer_conversion(value):
+        nonlocal converted
+        converted = True
+        raise AssertionError("out-of-range Decimal reached int()")
+
+    monkeypatch.setattr(accounts, "int", trap_integer_conversion, raising=False)
+
+    assert accounts.bounded_count("1e10000000") is None
+    assert converted is False
 
 
 def test_playlist_keeps_three_argument_constructor_compatible() -> None:

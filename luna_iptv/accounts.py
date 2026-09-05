@@ -92,9 +92,8 @@ def _bounded_integer(value: object, *, minimum: int, maximum: int) -> int | None
         number = Decimal(str(value).strip())
     except (InvalidOperation, ValueError, AttributeError):
         return None
-    if not number.is_finite() or number != number.to_integral_value():
+    if not number.is_finite() or number < minimum or number > maximum:
         return None
-    result = int(number)
-    if result < minimum or result > maximum:
+    if number != number.to_integral_value():
         return None
-    return result
+    return int(number)
