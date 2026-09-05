@@ -96,6 +96,9 @@ def build_window(w):
     lib.addWidget(w.section_title)
     w.count_label = text_label("0 yayın", "muted")
     lib.addWidget(w.count_label)
+    w.history_clear_button = button("Geçmişi temizle", w.confirm_clear_history)
+    w.history_clear_button.hide()
+    lib.addWidget(w.history_clear_button)
     w.search = QLineEdit()
     w.search.setPlaceholderText("Kütüphanede ara…")
     w.search.setClearButtonEnabled(True)
@@ -293,7 +296,11 @@ def build_window(w):
     w.info_button = button("Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle")
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
-    row.addWidget(button("A / S", w.track_menu, tip="Ses parçası ve altyazı seç"))
+    w.playback_menu_button = button(
+        "Oynatma", w.track_menu, tip="Ses, altyazı ve oynatma seçenekleri"
+    )
+    w.playback_menu_button.setProperty("mini_hidden", True)
+    row.addWidget(w.playback_menu_button)
     w.fullscreen_button = button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
     row.addWidget(w.fullscreen_button)
     ctrl.addLayout(row)

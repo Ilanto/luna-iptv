@@ -101,6 +101,16 @@ def provider_server():
     thread.join(timeout=2)
 
 
+@pytest.fixture
+def store_factory(request):
+    def create(path):
+        store = Store(path)
+        request.addfinalizer(store.close)
+        return store
+
+    return create
+
+
 def test_xtream_provider_identity_is_independent_of_host_and_credentials(provider_server):
     base, _requests = provider_server
     first = XtreamClient(base, "first-user", "first-pass")
@@ -124,8 +134,10 @@ def test_xtream_provider_identity_is_independent_of_host_and_credentials(provide
     assert "second-user" in second_episode.url
 
 
-def test_atomic_connection_edit_preserves_legacy_ids_favorite_progress_and_episodes(tmp_path):
-    store = Store(tmp_path / "library.sqlite3")
+def test_atomic_connection_edit_preserves_legacy_ids_favorite_progress_and_episodes(
+    tmp_path, store_factory
+):
+    store = store_factory(tmp_path / "library.sqlite3")
     old = xtream_source("https://old.invalid")
     store.save_source(old)
     legacy_parent = Channel("legacy-series", "Show", "", kind="series", series_id="42")
@@ -209,9 +221,9 @@ def test_atomic_connection_edit_preserves_legacy_ids_favorite_progress_and_episo
 
 
 def test_connection_edit_rolls_back_source_catalog_and_profile_on_database_error(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, store_factory
 ):
-    store = Store(tmp_path / "library.sqlite3")
+    store = store_factory(tmp_path / "library.sqlite3")
     old = xtream_source("https://old.invalid")
     store.save_source(old)
     store.replace_channels(
@@ -245,8 +257,8 @@ def test_connection_edit_rolls_back_source_catalog_and_profile_on_database_error
     assert store.account_profile("provider") == before_profile == old_profile
 
 
-def test_stale_or_deleted_source_cannot_apply_candidate(tmp_path):
-    store = Store(tmp_path / "library.sqlite3")
+def test_stale_or_deleted_source_cannot_apply_candidate(tmp_path, store_factory):
+    store = store_factory(tmp_path / "library.sqlite3")
     expected = xtream_source("https://old.invalid")
     store.save_source(expected)
     store.replace_channels("provider", [Channel("old", "Old", "https://old.invalid/1")])
@@ -279,9 +291,9 @@ def test_unparseable_cached_episode_drops_old_secret_url_but_keeps_metadata():
     assert "old-pass" not in repr(safe)
 
 
-def test_reopen_backfills_legacy_xtream_identity_without_losing_user_state(tmp_path):
+def test_reopen_backfills_legacy_xtream_identity_without_losing_user_state(tmp_path, store_factory):
     path = tmp_path / "migration.sqlite3"
-    store = Store(path)
+    store = store_factory(path)
     store.save_source(xtream_source("https://old.invalid"))
     store.replace_channels(
         "provider",
@@ -300,7 +312,7 @@ def test_reopen_backfills_legacy_xtream_identity_without_losing_user_state(tmp_p
         database.execute("DROP INDEX channels_provider_key_idx")
         database.execute("UPDATE channels SET provider_key='' WHERE id='provider:legacy'")
 
-    reopened = Store(path)
+    reopened = store_factory(path)
     try:
         [channel] = reopened.channels("provider")
         assert channel.id == "provider:legacy"
@@ -312,10 +324,10 @@ def test_reopen_backfills_legacy_xtream_identity_without_losing_user_state(tmp_p
 
 
 def test_validation_does_not_mutate_store_and_health_uses_bounded_kind_specific_probe(
-    tmp_path, provider_server
+    tmp_path, provider_server, store_factory
 ):
     base, requests = provider_server
-    store = Store(tmp_path / "library.sqlite3")
+    store = store_factory(tmp_path / "library.sqlite3")
     source = xtream_source(base, user="fixture", password="secret")
     store.save_source(source)
 
@@ -396,8 +408,8 @@ def test_edit_dialog_prefills_connection_and_locks_source_type(qt_app, source_ty
 
 
 @pytest.fixture
-def window(qt_app, tmp_path):
-    widget = MainWindow(Store(tmp_path / "ui.sqlite3"))
+def window(qt_app, tmp_path, store_factory):
+    widget = MainWindow(store_factory(tmp_path / "ui.sqlite3"))
     yield widget
     if isValid(widget):
         widget.close()
@@ -534,8 +546,8 @@ def test_health_callback_persists_failure_snapshot_without_catalog_or_playback(w
     assert loads == []
 
 
-def test_failed_candidate_validation_preserves_every_stored_value(tmp_path):
-    store = Store(tmp_path / "invalid.sqlite3")
+def test_failed_candidate_validation_preserves_every_stored_value(tmp_path, store_factory):
+    store = store_factory(tmp_path / "invalid.sqlite3")
     old = dict(xtream_source("https://old.invalid"), type="m3u", username="", password="")
     playlist_file = tmp_path / "broken.m3u"
     playlist_file.write_text("<!doctype html><title>provider error</title>", encoding="utf-8")
@@ -641,8 +653,10 @@ def test_xtream_refresh_uses_reconciled_legacy_id_and_keeps_playback(window, mon
     assert window._loading is True
 
 
-def test_direct_connection_edit_preserves_single_channel_identity_and_user_state(tmp_path):
-    store = Store(tmp_path / "direct.sqlite3")
+def test_direct_connection_edit_preserves_single_channel_identity_and_user_state(
+    tmp_path, store_factory
+):
+    store = store_factory(tmp_path / "direct.sqlite3")
     old = {
         "id": "direct",
         "name": "Local film",

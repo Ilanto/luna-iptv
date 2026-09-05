@@ -69,7 +69,8 @@ class Store:
                 channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
                 position REAL NOT NULL,
                 duration REAL NOT NULL,
-                updated_at INTEGER NOT NULL DEFAULT 0
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                history_hidden INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS account_snapshots (
                 source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
@@ -85,6 +86,10 @@ class Store:
                 status TEXT NOT NULL,
                 checked_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS playback_preferences (
+                source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+                data TEXT NOT NULL
+            );
             """
         )
         progress_columns = {
@@ -93,6 +98,10 @@ class Store:
         if "updated_at" not in progress_columns:
             self._db.execute(
                 "ALTER TABLE progress ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"
+            )
+        if "history_hidden" not in progress_columns:
+            self._db.execute(
+                "ALTER TABLE progress ADD COLUMN history_hidden INTEGER NOT NULL DEFAULT 0"
             )
         channel_columns = {
             row[1] for row in self._db.execute("PRAGMA table_info(channels)").fetchall()
@@ -426,18 +435,22 @@ class Store:
     def favorites(self) -> set[str]:
         return {row[0] for row in self._db.execute("SELECT channel_id FROM favorites")}
 
-    def save_progress(self, channel_id: str, position: float, duration: float) -> None:
+    def save_progress(
+        self, channel_id: str, position: float, duration: float, *, mark_recent: bool = True
+    ) -> None:
         with self._db:
             updated_at = self._db.execute(
                 "SELECT COALESCE(MAX(updated_at), 0) + 1 FROM progress"
             ).fetchone()[0]
             self._db.execute(
                 """
-                INSERT INTO progress(channel_id,position,duration,updated_at) VALUES(?,?,?,?)
+                INSERT INTO progress(channel_id,position,duration,updated_at,history_hidden)
+                VALUES(?,?,?,?,?)
                 ON CONFLICT(channel_id) DO UPDATE SET position=excluded.position,
-                  duration=excluded.duration, updated_at=excluded.updated_at
+                  duration=excluded.duration, updated_at=excluded.updated_at,
+                  history_hidden=excluded.history_hidden
                 """,
-                (channel_id, float(position), float(duration), updated_at),
+                (channel_id, float(position), float(duration), updated_at, int(not mark_recent)),
             )
 
     def progress(self, channel_id: str) -> tuple[float, float]:
@@ -454,13 +467,49 @@ class Store:
             for row in self._db.execute(
                 """
                 SELECT channel_id FROM progress
-                WHERE position >= 0
+                WHERE position >= 0 AND history_hidden = 0
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,
                 (int(limit),),
             )
         ]
+
+    def clear_history(self, source_id: str | None = None, *, reset_progress: bool = False) -> None:
+        assignments = "history_hidden = 1"
+        if reset_progress:
+            assignments += ", position = 0, duration = 0"
+        sql = f"UPDATE progress SET {assignments}"
+        args = ()
+        if source_id is not None:
+            sql += " WHERE channel_id IN (SELECT id FROM channels WHERE source_id = ?)"
+            args = (source_id,)
+        with self._db:
+            self._db.execute(sql, args)
+
+    def playback_preferences(self, source_id: str) -> dict:
+        from .preferences import normalize_preferences
+
+        row = self._db.execute(
+            "SELECT data FROM playback_preferences WHERE source_id = ?", (source_id,)
+        ).fetchone()
+        if row is None:
+            return {}
+        try:
+            return normalize_preferences(json.loads(row[0]))
+        except (ValueError, TypeError):
+            return {}
+
+    def save_playback_preferences(self, source_id: str, preferences: dict) -> None:
+        from .preferences import normalize_preferences
+
+        data = json.dumps(normalize_preferences(preferences), ensure_ascii=False)
+        with self._db:
+            self._db.execute(
+                """INSERT INTO playback_preferences(source_id,data) VALUES(?,?)
+                ON CONFLICT(source_id) DO UPDATE SET data=excluded.data""",
+                (source_id, data),
+            )
 
     def save_account_profile(self, source_id: str, profile: AccountProfile) -> None:
         profile = sanitize_profile(profile)
