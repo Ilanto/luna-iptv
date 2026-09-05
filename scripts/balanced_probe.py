@@ -201,6 +201,8 @@ def main():
             w.player_property("paused-for-cache", True)
             w.player_property("cache-buffering-state", 37)
             assert w.buffer_label.text() == "Arabellek · %37"
+            QTest.qWait(100)
+            assert w.width() == width_before, "Buffer status changed window width"
             w.grab().save(str(out / "luna-buffer-simulated.png"))
             w.player_property("paused-for-cache", False)
             assert w.buffer_label.isHidden()

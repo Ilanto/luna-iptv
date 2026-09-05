@@ -16,6 +16,8 @@ from luna_iptv.models import Channel
 from luna_iptv.storage import Store
 from luna_iptv.window import MainWindow
 
+output = Path(sys.argv[1] if len(sys.argv) > 1 else "work/qa/zapping-after.json").resolve()
+output.parent.mkdir(parents=True, exist_ok=True)
 app = QApplication([])
 with tempfile.TemporaryDirectory(prefix="luna-zapping-") as tmp:
     root = Path(tmp)
@@ -84,9 +86,7 @@ with tempfile.TemporaryDirectory(prefix="luna-zapping-") as tmp:
             "p95_ms": sorted(samples)[18],
             "max_ms": max(samples),
         }
-        Path(sys.argv[1] if len(sys.argv) > 1 else "work/qa/zapping-after.json").write_text(
-            json.dumps(result, indent=2)
-        )
+        output.write_text(json.dumps(result, indent=2))
         print(json.dumps(result, indent=2))
     finally:
         w.close()
