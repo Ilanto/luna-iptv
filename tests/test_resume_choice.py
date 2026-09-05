@@ -40,7 +40,7 @@ def test_library_selection_waits_for_resume_choice(window, choice, start):
     assert window.loads[0][1]["start"] == start
     assert window.current.id == "home:film"
     window.loaded()
-    assert window.store.progress("home:film")[0] == start
+    assert window.store.progress("home:film") == (start, 100)
 
 
 def test_cancel_and_removed_source_do_not_change_playback(window):

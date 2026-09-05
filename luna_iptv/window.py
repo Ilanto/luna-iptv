@@ -451,7 +451,14 @@ class MainWindow(QMainWindow):
         start = self.resume_position(channel) if start_override is None else start_override
         self.current = channel
         self._position = float(start)
-        self._duration = 0.0
+        # Retain known duration until mpv publishes metadata; an early close
+        # after file-loaded must not erase a valid saved resume position.
+        known_duration = self.store.progress(channel.id)[1]
+        self._duration = (
+            known_duration
+            if channel.kind != "live" and math.isfinite(known_duration) and known_duration > 0
+            else 0.0
+        )
         self._seekable = False
         self._last_saved = 0.0
         self._loading = True
