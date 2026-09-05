@@ -1,7 +1,76 @@
+# Python environments and generated files
 .venv/
+venv/
+env/
 __pycache__/
-.pytest_cache/
+*.py[cod]
 *.egg-info/
+
+# Local tooling and test results
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.log
+
+# Build products, downloaded dependencies and generated QA media
 build/
 dist/
 work/
+*.rpm
+*.whl
+/*.tar.gz
+/*.tar.xz
+/*.zip
+
+# Local configuration and account secrets (never commit real provider data)
+.env
+.env.*
+.netrc
+.pypirc
+credentials.json
+credentials.toml
+credentials.yaml
+credentials.yml
+accounts.json
+xtream.json
+tokens.json
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Personal libraries, playlists, guide caches, recordings and backups
+/data/
+/cache/
+/logs/
+/playlists/
+/recordings/
+/backups/
+/.local/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.m3u
+*.m3u8
+*.xmltv
+*.xmltv.*
+/epg*.xml
+/epg*.xml.gz
+/guide*.xml
+/guide*.xml.gz
+
+# Editor and desktop leftovers
+*.swp
+*.swo
+*~
+.DS_Store
