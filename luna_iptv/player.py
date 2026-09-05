@@ -65,6 +65,7 @@ class Player(QObject):
         self._termination = None
         self._load_generation = 0
         self._latest_load_token = 0
+        self._reserved_load_token: int | None = None
         self._entry_tokens: dict[int, int] = {}
         self._pending_entry_events: dict[int, list[tuple[str, tuple[Any, ...]]]] = {}
         self._current_entry_id: int | None = None
@@ -156,7 +157,7 @@ class Player(QObject):
             args, self._pending_load = self._pending_load, None
             self._issue_load(*args)
 
-    def load(self, url: str, headers: dict | None = None, start: float = 0):
+    def reserve_load(self) -> int | None:
         if self._closed:
             return
         self._load_generation += 1
@@ -167,6 +168,25 @@ class Player(QObject):
         self._current_entry_id = None
         self._untracked_token = None
         self._untracked_entry_id = None
+        self._pending_load = None
+        self._reserved_load_token = token
+        return token
+
+    def load(
+        self,
+        url: str,
+        headers: dict | None = None,
+        start: float = 0,
+        *,
+        token: int | None = None,
+    ):
+        if token is None:
+            token = self._reserved_load_token
+            if token is None:
+                token = self.reserve_load()
+        self._reserved_load_token = None
+        if self._closed or token is None or token != self._latest_load_token:
+            return token
         if not url or "\x00" in url:
             self.error.emit("Geçerli bir yayın adresi seçin.")
             return token
@@ -317,6 +337,7 @@ class Player(QObject):
         self._pending_load = None
         self._entry_tokens.clear()
         self._pending_entry_events.clear()
+        self._reserved_load_token = None
         self._current_entry_id = None
         self._untracked_token = None
         self._untracked_entry_id = None

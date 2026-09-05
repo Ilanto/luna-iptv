@@ -3,20 +3,47 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
+from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QLabel
 from shiboken6 import isValid
 
-from luna_iptv.models import Channel
+from luna_iptv.models import Channel, Playlist
 from luna_iptv.storage import Store
 from luna_iptv.window import MainWindow
 
 
-def make_window(qt_app, tmp_path, monkeypatch, *, kind="live"):
+class ImmediateLoadBackend:
+    def __init__(self, result=None, error=None) -> None:
+        self.result = result
+        self.error = error
+        self.events = {}
+
+    def observe_property(self, _name, _callback) -> None:
+        pass
+
+    def event_callback(self, name):
+        return lambda callback: self.events.__setitem__(name, callback) or callback
+
+    def command_async(self, *args):
+        future = Future()
+        if args[0] == "loadfile" and self.error is not None:
+            future.set_exception(self.error)
+        else:
+            future.set_result(self.result if args[0] == "loadfile" else None)
+        return future
+
+    def terminate(self) -> None:
+        pass
+
+
+def make_window(qt_app, tmp_path, monkeypatch, *, kind="live", stub_player=True):
     store = Store(tmp_path / "library.sqlite3")
     source_id = store.save_source(
         {"name": "Yerel", "type": "m3u", "location": "https://example.test/list"}
@@ -29,20 +56,71 @@ def make_window(qt_app, tmp_path, monkeypatch, *, kind="live"):
     channel = store.channels(source_id)[0]
     tokens = iter(range(10, 30))
     loads = []
+    reserved = []
+
+    def reserve_load():
+        token = next(tokens)
+        reserved.append(token)
+        return token
 
     def load(*args, **kwargs):
-        token = next(tokens)
+        token = reserved.pop()
         loads.append((token, args, kwargs))
         return token
 
-    monkeypatch.setattr(window.player, "load", load)
-    monkeypatch.setattr(window.player, "stop", lambda: None)
+    if stub_player:
+        monkeypatch.setattr(window.player, "reserve_load", reserve_load)
+        monkeypatch.setattr(window.player, "load", load)
+        monkeypatch.setattr(window.player, "stop", lambda: None)
     return window, channel, loads
 
 
 def fire_recovery_timer(window):
     window.recovery._timer.stop()
     window.recovery._timer.timeout.emit()
+
+
+def make_immediate_backend_window(qt_app, tmp_path, monkeypatch, backend):
+    monkeypatch.setitem(sys.modules, "mpv", SimpleNamespace(MPV=lambda **_kwargs: backend))
+    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch, stub_player=False)
+    window.player._render_ready = True
+    return window, channel, loads
+
+
+def test_synchronous_missing_load_id_is_registered_before_tracking_lost(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    backend = ImmediateLoadBackend(result={})
+    window, channel, _loads = make_immediate_backend_window(qt_app, tmp_path, monkeypatch, backend)
+    try:
+        window.play(channel)
+
+        assert window._playback_token == 1
+        assert window._untracked_playback_token == 1
+        assert window.recovery.state == "idle"
+        assert window.recovery._timer.isActive() is False
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_synchronous_load_failure_is_registered_before_retry_is_scheduled(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    backend = ImmediateLoadBackend(error=RuntimeError("fixture failure"))
+    window, channel, _loads = make_immediate_backend_window(qt_app, tmp_path, monkeypatch, backend)
+    try:
+        window.play(channel)
+
+        assert window._playback_token == 1
+        assert window.recovery.state == "waiting"
+        assert window.recovery.attempt == 1
+        assert window.recovery._timer.interval() == 1000
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
 
 
 def test_live_failure_retries_same_channel_and_ignores_old_end(
@@ -199,6 +277,45 @@ def test_status_is_mirrored_when_compact_player_status_exists(
         window.status("Canlı yayın arabelleğe alınıyor…")
 
         assert window.mini_status_label.text() == "Canlı yayın arabelleğe alınıyor…"
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_current_playback_still_cleans_up_after_source_refresh_cancels_recovery(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch)
+    try:
+        window.play(channel)
+        window.playback_loaded(10)
+        source = window.source_for(channel)
+        window.accept_import(
+            source,
+            Playlist(
+                [
+                    Channel(
+                        channel.id,
+                        channel.name,
+                        channel.url,
+                        kind=channel.kind,
+                    )
+                ],
+                [],
+                [],
+            ),
+        )
+        assert window.recovery.state == "idle"
+        assert window._idle is False
+
+        window.playback_finished(10, "error", "Yayın açılamadı.")
+
+        assert len(loads) == 1
+        assert window._idle is True
+        assert window._loading is False
+        assert window.info_button.isEnabled() is False
+        assert window.message.text() == "Yayın açılamadı."
     finally:
         if isValid(window):
             window.close()

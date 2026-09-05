@@ -233,6 +233,24 @@ def test_duplicate_failure_cannot_create_overlapping_retry(recovery) -> None:
     assert retries == ["source:channel"]
 
 
+def test_late_health_events_cannot_replace_a_scheduled_retry(recovery) -> None:
+    controller, _retries, _clock = recovery
+    begin_live(controller)
+    controller.loaded(10)
+    controller.failure(10, "error")
+    retry_callback = controller._timer.timeout.callback
+
+    controller.paused(10, True)
+    controller.buffering(10, True)
+    controller.paused(10, False)
+    controller.progress(10, 4.0)
+
+    assert controller.state == "waiting"
+    assert controller.attempt == 1
+    assert controller._timer.interval == 1000
+    assert controller._timer.timeout.callback is retry_callback
+
+
 def test_live_eof_recovers_but_stop_and_close_do_not(recovery) -> None:
     controller, retries, _clock = recovery
     begin_live(controller)

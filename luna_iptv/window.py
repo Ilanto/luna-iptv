@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         self._idle = True
         self._playback_token = None
         self._untracked_playback_token = None
+        self._playback_active = False
         self._account_dialog = None
         self.media_info = MediaInfo()
         self.setWindowTitle("Luna IPTV")
@@ -237,6 +238,7 @@ class MainWindow(QMainWindow):
         if self.current and self.current.id.startswith(source_id + ":"):
             self.save_progress()
             if self.current.id not in incoming:
+                self._playback_active = False
                 self.player.stop()
                 self.current = None
                 self._loading = False
@@ -439,23 +441,27 @@ class MainWindow(QMainWindow):
                 else 0
             )
         )
-        self._playback_token = self.player.load(channel.url, channel.headers, start=start)
+        self._playback_token = self.player.reserve_load()
         self._untracked_playback_token = None
+        self._playback_active = self._playback_token is not None
         self.recovery.watch(self._playback_token)
         self.status("Yayın açılıyor…", lambda: self.play(self.current) if self.current else None)
         self.refresh_recovery()
+        if self._playback_token is not None:
+            self.player.load(channel.url, channel.headers, start=start)
         source = self.source_for(channel)
         if source and source.get("epg_url") and source["id"] not in self._guide_data:
             self.load_guide(source)
 
     def loaded(self):
-        if self._untracked_playback_token != self._playback_token:
+        if not self._playback_active or self._untracked_playback_token != self._playback_token:
             return
         self._mark_loaded()
 
     def playback_loaded(self, token):
-        if token != self._playback_token or not self.recovery.loaded(token):
+        if token != self._playback_token or not self._playback_active:
             return
+        self.recovery.loaded(token)
         self._mark_loaded()
 
     def _mark_loaded(self):
@@ -494,22 +500,25 @@ class MainWindow(QMainWindow):
             self.recovery.buffering(token, bool(value))
 
     def playback_finished(self, token, reason, message):
-        if token != self._playback_token or not self.recovery.failure(token, reason):
+        if token != self._playback_token or not self._playback_active:
             return
+        recovery_handled = self.recovery.failure(token, reason)
         if self.current and self.current.kind != "live":
             self.save_progress()
         self._finish_playback()
-        if self.recovery.state == "failed":
+        if recovery_handled and self.recovery.state == "failed":
             self.status(
                 self.recovery.message,
                 lambda: self.play(self.current) if self.current else None,
             )
-        elif self.recovery.message:
+        elif recovery_handled and self.recovery.message:
             self.status(self.recovery.message)
         elif message:
-            self.status(message, lambda: self.play(self.current) if self.current else None)
+            self.status(message)
 
-    def _finish_playback(self):
+    def _finish_playback(self, *, end_session=True):
+        if end_session:
+            self._playback_active = False
         self._idle = True
         self._loading = False
         self.transport.finished()
@@ -523,7 +532,7 @@ class MainWindow(QMainWindow):
     def ended(self):
         if self._closed:
             return
-        if self._untracked_playback_token == self._playback_token:
+        if self._playback_active and self._untracked_playback_token == self._playback_token:
             if self.current and self.current.kind != "live":
                 self.save_progress()
             self._finish_playback()
@@ -612,6 +621,7 @@ class MainWindow(QMainWindow):
         self.save_progress()
         self.recovery.cancel()
         self._untracked_playback_token = None
+        self._playback_active = False
         self.transport.finished()
         self._idle = True
         self._loading = False
@@ -641,7 +651,7 @@ class MainWindow(QMainWindow):
             and self.current.kind == "live"
             and (self._loading or not self._idle)
         ):
-            self._finish_playback()
+            self._finish_playback(end_session=self.recovery.state == "failed")
         self.recovery_cancel_button.setVisible(self.recovery.can_cancel)
         if self.recovery.message:
             retry = (

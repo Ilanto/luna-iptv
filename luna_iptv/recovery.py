@@ -135,6 +135,8 @@ class RecoveryController(QObject):
     def progress(self, token: int, position: Any) -> bool:
         if not self._matches(token):
             return False
+        if self._state == "waiting":
+            return True
         number = self._number(position)
         if number is None:
             return True
@@ -159,6 +161,8 @@ class RecoveryController(QObject):
     def paused(self, token: int, paused: bool) -> bool:
         if not self._matches(token):
             return False
+        if self._state == "waiting":
+            return True
         before = self._visible_state()
         self._paused = bool(paused)
         if self._live and self._paused:
@@ -180,6 +184,8 @@ class RecoveryController(QObject):
     def buffering(self, token: int, buffering: bool) -> bool:
         if not self._matches(token):
             return False
+        if self._state == "waiting":
+            return True
         before = self._visible_state()
         self._buffering = bool(buffering)
         if self._live and self._buffering and not self._paused:
