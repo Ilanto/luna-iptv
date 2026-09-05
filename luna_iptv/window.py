@@ -19,6 +19,7 @@ from .dialogs import GuideDialog, SourceDialog
 from .epg import now_next, parse_xmltv
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
+from .media_info import MediaInfo
 from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .player import Player
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
         self._last_saved = 0.0
         self._loading = False
         self._idle = True
+        self.media_info = MediaInfo()
         self.setWindowTitle("Luna IPTV")
         self.resize(1340, 850)
         self.setMinimumSize(1040, 690)
@@ -374,6 +376,9 @@ class MainWindow(QMainWindow):
         self._seekable = False
         self._last_saved = 0.0
         self._loading = True
+        self.media_info.begin_load()
+        self.refresh_media_info()
+        self.info_button.setEnabled(True)
         self.video_title.setText(channel.name)
         self.video_badge.setText(
             "CANLI YAYIN" if channel.kind == "live" else channel.group.upper() or "FİLM / VİDEO"
@@ -401,6 +406,9 @@ class MainWindow(QMainWindow):
             return
         self._idle = False
         self._loading = False
+        self.media_info.mark_loaded()
+        self.refresh_media_info()
+        self.info_button.setEnabled(self.current is not None)
         self.status("Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
         if self.current:
@@ -411,6 +419,10 @@ class MainWindow(QMainWindow):
             return
         self._idle = True
         self._loading = False
+        self.media_info.reset()
+        self.refresh_media_info()
+        self.info_panel.hide()
+        self.info_button.setEnabled(False)
         self.status(message, lambda: self.play(self.current) if self.current else None)
 
     def ended(self):
@@ -419,10 +431,19 @@ class MainWindow(QMainWindow):
         if not self._loading:
             self.play_button.setText("▶")
             self.save_progress()
+            self.media_info.reset()
+            self.refresh_media_info()
+            self.info_panel.hide()
+            self.info_button.setEnabled(False)
 
     def player_property(self, name, value):
         if self._closed:
             return
+        if self.media_info.update(name, value):
+            self.refresh_media_info()
+        if name == "idle-active" and value and not self._loading:
+            self.info_panel.hide()
+            self.info_button.setEnabled(False)
         if name == "time-pos" and value is not None:
             self._position = float(value)
             if not self.seek.isSliderDown() and self._duration > 0:
@@ -481,9 +502,38 @@ class MainWindow(QMainWindow):
         self.save_progress()
         self._idle = True
         self._loading = False
+        self.media_info.reset()
+        self.refresh_media_info()
+        self.info_panel.hide()
+        self.info_button.setEnabled(False)
         self.player.stop()
         self.status("Yayın durduruldu.")
         self.seek.setEnabled(False)
+
+    def toggle_info_panel(self):
+        self.info_panel.setVisible(self.info_panel.isHidden())
+
+    def refresh_media_info(self):
+        fields = {
+            self.info_dimensions: self.media_info.dimensions,
+            self.info_quality: self.media_info.quality,
+            self.info_video_codec: self.media_info.video_codec,
+            self.info_audio_codec: self.media_info.audio_codec,
+            self.info_audio_layout: self.media_info.audio_layout,
+            self.info_fps: self.media_info.fps,
+            self.info_bitrate: self.media_info.bitrate,
+            self.info_dynamic_range: self.media_info.dynamic_range,
+        }
+        for label, value in fields.items():
+            if label.text() != value:
+                label.setText(value)
+        for label, kind in ((self.info_video_codec, "video"), (self.info_audio_codec, "audio")):
+            description = self.media_info.codec_description(kind)
+            label.setToolTip(description)
+            label.setAccessibleDescription(description)
+        buffer_text = self.media_info.buffer_text
+        self.buffer_label.setText(buffer_text)
+        self.buffer_label.setVisible(bool(buffer_text))
 
     def toggle_favorite(self):
         if not self.current:
