@@ -14,11 +14,13 @@ from PySide6.QtWidgets import QApplication
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from luna_iptv.models import Channel
 from luna_iptv.storage import Store
+from luna_iptv.theme import apply_theme
 from luna_iptv.window import MainWindow
 
 output = Path(sys.argv[1] if len(sys.argv) > 1 else "work/qa/zapping-after.json").resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
 app = QApplication([])
+apply_theme(app)
 with tempfile.TemporaryDirectory(prefix="luna-zapping-") as tmp:
     root = Path(tmp)
     for color in ("red", "blue"):
@@ -45,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix="luna-zapping-") as tmp:
         source_id, [Channel(color, color, str(root / f"{color}.mkv")) for color in ("red", "blue")]
     )
     w = MainWindow(store)
-    errors, loaded, samples = [], [], []
+    errors, loaded, samples, load_samples = [], [], [], []
     w.player.error.connect(errors.append)
     w.player.file_loaded.connect(lambda: loaded.append(time.perf_counter()))
     w.show()
@@ -75,9 +77,11 @@ with tempfile.TemporaryDirectory(prefix="luna-zapping-") as tmp:
             assert w.player._mpv is backend and not errors
             if i >= 4:
                 samples.append(round(elapsed, 2))
+                load_samples.append(round((loaded[-1] - start) * 1000, 2))
         result = {
             "platform": app.platformName(),
             "DISPLAY_present": bool(os.getenv("DISPLAY")),
+            "theme": "application",
             "fixture": "local 640x360 MPEG2 red/blue; 4 warmup + 20 switches",
             "measurement": "MainWindow.play to confirmed target framebuffer colour",
             "single_backend": True,
@@ -85,6 +89,7 @@ with tempfile.TemporaryDirectory(prefix="luna-zapping-") as tmp:
             "median_ms": round(statistics.median(samples), 2),
             "p95_ms": sorted(samples)[18],
             "max_ms": max(samples),
+            "file_loaded_median_ms": round(statistics.median(load_samples), 2),
         }
         output.write_text(json.dumps(result, indent=2))
         print(json.dumps(result, indent=2))

@@ -27,10 +27,10 @@
 
 **Interfaces:** Store.recent_ids() remains ordered list[str]; ChannelFilter.set_recent_ids(ids) stores ranks, preserves O(1) membership, and invalidates affected sorting. refresh() enables sorting only in the recent root view and resets to source order elsewhere.
 
-- [ ] Run prepared real-UI regression tests and verify ordering failures.
-- [ ] Replace set conversion with ordered ranks, implement lessThan and restore sort(-1) outside recent; leave DB schema and playback untouched.
-- [ ] Verify filters, refresh, ordinary sections and empty history; run original suite.
-- [ ] Commit, obtain independent review, PR closing existing issue #1, merge after checks.
+- [x] Run prepared real-UI regression tests and verify ordering failures.
+- [x] Replace set conversion with ordered ranks, implement lessThan and restore sort(-1) outside recent; leave DB schema and playback untouched.
+- [x] Verify filters, refresh, ordinary sections and empty history; run original suite.
+- [x] Commit, obtain independent review, PR closing existing issue #1, merge after checks.
 
 ```python
 assert visible_names(recent_view) == ['Most recently watched', 'Earlier watch']
@@ -44,10 +44,10 @@ assert visible_names(window.channel_list.model()) == ['Catalogue first', 'Catalo
 
 **Interfaces:** Store.rename_source(source_id: str, name: str) -> bool; trim names, reject empty/control-invalid input, return false for absent source. UI uses a prefilled rename dialog from source menu and updates the source picker without resetting active playback or list filters.
 
-- [ ] Test rename persists across reopen, preserves every credential/URL/channel/favorite/progress field, cancellation and empty/unknown source.
-- [ ] Implement narrow UPDATE sources SET name; add menu action and accessible dialog.
-- [ ] Test UI-selected source identity and playing channel stay stable; original suite.
-- [ ] Commit, review and merge associated PR.
+- [x] Test rename persists across reopen, preserves every credential/URL/channel/favorite/progress field, cancellation and empty/unknown source.
+- [x] Implement narrow UPDATE sources SET name; add menu action and accessible dialog.
+- [x] Test UI-selected source identity and playing channel stay stable; original suite.
+- [x] Commit, review and merge associated PR.
 
 ```python
 assert store.rename_source(source_id, '  Evdeki yayınlar  ')
@@ -61,10 +61,10 @@ assert store.progress(channel_id) == (42, 100)
 
 **Interfaces:** ChannelModel.reset() precomputes normalized name/group keys once; ChannelFilter.refresh() normalizes query once. Existing immediate textChanged behaviour is retained; no debounce delay that breaks existing UI contracts.
 
-- [ ] Add accented/Turkish name/group, empty query and refresh correctness regressions.
-- [ ] Measure current 10k/50k/100k filter path; cache derived search keys and query.
-- [ ] Verify updated catalogues replace stale keys, source/category/recent filters still compose; report relative time and memory tradeoff without flaky timing assertions.
-- [ ] Run suite, commit, review and merge associated PR.
+- [x] Add accented/Turkish name/group, empty query and refresh correctness regressions.
+- [x] Measure current 10k/50k/100k filter path; cache derived search keys and query.
+- [x] Verify updated catalogues replace stale keys, source/category/recent filters still compose; report relative time and memory tradeoff without flaky timing assertions.
+- [x] Run suite, commit, review and merge associated PR.
 
 ```python
 window.search.setText('ISIK')
@@ -79,10 +79,10 @@ assert visible_names(window.channel_list.model()) == ['İkinci IŞIK yayını']
 
 **Bounds:** At most 4 concurrent fetches, 5-second request timeout, 2 MiB transfer limit, 4-million-pixel decode limit; downscale logos to list size; memory LRU at most 256 entries and disk quota 64 MiB. Success TTL 7 days, negative TTL 15 minutes. Cache path must derive from isolated Store data for tests; files private. Implement deterministic injectable clock/limits where helpful.
 
-- [ ] Write localhost tests for valid image, relative M3U/Xtream paths, missing/broken/oversized image, duplicate request, cache hit/restart/expiry/eviction and negative caching.
-- [ ] Implement bounded asynchronous fetch/decode and disk writes outside paint; no credential-header forwarding; discard stale/closed view updates.
-- [ ] Wire visible-row loading, aspect-preserving logo draw and fallback. Verify no stream is opened by logo work and shutdown has no late QObject errors.
-- [ ] Run focused tests and lint; commit to assigned isolated branch. Root reviews, merges current main into branch, runs integrated suite and merges PR.
+- [x] Write localhost tests for valid image, relative M3U/Xtream paths, missing/broken/oversized image, duplicate request, cache hit/restart/expiry/eviction and negative caching.
+- [x] Implement bounded asynchronous fetch/decode and disk writes outside paint; no credential-header forwarding; discard stale/closed view updates.
+- [x] Wire visible-row loading, aspect-preserving logo draw and fallback. Verify no stream is opened by logo work and shutdown has no late QObject errors.
+- [x] Run focused tests and lint; commit to assigned isolated branch. Root reviews, merges current main into branch, runs integrated suite and merges PR.
 
 ```python
 request_logo(local_png_url)
@@ -99,10 +99,10 @@ assert http_server.request_count == 1
 
 **Interfaces:** A small MediaInfo state consumes property updates and resets on new load/stop; a compact optional panel uses plain-text labels. Observe optional mpv properties defensively: video-dec-params/video-params, container-fps, video/audio-bitrate, audio-params and selected track metadata. Existing single handle/render lifecycle stays unchanged. Keep static fields event-driven; throttle dynamic visible detail updates.
 
-- [ ] Test actual dimensions and SD/HD/QHD/4K labels, interlaced/unknown scan, selected codecs/audio layout, FPS, absent bitrate, HDR/SDR/unknown and resets.
-- [ ] Test buffer 0/partial/full/unknown, loading/paused/idle transitions, no stale label after switching stream, and controls working in fullscreen.
-- [ ] Implement state, panel toggle/accessible labels and indicator from already-observed cache-buffering-state/paused-for-cache; no new network request/decoder.
-- [ ] Verify against local generated H264/AAC and MPEG2/MP2 data; commit isolated branch. Root integrates/reviews/runs native suite and merges PR.
+- [x] Test actual dimensions and SD/HD/QHD/4K labels, interlaced/unknown scan, selected codecs/audio layout, FPS, absent bitrate, HDR/SDR/unknown and resets.
+- [x] Test buffer 0/partial/full/unknown, loading/paused/idle transitions, no stale label after switching stream, and controls working in fullscreen.
+- [x] Implement state, panel toggle/accessible labels and indicator from already-observed cache-buffering-state/paused-for-cache; no new network request/decoder.
+- [x] Verify against local generated H264/AAC and MPEG2/MP2 data; commit isolated branch. Root integrates/reviews/runs native suite and merges PR.
 
 ```python
 state.update('video-params', {'w': 1920, 'h': 1080})
@@ -117,10 +117,10 @@ assert state.dimensions == 'Bilgi yok'
 
 **Interfaces:** An optional sanitized account-profile value on Playlist (default None preserves all three-argument constructors); XtreamClient.account_info() retrieves only the profile endpoint. Add an FK-cascading account snapshot table instead of storing the raw response. Account dialog shows cached data immediately and refreshes asynchronously without reloading the catalogue.
 
-- [ ] Test mixed string/number timestamps/counts, auth versus status, expired/disabled/unknown states, missing dates and zero limits. Only whitelist metadata; never retain returned username/password/token.
-- [ ] Test cached profile persistence on old/new Store, source deletion cascade, stale async reply after deletion/close and refresh network error retaining last known data with timestamp.
-- [ ] Capture profile already returned during catalogue loading. Show account-created date, expiry, remaining days/approximate months, text+visual status, last checked active/max connections. Do not equate network failure with expired or null with unlimited.
-- [ ] Add source menu access for Xtream only and separate refresh action; focused tests/lint; commit isolated branch. Root integrates/reviews/tests and merges PR.
+- [x] Test mixed string/number timestamps/counts, auth versus status, expired/disabled/unknown states, missing dates and zero limits. Only whitelist metadata; never retain returned username/password/token.
+- [x] Test cached profile persistence on old/new Store, source deletion cascade, stale async reply after deletion/close and refresh network error retaining last known data with timestamp.
+- [x] Capture profile already returned during catalogue loading. Show account-created date, expiry, remaining days/approximate months, text+visual status, last checked active/max connections. Do not equate network failure with expired or null with unlimited.
+- [x] Add source menu access for Xtream only and separate refresh action; focused tests/lint; commit isolated branch. Root integrates/reviews/tests and merges PR.
 
 ```python
 profile = normalize_profile({'user_info': {'auth': 1, 'status': 'Expired', 'password': 'fixture-secret'}})
@@ -132,12 +132,12 @@ assert 'fixture-secret' not in serialize_profile(profile)
 
 **Files:** scripts/ benchmark/verification helpers; README.md, docs/verification.md, versions in pyproject.toml/__init__.py/spec and scripts/check-package.py as required.
 
-- [ ] Run all original and added tests, Ruff and format checks on the combined exact PR head.
-- [ ] Run native Wayland local/HLS + H264 probe and full GUI smoke using only synthetic isolated data.
-- [ ] Measure search and repeated local channel switches before/after with the same harness; investigate material regressions before merge.
-- [ ] Visually inspect synthetic-source UI with logos, account panel and playback info; verify fallback and accessibility labels.
-- [ ] Build version 0.2.0 RPM without system install; extract, compare packaged source bytes and launch on native Wayland with isolated data.
-- [ ] Review complete diff, scan staged/history content for secrets/artifacts, merge final release PR, verify remote main hash and issue closure. Leave original checkpoint branch/history intact.
+- [x] Run all original and added tests, Ruff and format checks on the combined exact PR head.
+- [x] Run native Wayland local/HLS + H264 probe and full GUI smoke using only synthetic isolated data.
+- [x] Measure search and repeated local channel switches before/after with the same harness; investigate material regressions before merge.
+- [x] Visually inspect synthetic-source UI with logos, account panel and playback info; verify fallback and accessibility labels.
+- [x] Build version 0.2.0 RPM without system install; extract, compare packaged source bytes and launch on native Wayland with isolated data.
+- [x] Review the complete diff and scan staged/history content for secrets/artifacts before the final release PR. Merge confirmation, remote main hash and issue closure are recorded in the final PR and task delivery; the original checkpoint branch/history remain intact.
 
 ## Execution record
 
