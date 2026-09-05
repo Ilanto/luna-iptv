@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from .accounts import AccountProfile
+
 
 @dataclass
 class Channel:
@@ -22,6 +24,7 @@ class Playlist:
     channels: list[Channel]
     epg_urls: list[str]
     warnings: list[str]
+    account_profile: AccountProfile | None = None
 
 
 @dataclass
