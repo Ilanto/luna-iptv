@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -308,7 +309,7 @@ def test_reopen_backfills_legacy_xtream_identity_without_losing_user_state(tmp_p
     store.set_favorite("provider:legacy", True)
     store.save_progress("provider:legacy", 8, 20)
     store.close()
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         database.execute("DROP INDEX channels_provider_key_idx")
         database.execute("UPDATE channels SET provider_key='' WHERE id='provider:legacy'")
 
