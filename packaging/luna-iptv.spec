@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.3.0
+Version:        0.4.0
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
