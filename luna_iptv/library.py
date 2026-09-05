@@ -50,7 +50,19 @@ class ChannelFilter(QSortFilterProxyModel):
         self.group = ""
         self.source = ""
         self.episode_ids = None
-        self.recent = set()
+        self.recent = {}
+
+    def set_recent_ids(self, channel_ids):
+        self.recent = {channel_id: rank for rank, channel_id in enumerate(channel_ids)}
+        self.invalidate()
+
+    def lessThan(self, left, right):
+        if self.section == "recent" and self.episode_ids is None:
+            channels = self.sourceModel().channels
+            return self.recent.get(channels[left.row()].id, len(self.recent)) < self.recent.get(
+                channels[right.row()].id, len(self.recent)
+            )
+        return left.row() < right.row()
 
     def filterAcceptsRow(self, row, parent):
         channel = self.sourceModel().channels[row]
@@ -74,6 +86,7 @@ class ChannelFilter(QSortFilterProxyModel):
         )
 
     def refresh(self):
+        self.sort(0 if self.section == "recent" and self.episode_ids is None else -1)
         if hasattr(self, "endFilterChange"):
             self.beginFilterChange()
             self.endFilterChange(QSortFilterProxyModel.Direction.Rows)

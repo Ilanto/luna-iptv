@@ -22,6 +22,8 @@ htmlcov/
 build/
 dist/
 work/
+.worktrees/
+.superpowers/
 *.rpm
 *.whl
 /*.tar.gz
