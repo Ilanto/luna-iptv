@@ -639,3 +639,78 @@ def test_xtream_refresh_uses_reconciled_legacy_id_and_keeps_playback(window, mon
     assert window.current.id == "provider:legacy-channel-id"
     assert window.current.name == "New title"
     assert window._loading is True
+
+
+def test_direct_connection_edit_preserves_single_channel_identity_and_user_state(tmp_path):
+    store = Store(tmp_path / "direct.sqlite3")
+    old = {
+        "id": "direct",
+        "name": "Local film",
+        "type": "direct",
+        "location": "/tmp/first.mkv",
+        "username": "",
+        "password": "",
+        "epg_url": "",
+    }
+    store.save_source(old)
+    [existing] = store.replace_channels(
+        "direct", [Channel("old-hash", "Local film", "file:///tmp/first.mkv", kind="movie")]
+    )
+    store.set_favorite(existing.id, True)
+    store.save_progress(existing.id, 19, 90)
+    candidate = dict(old, location="/tmp/second.mkv")
+
+    assert store.apply_source_connection(
+        old,
+        candidate,
+        Playlist(
+            [Channel("new-hash", "Local film", "file:///tmp/second.mkv", kind="movie")],
+            [],
+            [],
+        ),
+    )
+
+    [updated] = store.channels("direct")
+    assert updated.id == existing.id
+    assert updated.url == "file:///tmp/second.mkv"
+    assert store.favorites() == {existing.id}
+    assert store.progress(existing.id) == (19, 90)
+
+
+def test_edit_that_removes_playing_channel_detaches_progress_without_stopping(window, monkeypatch):
+    old = dict(xtream_source("/tmp/old.m3u"), type="m3u", username="", password="", epg_url="")
+    window.store.save_source(old)
+    [playing] = window.store.replace_channels(
+        "provider", [Channel("old", "Old", "https://stream.invalid/old")]
+    )
+    window.current = playing
+    window._position, window._duration = 10, 60
+    stops = []
+    monkeypatch.setattr(window.player, "stop", lambda: stops.append(True))
+    callbacks = {}
+
+    class AcceptedDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.Accepted
+
+        def source(self):
+            return dict(old, location="/tmp/new.m3u")
+
+    monkeypatch.setattr("luna_iptv.window.SourceDialog", AcceptedDialog)
+    monkeypatch.setattr(
+        window,
+        "run_task",
+        lambda function, success, *args, **kwargs: callbacks.update(success=success),
+    )
+    window.edit_source(old)
+    callbacks["success"](Playlist([Channel("new", "New", "https://stream.invalid/new")], [], []))
+
+    assert stops == []
+    assert window.current is playing
+    assert window.current.id not in {channel.id for channel in window.store.channels()}
+    window.save_progress()
+    window.loaded()
+    assert not window.favorite_button.isEnabled()

@@ -46,6 +46,7 @@ class MainWindow(QMainWindow):
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
         self.current = None
+        self._current_persistent = True
         self._position = 0.0
         self._duration = 0.0
         self._seekable = False
@@ -256,9 +257,13 @@ class MainWindow(QMainWindow):
         self.model.reset(self.store.channels(), self.store.favorites())
         self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
-            self.current = next(
-                (c for c in self.model.channels if c.id == self.current.id), self.current
-            )
+            stored_current = next((c for c in self.model.channels if c.id == self.current.id), None)
+            if stored_current is None:
+                self._current_persistent = False
+                self.favorite_button.setEnabled(False)
+            else:
+                self.current = stored_current
+                self._current_persistent = True
             self.video_title.setText(self.current.name)
             self.update_guide()
         self.refresh_categories()
@@ -396,6 +401,7 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self.current = channel
+        self._current_persistent = True
         self._position = 0.0
         self._duration = 0.0
         self._seekable = False
@@ -438,7 +444,7 @@ class MainWindow(QMainWindow):
         self.info_button.setEnabled(self.current is not None)
         self.status("Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
-        if self.current:
+        if self.current and self._current_persistent:
             self.store.save_progress(self.current.id, self._position, self._duration)
 
     def playback_error(self, message):
@@ -451,7 +457,10 @@ class MainWindow(QMainWindow):
         self.refresh_media_info()
         self.fullscreen.set_info_visible(False)
         self.info_button.setEnabled(False)
-        self.status(message, lambda: self.play(self.current) if self.current else None)
+        retry = (
+            (lambda: self.play(self.current)) if self.current and self._current_persistent else None
+        )
+        self.status(message, retry)
 
     def ended(self):
         if self._closed:
@@ -515,7 +524,7 @@ class MainWindow(QMainWindow):
             self.status("Yayın oynatılıyor.")
 
     def save_progress(self):
-        if self.current and not self._closed:
+        if self.current and self._current_persistent and not self._closed:
             self.store.save_progress(self.current.id, self._position, self._duration)
 
     def seek_to_slider(self):
@@ -524,6 +533,9 @@ class MainWindow(QMainWindow):
             self.player.command(["seek", self.seek.value() * self._duration / 1000, "absolute"])
 
     def toggle_play(self):
+        if self.current and not self._current_persistent:
+            self.status("Bu yayın artık kaynakta bulunmuyor. Listeden başka bir yayın seç.")
+            return
         if self.current and self._idle:
             self.play(self.current)
         elif self.current and self.transport.rate:
@@ -584,7 +596,7 @@ class MainWindow(QMainWindow):
         self.buffer_label.setVisible(bool(buffer_text))
 
     def toggle_favorite(self):
-        if not self.current:
+        if not self.current or not self._current_persistent:
             return
         favorite = self.current.id not in self.store.favorites()
         self.store.set_favorite(self.current.id, favorite)
@@ -869,6 +881,7 @@ class MainWindow(QMainWindow):
         if self.current and self.current.id.startswith(source["id"] + ":"):
             self.stop_playback()
             self.current = None
+            self._current_persistent = False
             self.favorite_button.setEnabled(False)
             self.video_stack.setCurrentIndex(0)
             self.video_title.setText("İyi bir yayına yer aç.")

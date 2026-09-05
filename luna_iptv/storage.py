@@ -342,6 +342,8 @@ class Store:
     ) -> bool:
         """Compare-and-swap connection metadata and its prepared catalogue atomically."""
 
+        from dataclasses import replace
+
         from .source_connections import retarget_cached_episodes
 
         if not playlist.channels:
@@ -383,6 +385,10 @@ class Store:
                 ]
                 channels.extend(retarget_cached_episodes(candidate, cached))
                 channels = self._reconcile_provider_channels(source_id, channels)
+            elif candidate["type"] == "direct" and len(channels) == 1:
+                existing = self.channels(source_id)
+                if len(existing) == 1:
+                    channels = [replace(channels[0], id=existing[0].id)]
             rows = self._channel_rows(source_id, channels)
             incoming_ids = {row[0] for row in rows}
             self._db.execute(
