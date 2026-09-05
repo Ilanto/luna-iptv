@@ -7,11 +7,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
+version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
 rpm = Path(
-    sys.argv[1] if len(sys.argv) > 1 else root / "dist/luna-iptv-0.1.0-1.noarch.rpm"
+    sys.argv[1] if len(sys.argv) > 1 else root / f"dist/luna-iptv-{version}-1.noarch.rpm"
 ).resolve()
 output = root / "work/qa/package"
 output.mkdir(parents=True, exist_ok=True)
@@ -19,7 +21,7 @@ metadata = subprocess.check_output(
     ["rpm", "-qp", "--qf", "%{NAME} %{VERSION} %{RELEASE} %{ARCH}", str(rpm)], text=True
 )
 requires = subprocess.check_output(["rpm", "-qp", "--requires", str(rpm)], text=True)
-assert metadata == "luna-iptv 0.1.0 1 noarch"
+assert metadata == f"luna-iptv {version} 1 noarch"
 for requirement in [
     "python3 >= 3.11",
     "python3-pyside6 >= 6.8",
@@ -53,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix="luna-rpm-") as directory:
         text=True,
         check=True,
     )
-    assert result.stdout.strip() == "Luna IPTV 0.1.0"
+    assert result.stdout.strip() == f"Luna IPTV {version}"
     probe = """
 import json, os, sys
 from pathlib import Path
@@ -83,7 +85,7 @@ report = {
     "metadata": metadata,
     "dependencies": requires.splitlines(),
     "source_bytes_match": True,
-    "launcher_version": "Luna IPTV 0.1.0",
+    "launcher_version": f"Luna IPTV {version}",
     "gui": launch,
     "sha256": hashlib.sha256(rpm.read_bytes()).hexdigest(),
     "success": True,

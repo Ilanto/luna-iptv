@@ -51,6 +51,7 @@ secrets/
 # Personal libraries, playlists, guide caches, recordings and backups
 /data/
 /cache/
+*.logos/
 /logs/
 /playlists/
 /recordings/

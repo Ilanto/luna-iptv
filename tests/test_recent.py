@@ -126,3 +126,18 @@ def test_recent_with_no_watch_history_stays_empty_on_refresh(window):
 
     assert visible_names(window) == []
     assert not window.no_results.isHidden()
+
+
+def test_episode_view_restores_catalogue_order_then_returns_to_recent(recent_window):
+    recent_window.proxy.episode_ids = {"north:a", "north:b"}
+    recent_window.proxy.refresh()
+    assert visible_names(recent_window) == ["Zebra News", "Alpha News"]
+    recent_window.proxy.episode_ids = None
+    recent_window.proxy.refresh()
+    assert visible_names(recent_window) == [
+        "Echo Sport",
+        "Metro Film",
+        "Delta News",
+        "Alpha News",
+        "Zebra News",
+    ]
