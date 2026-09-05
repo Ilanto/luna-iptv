@@ -65,6 +65,18 @@ def _resolve_url(value: str, base_url: str) -> tuple[str | None, str | None]:
     return str((base_path.parent / raw).resolve(strict=False)), None
 
 
+def resolve_logo(value: str, base_url: str = "") -> str:
+    if not value.strip():
+        return ""
+    try:
+        resolved, _ = _resolve_url(value, base_url)
+        if _base_is_remote(base_url) and urlparse(resolved or "").scheme not in {"http", "https"}:
+            return ""
+        return resolved or ""
+    except ValueError:
+        return ""
+
+
 def _pipe_headers(value: str) -> tuple[str, dict[str, str]]:
     if "|" not in value:
         return value, {}
@@ -175,7 +187,7 @@ def parse_m3u(text: str, base_url: str = "") -> Playlist:
                     url=resolved,
                     group=attrs.get("group-title", ""),
                     tvg_id=attrs.get("tvg-id", ""),
-                    logo=attrs.get("tvg-logo", ""),
+                    logo=resolve_logo(attrs.get("tvg-logo", ""), base_url),
                     kind=kind,
                     series_id=attrs.get("series-id", ""),
                     headers={**pending_headers, **inline_headers},
