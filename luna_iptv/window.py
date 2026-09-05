@@ -849,11 +849,14 @@ class MainWindow(QMainWindow):
         )
 
     def toggle_mini_player(self):
-        if self.mini_player.active:
+        if self.mini_player.active or self.mini_player.pending:
             self.leave_mini_player()
+        elif self._fullscreen:
+            self.mini_player.enter_after_fullscreen(
+                self._fullscreen_return_geometry, self._fullscreen_return_maximized
+            )
+            self.toggle_fullscreen()
         else:
-            if self._fullscreen:
-                self.toggle_fullscreen()
             self.mini_player.enter()
 
     def leave_mini_player(self):
@@ -868,6 +871,7 @@ class MainWindow(QMainWindow):
 
     def toggle_fullscreen(self):
         if not self._fullscreen:
+            self.mini_player.cancel_pending()
             self._fullscreen_return_maximized = self.isMaximized()
             self._fullscreen_return_geometry = (
                 self.normalGeometry() if self.isMaximized() else self.geometry()
@@ -891,7 +895,7 @@ class MainWindow(QMainWindow):
     def leave_fullscreen(self):
         if self._fullscreen:
             self.toggle_fullscreen()
-        elif self.mini_player.active:
+        elif self.mini_player.active or self.mini_player.pending:
             self.leave_mini_player()
 
     def changeEvent(self, event):

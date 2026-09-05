@@ -18,7 +18,7 @@ def test_mini_fullscreen_roundtrips_preserve_native_framebuffer(qt_app, playing_
     assert video.mapTo(window, QPoint()) == QPoint()
     for _ in range(2):
         window.toggle_fullscreen()
-        wait(qt_app, lambda: window.isFullScreen() and video.size() == window.size())
+        wait(qt_app, lambda: window.isFullScreen() and video.size() == window.screen().size())
         window.leave_fullscreen()
         wait(qt_app, lambda: not window.isFullScreen() and window.width() <= 580)
     assert video.parent() is parent and video.context() is context
@@ -63,4 +63,29 @@ def test_mini_controls_operate_the_existing_player(qt_app, playing_window):
     assert "durduruldu" in window.mini_status.text()
     QTest.mouseClick(window.mini_button, Qt.LeftButton)
     assert not window.mini_player.active
+    assert not errors
+
+
+def test_settled_fullscreen_enters_mini_then_restores_original_geometry(qt_app, playing_window):
+    import time
+
+    window, _, errors = playing_window
+    original = window.size()
+    context, parent = window.video.context(), window.video.parent()
+    window.toggle_fullscreen()
+    wait(qt_app, lambda: window.isFullScreen() and window.video.size() == window.screen().size())
+    until = time.monotonic() + 0.25
+    while time.monotonic() < until:
+        qt_app.processEvents()
+        time.sleep(0.005)
+    window.toggle_mini_player()
+    until = time.monotonic() + 0.35
+    while time.monotonic() < until:
+        qt_app.processEvents()
+        time.sleep(0.005)
+    assert not window.isFullScreen() and window.mini_player.active
+    assert window.size().width() <= 580 and window.size().height() <= 410
+    assert window.video.parent() is parent and window.video.context() is context
+    window.leave_mini_player()
+    wait(qt_app, lambda: window.size() == original)
     assert not errors

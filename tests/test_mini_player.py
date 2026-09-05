@@ -1,11 +1,13 @@
 """Mini mode uses real Qt layouts and an inert video backend; no GPU required."""
 
+import time
 from concurrent.futures import Future
 
 import pytest
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from shiboken6 import isValid
 
 from luna_iptv.storage import Store
 from luna_iptv.theme import apply_theme
@@ -53,6 +55,28 @@ class InertVideo(QWidget):
         return self.context_token
 
 
+def wait_for(qt_app, predicate, timeout=3, stable_for=0.1):
+    deadline = time.monotonic() + timeout
+    settled_since = None
+    while time.monotonic() < deadline:
+        qt_app.processEvents()
+        if predicate():
+            if settled_since is None:
+                settled_since = time.monotonic()
+            if time.monotonic() - settled_since >= stable_for:
+                return
+        else:
+            settled_since = None
+        time.sleep(0.005)
+    raise AssertionError("Window mode or geometry did not settle")
+
+
+def fullscreen_settled(window):
+    return window.isFullScreen() and (
+        QApplication.platformName() == "offscreen" or window.size() == window.screen().size()
+    )
+
+
 @pytest.fixture
 def window(qt_app, tmp_path, monkeypatch):
     import luna_iptv.layout as layout_module
@@ -63,17 +87,27 @@ def window(qt_app, tmp_path, monkeypatch):
     apply_theme(qt_app)
     window = MainWindow(Store(tmp_path / "mini.sqlite3"))
     window.video_stack.setCurrentWidget(window.video)
+    initial_size = window.size()
     window.show()
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: window.windowHandle().isExposed() and window.size() == initial_size)
     yield window
-    window.close()
+    if isValid(window):
+        window.close()
     qt_app.processEvents()
 
 
 def enter_mini(window, qt_app):
     assert hasattr(window, "toggle_mini_player"), "Mini player entry point is missing"
     window.toggle_mini_player()
-    qt_app.processEvents()
+    wait_for(
+        qt_app,
+        lambda: (
+            window.mini_player.active
+            and not window.isFullScreen()
+            and window.width() <= 580
+            and window.height() <= 410
+        ),
+    )
 
 
 def test_mini_is_compact_and_keeps_native_objects(window, qt_app):
@@ -100,7 +134,7 @@ def test_return_restores_normal_geometry_minimum_and_visibility(window, qt_app):
     geometry, minimum = window.geometry(), window.minimumSize()
     enter_mini(window, qt_app)
     window.leave_mini_player()
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: window.geometry() == geometry)
 
     assert not window.mini_player.active and not window.fullscreen.active
     assert window.minimumSize() == minimum
@@ -127,10 +161,10 @@ def test_mini_fullscreen_escape_returns_to_mini_then_normal(window, qt_app):
     mini_size = window.size()
     for _ in range(3):
         window.toggle_fullscreen()
-        qt_app.processEvents()
+        wait_for(qt_app, lambda: fullscreen_settled(window))
         assert window._fullscreen and window.isFullScreen()
         window.leave_fullscreen()
-        qt_app.processEvents()
+        wait_for(qt_app, lambda: not window.isFullScreen() and window.size() == mini_size)
         assert window.mini_player.active and not window._fullscreen
         assert window.size() == mini_size
         assert window.sidebar.isHidden()
@@ -144,18 +178,19 @@ def test_mini_fullscreen_escape_returns_to_mini_then_normal(window, qt_app):
 def test_fullscreen_entry_to_mini_returns_to_normal(window, qt_app):
     geometry = window.geometry()
     window.toggle_fullscreen()
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: fullscreen_settled(window))
     enter_mini(window, qt_app)
     assert not window._fullscreen and not window.isFullScreen()
     assert window.width() <= 580
     window.leave_mini_player()
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: window.geometry() == geometry)
     assert window.geometry() == geometry
 
 
 def test_compact_essential_controls_fit_at_minimum_width(window, qt_app):
     enter_mini(window, qt_app)
     window.resize(window.minimumSize())
+    wait_for(qt_app, lambda: window.size() == window.minimumSize())
     window.status("Bağlantı yeniden deneniyor — " * 12)
     qt_app.processEvents()
     window.fullscreen.reveal()
@@ -201,7 +236,7 @@ def test_tagged_advanced_controls_restore_without_replaying_dynamic_visibility(w
 
 def test_normal_maximized_state_is_restored(window, qt_app):
     window.showMaximized()
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: window.isMaximized())
     assert window.isMaximized()
     enter_mini(window, qt_app)
     assert not window.isMaximized()
@@ -214,7 +249,7 @@ def test_entry_button_and_close_keep_single_backend(window, qt_app):
     assert hasattr(window, "mini_button"), "Visible mini player button is missing"
     player = window.player
     QTest.mouseClick(window.mini_button, Qt.LeftButton)
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: window.mini_player.active and window.width() <= 580)
     assert window.mini_player.active
     window.close()
     assert player.shutdown_count == 1
@@ -258,5 +293,22 @@ def test_delayed_fullscreen_restore_cannot_reapply_old_mini_geometry(window, qt_
     window.leave_mini_player()
     # A delayed Wayland state acknowledgement may request windowed mode again.
     window._restore_windowed_state()
-    qt_app.processEvents()
+    wait_for(qt_app, lambda: not window.isFullScreen() and window.geometry() == geometry)
     assert window.geometry() == geometry
+
+
+@pytest.mark.parametrize("action", ["cancel", "close", "fullscreen"])
+def test_cancelled_pending_mini_request_cannot_reenter(window, qt_app, action):
+    controller = window.mini_player
+    controller.enter_after_fullscreen(window.geometry(), False)
+    generation = controller._request_generation
+    assert controller.pending
+    if action == "cancel":
+        window.leave_mini_player()
+    elif action == "close":
+        window.close()
+    else:
+        window.toggle_fullscreen()
+    controller._complete_pending(generation)
+    qt_app.processEvents()
+    assert not controller.pending and not controller.active
