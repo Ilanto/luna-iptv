@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .dialogs import text_label
 from .library import ChannelDelegate
 from .player import VideoWidget
@@ -79,7 +80,7 @@ def build_window(w):
     side.addWidget(w.add_button)
     side.addWidget(button("Kaynak menüsü", w.source_menu))
     side.addSpacing(20)
-    side.addWidget(text_label("Luna IPTV  /  0.1.0", "muted"))
+    side.addWidget(text_label(f"Luna IPTV  /  {__version__}", "muted"))
     body.addWidget(w.sidebar)
     w.splitter = QSplitter(Qt.Horizontal)
     w.splitter.setChildrenCollapsible(False)
