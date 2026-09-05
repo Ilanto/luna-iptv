@@ -172,6 +172,62 @@ def test_memory_and_disk_eviction(qt_app, cache_factory, server):
     assert len(files) < 4
 
 
+def test_abandoned_managed_temp_file_counts_toward_disk_quota(cache_factory, tmp_path):
+    cache = cache_factory(disk_limit=1_000)
+    cache.cache_dir.mkdir(parents=True)
+    orphan = cache._disk._path("https://img.test/interrupted").with_suffix(".tmp")
+    orphan.write_bytes(b"x" * 1_000)
+    unmanaged = cache.cache_dir / "keep-this.tmp"
+    unmanaged.write_bytes(b"inside cache but not managed")
+    outside = tmp_path / "user-file.tmp"
+    outside.write_bytes(b"outside cache")
+
+    cache._disk.save("https://img.test/new", png(), 60, 60)
+
+    managed = [
+        path
+        for path in cache.cache_dir.iterdir()
+        if len(path.stem) == 64
+        and set(path.stem) <= set("0123456789abcdef")
+        and path.suffix in {".logo", ".tmp"}
+    ]
+    assert sum(path.stat().st_size for path in managed) <= 1_000
+    assert unmanaged.read_bytes() == b"inside cache but not managed"
+    assert outside.read_bytes() == b"outside cache"
+
+
+def test_failed_partial_cache_write_removes_its_temp_file(cache_factory, tmp_path, monkeypatch):
+    cache = cache_factory()
+    url = "https://img.test/partial"
+    temporary = cache._disk._path(url).with_suffix(".tmp")
+    outside = tmp_path / "user-file.tmp"
+    outside.write_bytes(b"untouched")
+    real_fdopen = importlib.import_module("os").fdopen
+
+    class PartialWrite:
+        def __init__(self, descriptor):
+            self.file = real_fdopen(descriptor, "wb")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.file.close()
+
+        def write(self, data):
+            self.file.write(data[:8])
+            self.file.flush()
+            raise OSError("simulated interrupted write")
+
+    logos = importlib.import_module("luna_iptv.logos")
+    monkeypatch.setattr(logos.os, "fdopen", lambda descriptor, _mode: PartialWrite(descriptor))
+
+    cache._disk.save(url, png(), 60, 60)
+
+    assert not temporary.exists()
+    assert outside.read_bytes() == b"untouched"
+
+
 def test_redirects_do_not_forward_auth_or_cookies(qt_app, cache_factory, server):
     server["routes"]["/redirect"] = (
         302,

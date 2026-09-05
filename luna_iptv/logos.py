@@ -42,6 +42,17 @@ class _DiskCache:
     def _path(self, url):
         return self.directory / (hashlib.sha256(url.encode()).hexdigest() + ".logo")
 
+    @staticmethod
+    def _is_managed_entry(path):
+        digest = path.stem
+        return (
+            not path.is_symlink()
+            and path.is_file()
+            and path.suffix in {".logo", ".tmp"}
+            and len(digest) == 64
+            and all(character in "0123456789abcdef" for character in digest)
+        )
+
     def decode(self, raw):
         if not raw or len(raw) > self.max_bytes:
             return None
@@ -103,6 +114,7 @@ class _DiskCache:
         metadata = json.dumps({"expiry": expiry, "ok": image is not None}).encode()
         data = metadata + b"\n" + bytes(payload)
         with self.lock:
+            temporary = None
             try:
                 self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
                 self.directory.chmod(0o700)
@@ -114,7 +126,10 @@ class _DiskCache:
                         file.write(data)
                     temporary.chmod(0o600)
                     temporary.replace(path)
-                files = sorted(self.directory.glob("*.logo"), key=lambda p: p.stat().st_mtime)
+                files = sorted(
+                    (entry for entry in self.directory.iterdir() if self._is_managed_entry(entry)),
+                    key=lambda entry: entry.stat().st_mtime,
+                )
                 total = sum(p.stat().st_size for p in files)
                 for old in files:
                     if total <= self.quota:
@@ -122,7 +137,12 @@ class _DiskCache:
                     total -= old.stat().st_size
                     old.unlink(missing_ok=True)
             except OSError:
-                pass  # An unwritable cache never breaks the library.
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                # An unwritable cache never breaks the library.
         return image, expiry
 
 
