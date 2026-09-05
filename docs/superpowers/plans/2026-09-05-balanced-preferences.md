@@ -24,5 +24,5 @@
 - [x] Run those tests and record the missing-feature RED before implementation.
 - [x] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
 - [x] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
-- [ ] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
-- [ ] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.
+- [x] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
+- [x] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.

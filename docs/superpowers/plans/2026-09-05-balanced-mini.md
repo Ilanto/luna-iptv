@@ -20,9 +20,9 @@
 **Tests:** tests/test_mini_player.py
 **Interfaces:** MiniPlayerController(window) owns normal geometry/minimum-size/visibility snapshot; MainWindow.toggle_mini_player and leave_mini_player integrate explicit mode transitions without replacing video parent/context. Own show/hide snapshot must preserve info invalidation and controls added by other slices.
 
-- [ ] Write focused behavior tests for: mini window is compact but video framebuffer stays valid; context/player/parent identity unchanged; controls usable; restore normal geometry/minimum and visibility; repeated mini/fullscreen transitions and close preserve renderer lifecycle.
-- [ ] Run those tests and record the missing-feature RED before implementation.
-- [ ] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
-- [ ] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
-- [ ] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
-- [ ] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.
+- [x] Write focused behavior tests for: mini window is compact but video framebuffer stays valid; context/player/parent identity unchanged; controls usable; restore normal geometry/minimum and visibility; repeated mini/fullscreen transitions and close preserve renderer lifecycle.
+- [x] Run those tests and record the missing-feature RED before implementation.
+- [x] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
+- [x] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
+- [x] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
+- [x] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.

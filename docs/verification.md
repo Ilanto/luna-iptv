@@ -1,3 +1,48 @@
+# Luna IPTV 0.4.0 doğrulama kaydı
+
+2026-09-05 · openSUSE Tumbleweed · GNOME Wayland · Python 3.13 · Qt/PySide6 6.11.2 · python-mpv 1.0.8. Yeni çalışma zamanı bağımlılığı eklenmedi; tek mpv oynatıcısı ve mevcut Qt OpenGL yüzeyi korunur.
+
+## Birleşik özellik doğrulaması
+
+- `env -u DISPLAY -u GDK_BACKEND QT_QPA_PLATFORM=wayland ./scripts/test.sh`: **313 test geçti, 57,92 saniye**, `-W error`; Ruff lint/format, üretilmiş yerel video/localhost HLS probe ve tam pencere smoke başarılı. Bu koşu `c69299190a3cedcbe5c88be7fe30425b6d9802b5` üzerinde bütün özellikler birleştirildikten sonradır.
+- 0.3.0 tabanındaki **205 vaka** ve ilk sürümün **45 vakası** korunur. `f5b7db9` tabanındaki 150, `f74c669` tabanındaki 43 özgün test fonksiyonunun gövde, decorator ve imza AST'leri değişmemiştir. Parametrizasyon vaka sayısını artırır. Eklenen işlevlerle toplam 251 test fonksiyonu / 313 vaka vardır.
+- Kaynak düzenleme: aday doğrulama, iptal/geç yanıt, atomik DB rollback, Xtream kimliklerinin sonraki yenileme ve bölüm yüklemelerinde korunması, değişen adresler, kaldırılmış oynayan kaydın ayrılması, profil/prefix/HEAD sağlık kontrolü ve sır içermeyen hata mesajları. Testler geçici DB ve yerel HTTP sunucusu kullanır.
+- Canlı toparlanma: 1/2/4 saniye beklemeli üç deneme, bağlantı/buffer sınırı, kararlı ilerleme sonrası bütçe sıfırlama, pause/VOD sonu, stop/zap/iptal/düzenleme/kapanış, eski veya eksik mpv yanıtları sınanır. Yükleme kimliği komut gönderilmeden kaydedilir. Takip desteklenmediğinde otomatik deneme devre dışıdır ve bekleme yine sınırlıdır. Yerel HTTP bağlantı hatasından başarıya geçişte aynı backend/GL bağlamı kullanılır.
+- Ses/altyazı: değişen parça numaralarında dil eşleşmesi, Kapalı, eksik tercih, kullanıcı seçimi/varsayılan ayrımı, sıfırlama ve kaynak izolasyonu; gerçek çok parçalı yerel dosyada Türkçe ses ve altyazı kapalı seçiminin korunması doğrulandı.
+- Devam etme: anlamlı film/bölüm konumu için oynatma öncesi Devam et / Baştan başlat / Vazgeç; iptalde mevcut yayın korunur. Canlı seçim ve aynı yayındaki stop→Play tekrar sormaz. Yüklenme hatası devam konumunu silmez.
+- Geçmiş temizleme: seçili/tüm kaynaklar, konumları isteğe bağlı sıfırlama; favoriler ve kaynaklar korunur. Devam eden yayın, kapanış veya otomatik yeniden deneme temizlenmiş geçmişi geri yazmaz; yeni açık kullanıcı oynatma seçimi kaydı yeniden başlatır.
+- Mini: normal/minimum pencere, mini/tam ekran/Esc/dönüş ve geciken native compositor yanıtları; aynı video parent/context/backend, renkli framebuffer, ±5 saniye/play/mute, uzun durum metni ve iptal düğmesinin 480 × 300 düzene sığması sınanır. Qt olaylarıyla UI kontrolü fiziksel masaüstü girdi testi olarak sunulmaz. GNOME'de her zaman üstte kalma iddiası yoktur.
+- Bir test çalıştırmasında arka plan GC'sine kalan eski test penceresi Shiboken kapanış hatasına yol açtı. İlgili test fixture'ı üretim penceresi gibi `WA_DeleteOnClose` kullanacak şekilde düzeltildi; GUI thread'de silinmeyi doğrulayan regresyon eklendi. Üretim renderer'ı bu test ömrü sorunu için değiştirilmedi. Sonraki bütünleşik 252, 270 ve 313 vakalık koşular düzenli tamamlandı.
+- Üretim native callback'leri eski yükleme kimliklerini filtreler; genel komut hatası yayının bitmesi sayılmaz. Önceki GL_BLEND/altyazı, sarma, tam ekran ve QObject yaşam döngüsü regresyonları da geçer.
+
+## Sürüm ve paket doğrulaması
+
+- 0.4.0 sürüm dosyalarıyla tam koşu yeniden tamamlandı: **313 test, 57,83 saniye**, Ruff ve bütün yerel/HLS/GUI probe'ları başarılı (`work/qa/release-full.log`).
+- Ayrı görsel kontrolde gerçek pencere **1200 × 760 → 560 × 390 mini → 2304 × 1296 tam ekran → mini → normal** akışını tamamladı. Her adımda aynı backend/context/parent ve renkli framebuffer doğrulandı. Devam etme ve geçmiş temizleme pencereleri gerçek UI girişlerinden açılıp görsel olarak incelendi. Kanıtlar `work/qa/release-040-visual/` altında; medya 30 saniyelik yerel test görüntüsü ve sesi kapatılmış PCM sesidir.
+- `./scripts/build-rpm.sh` ile **luna-iptv-0.4.0-1.noarch.rpm**, kaynak RPM ve tarball üretildi. `%check` derleme ve desktop doğrulamasını geçti. `scripts/check-package.py`, çıkarılan paketteki bütün Python modüllerinin kaynakla aynı olduğunu ve launcher'ın `Luna IPTV 0.4.0` döndürdüğünü doğruladı; paket modülleriyle izole native Wayland penceresi açıldı (`DISPLAY_present: false`).
+- Paket bağımlılıklarının hem alt hem üst sınırları, desktop girdisi, SVG simge, README ve LICENSE yolları incelendi. Kaynak arşivi dosya listesinde venv, çalışma/build/cache klasörü, DB, medya veya hesap dosyası yoktur. SHA-256 listesi paket üretimi sonrasında ayrıca `dist/SHA256SUMS` içine yazılır; build betiği bunu otomatik oluşturmaz.
+- Paket kanıtı `work/qa/package/result.json` ve `packaged-native.png`; sistem kurulumu yapılmadı. openSUSE Tumbleweed üzerindeki yerel paket ve izole açılış doğrulanmıştır; Leap ve farklı GPU'lar bu koşunun kapsamı değildir.
+
+## Kanal geçişi
+
+Aynı makine, gerçek uygulama teması, yerel 640 × 360 MPEG-2 kırmızı/mavi görüntü; dört ısınma ve yirmi ölçümlü geçiş. Süre `MainWindow.play()` çağrısından hedef framebuffer rengine kadardır. İki koşu ardışık ve başka test oynatıcıları çalışmadan yapıldı; her ikisinde `wayland`, `DISPLAY_present: false` ve tek backend doğrulandı.
+
+| Ölçüm | Değişmemiş 0.3.0 (`e684f21`, `f5b7db9` ile aynı kaynak) | Birleşik 0.4.0 kodu (`c692991`) |
+|---|---:|---:|
+| Ortanca | 63,44 ms | 62,48 ms |
+| p95 | 65,24 ms | 63,49 ms |
+| En yüksek | 66,20 ms | 63,50 ms |
+
+Bu eş koşullu fixture'da ek gecikme görülmedi. Ölçüm internet sağlayıcısının gecikmesini veya bütün masaüstü yüklerini kapsamaz; önceki kayıtlardaki farklı koşularla hızlanma iddiası kurulmaz.
+
+## İş akışı ve kanıtlar
+
+#19 sürüm takibi altında #22 → PR #24, #20 → PR #25, #23 → PR #26 ve #21 → PR #27 ayrı branch/test/bağımsız inceleme ile birleştirildi. Bütün özgün testler ve commit geçmişi korunur. Kişisel hesap, playlist, DB, logo cache, venv ve build çıktıları Git dışında kalır. GitHub CI henüz yoktur; belirtilen doğrulamalar bu makinede çalıştırılmıştır.
+
+Ham sonuçlar release çalışma ağacının `work/qa/integrated-full.log`, `zapping-before.json` ve `zapping-after.json` dosyalarındadır; repoya veya kaynak dağıtımına eklenmez. Tekrar komutları önceki kayıttaki Test ve Paket bölümlerinde bulunur.
+
+---
+
 # Luna IPTV 0.3.0 doğrulama kaydı
 
 2026-09-05 · openSUSE Tumbleweed · GNOME Wayland · Python 3.13 · Qt/PySide6 6.11.2. Tek libmpv oynatıcısı, aynı QOpenGLWidget ve mevcut donanım çözümleme yolu korunur; yeni çalışma zamanı bağımlılığı yoktur.

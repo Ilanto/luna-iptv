@@ -20,9 +20,9 @@
 **Tests:** tests/test_source_connections.py
 **Interfaces:** SourceConnectionService or small equivalent coordinates candidate validation and atomic Store update; MainWindow.edit_source(source), check_source(source). Existing source id stays stable and channel mapping persists beyond the edit.
 
-- [ ] Write focused behavior tests for: old credentials/catalogue/favorites/progress remain after invalid candidate; valid changed server then subsequent refresh preserves matching IDs and changes stream URLs; rollback on DB error; cancelled/deleted source late callback cannot save.
-- [ ] Run those tests and record the missing-feature RED before implementation.
-- [ ] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
-- [ ] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
-- [ ] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
-- [ ] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.
+- [x] Write focused behavior tests for: old credentials/catalogue/favorites/progress remain after invalid candidate; valid changed server then subsequent refresh preserves matching IDs and changes stream URLs; rollback on DB error; cancelled/deleted source late callback cannot save.
+- [x] Run those tests and record the missing-feature RED before implementation.
+- [x] Implement the service/controller and the actual UI path; handle cancel, failure and close at each async boundary.
+- [x] Run focused tests and native GUI validation at root's scheduled time. Verify existing relevant tests, lint and format.
+- [x] Commit only owned source/tests; send exact commit and evidence for independent review. Resolve review findings with regression tests.
+- [x] Root merges latest main, runs integration tests, creates the associated PR and merges only the reviewed head.

@@ -5,7 +5,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.3.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.4.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -13,9 +13,18 @@ Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlıl
 
 ## Kullanım
 
-“Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Yıldız favoriye ekler. Xtream dizilerinde diziye tıklamak bölümleri açar; sezon seçimi kategori alanından yapılır. Kaynak işlemleri menüsünden listeyi yenileyin veya kaldırın. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.
+“Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Yıldız favoriye ekler. Xtream dizilerinde diziye tıklamak bölümleri açar; sezon seçimi kategori alanından yapılır. Kaynak menüsünden seçili kaynağı yeniden adlandırabilir, bağlantısını düzenleyebilir, yenileyebilir, kontrol edebilir veya kaldırabilirsiniz. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.
 
-Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi ve tam ekran içerir. Film/bölüm konumu otomatik kaydedilir; bitişe yakın konumlar yeniden başlatılır. Son izlenenler yerel geçmişten gelir. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.4.0 · bağlantılar ve günlük kullanım
+
+- **Bağlantıyı düzenle**, mevcut M3U adresini, Xtream sunucu/kullanıcı/şifresini veya doğrudan yayın adresini aday katalog doğrulandıktan sonra tek işlemde günceller. Hatalı, iptal edilmiş veya geç kalan sonuç eski bağlantıyı ve kataloğu değiştirmez. Oynayan yayın kesilmez; sonraki açılış güncel adresi kullanır.
+- Xtream'de sağlayıcının kararlı yayın kimliği bulunan girdilerin, doğrudan kaynakta ise tek kaydın favori ve ilerleme kimliği korunur. Serbest M3U satırları için sağlayıcı kimliği garantisi yoktur; eşleşmeyen veya kaldırılan yayınlar korunmuş sayılmaz.
+- **Bağlantıyı kontrol et**, video açmadan ve tam kataloğu indirmeden ulaşılabilirlik durumunu ve son kontrol zamanını kaydeder. Doğrudan HTTP yayınında sunucunun HEAD isteğine yanıt vermesi yalnız sunucunun yanıt verdiğini gösterir; akışın oynatılabildiğini kanıtlamaz.
+- Canlı yayın kesildiğinde ilk açılışa ek olarak **1 / 2 / 4 saniye** beklemeli en fazla üç otomatik yeniden deneme yapılır. Bağlanma, arabelleğe alma, bekleme ve başarısızlık durumu görünür; bekleme iptal edilebilir. Kullanıcı pause'u ve film/bölüm sonu yeniden bağlanma başlatmaz. Film/bölüm için elle **Yeniden dene**, kayıtlı devam konumunu korur.
+- Ses ve altyazı seçimi değişebilen parça numarası yerine dil/başlık gibi anlamlı bilgiyle kaynak bazında hatırlanır. **Kapalı**, hatırlamayı kapatma ve sağlayıcı varsayılanına dönmek için tercihleri sıfırlama seçenekleri kalıcıdır; bulunmayan tercih oynatmayı engellemez.
+- **Mini**, aynı native pencereyi, video yüzeyini ve oynatıcıyı kompakt düzene geçirir; oynat/pause, ±5 saniye, mute/ses ve bağlantı durumu erişilebilir kalır. **Geri dön** veya **Esc** normal geometriyi ve görünürlüğü geri getirir; mini/tam ekran geçişleri ikinci bir video bağlamı oluşturmaz. GNOME Wayland'de her zaman üstte kalma garantisi verilmez.
 
 ### 0.3.0 · sarma ve tam ekran
 
@@ -45,7 +54,8 @@ Logo önbelleği veritabanının yanındaki `<veritabanı-adı>.logos/` klasör�
 | Ctrl+O | Kaynak ekle |
 | Ctrl+F | Ara |
 | Boşluk | Oynat / duraklat |
-| F / Esc | Tam ekrana gir / çık |
+| F | Tam ekrana gir / çık |
+| Esc | Tam ekrandan veya mini oynatıcıdan çık |
 | M | Sesi kapat / aç |
 | Sol / sağ | Desteklenen akışlarda 5 saniye sar |
 | J / L | Geri / ileri tara: 2×, 4×, 8×, 16× |
