@@ -20,6 +20,10 @@ class InertPlayer(QObject):
     file_loaded = Signal()
     ended = Signal()
     ready = Signal()
+    playback_loaded = Signal(int)
+    playback_property_changed = Signal(int, str, object)
+    playback_finished = Signal(int, str, str)
+    playback_tracking_lost = Signal(int)
 
     def __init__(self, parent):
         super().__init__(parent)

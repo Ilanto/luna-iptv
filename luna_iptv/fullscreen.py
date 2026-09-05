@@ -92,7 +92,7 @@ class FullscreenController(QObject):
             elif self._compact_time_policy is not None:
                 time_label.setSizePolicy(self._compact_time_policy)
                 self._compact_time_policy = None
-        status = self._widget("mini_status")
+        status = self._widget("mini_status_row") or self._widget("mini_status")
         if status is not None:
             status.setVisible(compact)
         if self.active:
