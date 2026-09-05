@@ -163,7 +163,6 @@ def test_missing_player_backend_is_an_immediate_terminal_load_failure(
 
     monkeypatch.setitem(sys.modules, "mpv", SimpleNamespace(MPV=fail_backend))
     window, channel, _loads = make_window(qt_app, tmp_path, monkeypatch, stub_player=False)
-    window.player._render_ready = True
     try:
         window.play(channel)
 
@@ -315,6 +314,49 @@ def test_vod_eof_ends_without_automatic_retry(qt_app, tmp_path, monkeypatch) -> 
         assert len(loads) == 1
         assert window.recovery.state == "idle"
         assert window._idle is True
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_vod_load_failure_preserves_resume_position_for_manual_retry(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch, kind="movie")
+    window.store.save_progress(channel.id, 19, 90)
+    try:
+        window.play(channel)
+        assert loads[-1][2]["start"] == 19
+
+        window.playback_finished(10, "error", "Yayın açılamadı.")
+
+        assert window.store.progress(channel.id) == (19.0, 90.0)
+        assert window._idle is True
+        assert not window.retry_button.isHidden()
+        window.retry_button.click()
+        assert loads[-1][2]["start"] == 19
+        assert len(loads) == 2
+    finally:
+        if isValid(window):
+            window.close()
+        qt_app.processEvents()
+
+
+def test_untracked_vod_end_before_loaded_preserves_resume_position(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    window, channel, loads = make_window(qt_app, tmp_path, monkeypatch, kind="movie")
+    window.store.save_progress(channel.id, 19, 90)
+    try:
+        window.play(channel)
+        window.playback_tracking_lost(10)
+
+        window.ended()
+
+        assert window.store.progress(channel.id) == (19.0, 90.0)
+        window.toggle_play()
+        assert loads[-1][2]["start"] == 19
     finally:
         if isValid(window):
             window.close()

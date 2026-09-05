@@ -509,7 +509,7 @@ class MainWindow(QMainWindow):
         if token != self._playback_token or not self._playback_active:
             return
         recovery_handled = self.recovery.failure(token, reason)
-        if self.current and self.current.kind != "live":
+        if self.current and self.current.kind != "live" and not self._loading:
             self.save_progress()
         self._finish_playback()
         if recovery_handled and self.recovery.state == "failed":
@@ -520,7 +520,12 @@ class MainWindow(QMainWindow):
         elif recovery_handled and self.recovery.message:
             self.status(self.recovery.message)
         elif message:
-            self.status(message)
+            retry = (
+                (lambda: self.play(self.current) if self.current else None)
+                if reason == "error" and self.current and self.current.kind != "live"
+                else None
+            )
+            self.status(message, retry)
 
     def _finish_playback(self, *, end_session=True):
         if end_session:
@@ -539,7 +544,7 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         if self._playback_active and self._untracked_playback_token == self._playback_token:
-            if self.current and self.current.kind != "live":
+            if self.current and self.current.kind != "live" and not self._loading:
                 self.save_progress()
             self.recovery.failure(self._playback_token, "unknown")
             self._finish_playback()

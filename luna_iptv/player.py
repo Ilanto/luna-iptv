@@ -196,6 +196,14 @@ class Player(QObject):
                 self.error.emit("Yayın HTTP başlıkları geçersiz.")
                 return token
             fields.append(f"{name}: {value}")
+        if self._mpv is None:
+            self._emit_entry_event(
+                token,
+                "finished",
+                "engine",
+                "Video motoru açılamadı.",
+            )
+            return token
         if not self._render_ready:
             self._pending_load = (url, fields, start, token)
             return token
