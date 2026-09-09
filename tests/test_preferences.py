@@ -36,10 +36,12 @@ def test_saved_language_matches_new_ids_and_does_not_save_ids(library):
     saved = store.playback_preferences(source)
     assert "id" not in saved["audio"]
     assert "2" not in json.dumps(saved["audio"])
-    preferences.begin(source)
+    options = preferences.begin(source)
+    assert options["alang"] == "tr"
+    assert options["aid"] == "auto"
     preferences.update_tracks(
         [
-            {"id": 1, "type": "audio", "lang": "eng", "selected": True},
+            {"id": 3, "type": "audio", "lang": "tur", "title": "Commentary", "selected": True},
             {"id": 7, "type": "audio", "lang": "tr", "title": "Türkçe"},
         ]
     )
@@ -85,11 +87,13 @@ def test_off_persists_reopen_and_source_preferences_are_isolated(library):
         assert reopened.playback_preferences(source)["sub"] == {"mode": "off"}
     finally:
         reopened.close()
-    preferences.begin(source)
-    assert player.values[-1] == ("sid", "no")
+    player.values.clear()
+    assert preferences.begin(source)["sid"] == "no"
     other = store.save_source({"name": "Other", "type": "m3u"})
-    preferences.begin(other)
-    assert player.values[-2:] == [("aid", "auto"), ("sid", "auto")]
+    options = preferences.begin(other)
+    assert options["aid"] == options["sid"] == "auto"
+    assert options["alang"] == options["slang"] == ""
+    assert not player.values
     assert store.playback_preferences(other) == {}
     store.remove_source(source)
     assert store.playback_preferences(source) == {}
@@ -107,7 +111,12 @@ def test_disabled_remembering_and_reset_do_not_keep_old_numeric_selection(librar
     preferences.select("audio", {"id": 8, "type": "audio", "lang": "eng"})
     assert store.playback_preferences(source)["audio"]["lang"] == "tr"
     preferences.begin(source)
-    preferences.update_tracks([{"id": 5, "type": "audio", "lang": "tur"}])
+    preferences.update_tracks(
+        [
+            {"id": 5, "type": "audio", "lang": "tur"},
+            {"id": 8, "type": "audio", "lang": "eng", "selected": True},
+        ]
+    )
     player.values.clear()
     preferences.loaded()
     assert player.values == []
@@ -115,6 +124,9 @@ def test_disabled_remembering_and_reset_do_not_keep_old_numeric_selection(librar
     assert player.values == [("aid", 5)]
     preferences.reset()
     assert player.values[-2:] == [("aid", "auto"), ("sid", "auto")]
+    assert ("alang", "") in player.values
+    assert ("slang", "") in player.values
+    assert ("subs-fallback", "default") in player.values
     assert "audio" not in store.playback_preferences(source)
 
 
@@ -215,3 +227,118 @@ def test_explicit_unlabelled_choice_is_not_overridden_by_saved_language(library)
     preferences.update_tracks([tur, unknown])
     preferences.loaded()
     assert player.values[-1] == ("aid", 2)
+
+
+def test_preview_is_detached_and_does_not_touch_current_playback(library):
+    from luna_iptv.preferences import TrackPreferences
+
+    store, source = library
+    other = store.save_source({"name": "Other", "type": "m3u"})
+    store.save_playback_preferences(other, {"audio": {"mode": "track", "lang": "eng"}})
+    player = Commands()
+    preferences = TrackPreferences(store, player)
+    preferences.begin(source)
+    generation = preferences.generation
+    saved = store.playback_preferences(other)
+    preview = preferences.preview(other)
+    preview["audio"]["lang"] = "tr"
+    preview["remember"] = False
+    assert preferences.preview(other)["audio"]["lang"] == "en"
+    assert preferences.source_id == source
+    assert preferences.generation == generation
+    assert store.playback_preferences(other) == saved
+    assert not player.values
+
+
+def test_one_shot_choices_survive_loaded_manual_selection_and_finish(library):
+    from luna_iptv.preferences import TrackPreferences
+
+    store, source = library
+    store.save_playback_preferences(source, {"audio": {"mode": "track", "lang": "tur"}})
+    player = Commands()
+    preferences = TrackPreferences(store, player)
+    options = preferences.begin(
+        source,
+        {
+            "audio": {"mode": "track", "lang": "eng"},
+            "sub": {"mode": "track", "lang": "tur"},
+            "remember": False,
+        },
+    )
+    assert options["alang"] == "en"
+    assert options["slang"] == "tr"
+    assert options["subs-fallback"] == options["subs-fallback-forced"] == "no"
+    assert options["subs-with-matching-audio"] == "yes"
+    assert not player.values
+    tracks = [
+        {"type": "audio", "id": 1, "lang": "eng", "selected": True},
+        {"type": "audio", "id": 2, "lang": "tur"},
+        {"type": "sub", "id": 3, "lang": "tur", "selected": True},
+    ]
+    preferences.update_tracks(tracks)
+    preferences.loaded()
+    assert not player.values
+    assert preferences.current_choices()["audio"]["lang"] == "en"
+    preferences.select("sub", None)
+    preferences.finish()
+    choices = preferences.current_choices()
+    assert choices["remember"] is False
+    assert choices["sub"] == {"mode": "off"}
+    assert choices["audio"]["lang"] == "en"
+    assert preferences.begin(source, choices)["sid"] == "no"
+    assert store.playback_preferences(source)["audio"]["lang"] == "tr"
+    assert store.playback_preferences(source)["remember"] is False
+    assert preferences.preview(source) == {
+        "audio": {"mode": "auto"},
+        "sub": {"mode": "auto"},
+        "remember": False,
+    }
+    assert preferences.begin(source)["alang"] == ""
+
+
+def test_explicit_automatic_clears_saved_language_only_when_remembering(library):
+    from luna_iptv.preferences import TrackPreferences
+
+    store, source = library
+    store.save_playback_preferences(
+        source,
+        {"audio": {"mode": "track", "lang": "tur"}, "sub": {"mode": "off"}},
+    )
+    preferences = TrackPreferences(store, Commands())
+    choices = {"audio": {"mode": "auto"}, "sub": {"mode": "auto"}, "remember": False}
+    preferences.begin(source, choices)
+    assert store.playback_preferences(source)["audio"]["lang"] == "tr"
+    assert store.playback_preferences(source)["sub"] == {"mode": "off"}
+    preferences.begin(source, choices | {"remember": True})
+    assert store.playback_preferences(source) == {"remember": True}
+
+
+def test_missing_languages_notice_waits_for_authoritative_tracks_and_is_one_shot(library):
+    from luna_iptv.preferences import TrackPreferences
+
+    store, source = library
+    player = Commands()
+    preferences = TrackPreferences(store, player)
+    requested = {
+        "audio": {"mode": "track", "lang": "tur"},
+        "sub": {"mode": "track", "lang": "deu"},
+        "remember": False,
+    }
+    preferences.begin(source, requested)
+    preferences.loaded()
+    assert preferences.take_notice() == ""
+    tracks = [
+        {"type": "audio", "id": 1, "lang": "eng", "selected": True},
+        {"type": "sub", "id": 2, "lang": "eng", "selected": False},
+    ]
+    preferences.update_tracks(tracks)
+    notice = preferences.take_notice()
+    assert "tr" in notice and "de" in notice
+    assert not player.values
+    preferences.update_tracks(tracks)
+    assert preferences.take_notice() == ""
+    assert preferences.current_choices()["audio"]["lang"] == "tr"
+    assert preferences.begin(source, requested)["slang"] == "de"
+    preferences.update_tracks(tracks)
+    preferences.loaded()
+    assert preferences.take_notice() == notice

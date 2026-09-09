@@ -19,6 +19,15 @@ _ALIASES = {
     "por": "pt",
 }
 _MODES = {"audio": "aid", "sub": "sid"}
+DEFAULT_TRACK_OPTIONS = {
+    "aid": "auto",
+    "sid": "auto",
+    "alang": "",
+    "slang": "",
+    "subs-fallback": "default",
+    "subs-fallback-forced": "yes",
+    "subs-with-matching-audio": "yes",
+}
 
 
 def _text(value, limit=256):
@@ -57,8 +66,8 @@ def normalize_preferences(value):
         choice = value.get(mode)
         if not isinstance(choice, dict):
             continue
-        if choice.get("mode") == "off":
-            result[mode] = {"mode": "off"}
+        if choice.get("mode") in ("auto", "off"):
+            result[mode] = {"mode": choice["mode"]}
         elif choice.get("mode") == "track":
             normalized = track_preference(choice)
             if normalized:
@@ -101,31 +110,86 @@ class TrackPreferences:
         self.source_id = None
         self.generation = 0
         self._preferences = {}
+        self._choices = {}
         self._tracks = []
+        self._tracks_known = False
         self._loaded = False
         self._applied = {}
         self._manual_modes = set()
+        self._notice = ""
+        self._notice_checked = False
 
     @property
     def remember(self):
         return self._preferences.get("remember", True)
 
-    def begin(self, source_id):
+    def preview(self, source_id):
+        saved = normalize_preferences(
+            self.store.playback_preferences(source_id) if source_id else {}
+        )
+        remember = saved.get("remember", True)
+        return {
+            mode: dict(saved.get(mode, {"mode": "auto"})) if remember else {"mode": "auto"}
+            for mode in _MODES
+        } | {"remember": remember}
+
+    def begin(self, source_id, preferences=None):
         self.generation += 1
         self.source_id = source_id
-        self._preferences = self.store.playback_preferences(source_id) if source_id else {}
+        self._preferences = normalize_preferences(
+            self.store.playback_preferences(source_id) if source_id else {}
+        )
+        if preferences is None:
+            self._choices = self.preview(source_id)
+        else:
+            supplied = normalize_preferences(preferences)
+            self._choices = {
+                mode: dict(supplied.get(mode, {"mode": "auto"})) for mode in _MODES
+            } | {"remember": supplied.get("remember", True)}
+            self._preferences["remember"] = self._choices["remember"]
+            if self.remember:
+                for mode in _MODES:
+                    choice = self._choices[mode]
+                    if choice["mode"] == "auto":
+                        self._preferences.pop(mode, None)
+                    else:
+                        self._preferences[mode] = dict(choice)
+            self._save()
         self._tracks = []
+        self._tracks_known = False
         self._loaded = False
         self._applied = {}
         self._manual_modes = set()
+        self._notice = ""
+        self._notice_checked = False
+        options = dict(DEFAULT_TRACK_OPTIONS)
         for mode, prop in _MODES.items():
-            choice = self._preferences.get(mode, {}) if self.remember else {}
-            value = "no" if choice.get("mode") == "off" else "auto"
-            self.player.set_property(prop, value)
-            if value == "no":
-                self._applied[mode] = value
+            choice = self._choices[mode]
+            if choice["mode"] == "off":
+                options[prop] = "no"
+            elif choice["mode"] == "track":
+                language = choice.get("lang", "")
+                options["alang" if mode == "audio" else "slang"] = language
+                if mode == "sub":
+                    options["subs-fallback"] = "no"
+                    options["subs-fallback-forced"] = "no"
+                    options["subs-with-matching-audio"] = "yes"
+                    if not language:
+                        # A title-only identity cannot be chosen until tracks are known.
+                        options["sid"] = "no"
+        return options
+
+    def current_choices(self):
+        return {mode: dict(self._choices.get(mode, {"mode": "auto"})) for mode in _MODES} | {
+            "remember": self._choices.get("remember", self.remember)
+        }
+
+    def take_notice(self):
+        notice, self._notice = self._notice, ""
+        return notice
 
     def update_tracks(self, tracks):
+        self._tracks_known = isinstance(tracks, list)
         self._tracks = (
             [track for track in tracks if isinstance(track, dict)]
             if isinstance(tracks, list)
@@ -141,22 +205,53 @@ class TrackPreferences:
         self.generation += 1
         self._loaded = False
         self._tracks = []
+        self._tracks_known = False
         self.source_id = None
         self._preferences = {}
+        self._notice = ""
+        self._notice_checked = False
         self._applied = {}
         self._manual_modes = set()
 
-    def _apply(self):
-        if not self._loaded or not self.remember:
+    def _apply(self, *, manual=False):
+        if not self._loaded or not self._tracks_known:
             return
+        missing = []
         for mode, prop in _MODES.items():
-            choice = self._preferences.get(mode)
-            if not choice or mode in self._manual_modes:
+            choice = self._choices.get(mode)
+            if not choice or choice["mode"] == "auto" or mode in self._manual_modes:
                 continue
             selected = match_track(self._tracks, mode, choice)
-            if selected is not None and self._applied.get(mode) != selected:
+            active = next(
+                (
+                    track
+                    for track in self._tracks
+                    if track.get("type") == mode and track.get("selected")
+                ),
+                None,
+            )
+            if selected is None:
+                if choice.get("lang"):
+                    label = "Ses" if mode == "audio" else "Altyazı"
+                    fallback = (
+                        "varsayılan ses kullanılıyor" if mode == "audio" else "altyazı kapalı"
+                    )
+                    missing.append(f"{label} dili ({choice['lang']}) bulunamadı; {fallback}.")
+                if mode == "sub" and active is not None:
+                    selected = "no"
+            elif choice.get("lang") and active is not None and not manual:
+                # Native loadfile selection owns language selection. Only refine a
+                # semantic variant within that language after loading.
+                if _language(active.get("lang")) != choice["lang"]:
+                    continue
+            if active is not None and active.get("id") == selected:
+                self._applied[mode] = selected
+            elif selected is not None and self._applied.get(mode) != selected:
                 self._applied[mode] = selected
                 self.player.set_property(prop, selected)
+        if not self._notice_checked:
+            self._notice = " ".join(missing)[:384]
+            self._notice_checked = True
 
     def select(self, mode, track, *, generation=None):
         if mode not in _MODES or (generation is not None and generation != self.generation):
@@ -176,6 +271,8 @@ class TrackPreferences:
         self._manual_modes.add(mode)
         self._applied[mode] = value
         self.player.set_property(_MODES[mode], value)
+        self._choices[mode] = choice or {"mode": "auto"}
+        self._choices["remember"] = self.remember
         if self.source_id and self.remember and choice:
             self._preferences[mode] = choice
             self._save()
@@ -185,19 +282,28 @@ class TrackPreferences:
         if generation is not None and generation != self.generation:
             return False
         self._preferences["remember"] = bool(enabled)
+        self._choices["remember"] = bool(enabled)
         self._save()
         if enabled:
+            for mode in _MODES:
+                self._choices[mode] = dict(self._preferences.get(mode, {"mode": "auto"}))
             self._applied.clear()
             self._manual_modes.clear()
-            self._apply()
+            self._apply(manual=True)
 
     def reset(self, *, generation=None):
         if generation is not None and generation != self.generation:
             return False
         self._preferences = {"remember": self.remember}
+        self._choices = {mode: {"mode": "auto"} for mode in _MODES} | {"remember": self.remember}
+        self._notice = ""
+        self._notice_checked = True
         self._save()
         self._applied.clear()
         self._manual_modes.clear()
+        for name, value in DEFAULT_TRACK_OPTIONS.items():
+            if name not in _MODES.values():
+                self.player.set_property(name, value)
         for prop in _MODES.values():
             self.player.set_property(prop, "auto")
 

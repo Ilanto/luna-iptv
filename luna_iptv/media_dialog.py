@@ -5,6 +5,7 @@ import re
 from PySide6.QtCore import Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
@@ -20,6 +21,20 @@ from PySide6.QtWidgets import (
 from .dialogs import text_label
 from .media_details import MediaDetails
 from .models import Channel
+from .preferences import normalize_preferences
+
+_LANGUAGE_PREFERENCES = (
+    ("Türkçe", "tr"),
+    ("İngilizce", "en"),
+    ("Almanca", "de"),
+    ("Fransızca", "fr"),
+    ("İspanyolca", "es"),
+    ("Arapça", "ar"),
+    ("Rusça", "ru"),
+    ("Japonca", "ja"),
+    ("İtalyanca", "it"),
+    ("Portekizce", "pt"),
+)
 
 
 class MediaDetailDialog(QDialog):
@@ -56,7 +71,10 @@ class MediaDetailDialog(QDialog):
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setAccessibleName("İçerik ayrıntıları")
         body = QWidget()
-        columns = QHBoxLayout(body)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(16)
+        columns = QHBoxLayout()
         columns.setContentsMargins(0, 0, 0, 0)
         columns.setSpacing(24)
         self.poster_label = text_label("Afiş yok", "muted")
@@ -123,6 +141,38 @@ class MediaDetailDialog(QDialog):
         content.addWidget(self.series_section)
         content.addStretch()
         columns.addLayout(content, 1)
+        body_layout.addLayout(columns)
+
+        preference_form = QFormLayout()
+        preference_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        preference_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        preference_form.setHorizontalSpacing(12)
+        preference_form.setVerticalSpacing(8)
+        self.audio_combo = QComboBox()
+        self.subtitle_combo = QComboBox()
+        for label_text, combo in (
+            ("Ses dili", self.audio_combo),
+            ("Altyazı dili", self.subtitle_combo),
+        ):
+            label = text_label(label_text, "muted")
+            label.setBuddy(combo)
+            combo.setAccessibleName(label_text)
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
+            preference_form.addRow(label, combo)
+        self.remember_checkbox = QCheckBox("Bu kaynak için hatırla")
+        preference_form.addRow(self.remember_checkbox)
+        body_layout.addLayout(preference_form)
+        self.preference_note = text_label(
+            "Bunlar dil tercihleridir; kullanılabilir ses ve altyazı parçaları "
+            "oynatma başlayınca öğrenilir. Önceden ikinci bir yayın bağlantısı açılmaz. "
+            "Tercihler yalnızca Oynat ve varsa devam seçimi onaylandığında uygulanır.",
+            "muted",
+        )
+        self.preference_note.setWordWrap(True)
+        self.preference_note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        body_layout.addWidget(self.preference_note)
+        self.set_playback_preferences({})
         self.scroll.setWidget(body)
         layout.addWidget(self.scroll, 1)
 
@@ -185,7 +235,10 @@ class MediaDetailDialog(QDialog):
         self.setTabOrder(self.scroll, self.imdb_button)
         self.setTabOrder(self.imdb_button, self.series_imdb_button)
         self.setTabOrder(self.series_imdb_button, self.series_favorite_button)
-        self.setTabOrder(self.series_favorite_button, self.season_combo)
+        self.setTabOrder(self.series_favorite_button, self.audio_combo)
+        self.setTabOrder(self.audio_combo, self.subtitle_combo)
+        self.setTabOrder(self.subtitle_combo, self.remember_checkbox)
+        self.setTabOrder(self.remember_checkbox, self.season_combo)
         self.setTabOrder(self.season_combo, self.episode_combo)
         self.setTabOrder(self.episode_combo, self.retry_button)
         self.setTabOrder(self.retry_button, self.play_button)
@@ -196,6 +249,45 @@ class MediaDetailDialog(QDialog):
         # automatically disconnects it even while the shared cache is working.
         poster_cache.ready.connect(self._poster_ready)
         self.set_series_channel(self._series_channel)
+
+    def set_playback_preferences(self, preferences):
+        """Seed this card without changing playback or saving preferences."""
+        normalized = normalize_preferences(preferences)
+        for mode, combo in (("audio", self.audio_combo), ("sub", self.subtitle_combo)):
+            combo.clear()
+            combo.addItem("Otomatik", {"mode": "auto"})
+            if mode == "sub":
+                combo.addItem("Kapalı", {"mode": "off"})
+            for title, language in _LANGUAGE_PREFERENCES:
+                choice = normalize_preferences({mode: {"mode": "track", "lang": language}})
+                combo.addItem(title, choice[mode])
+            selected = normalized.get(mode, {"mode": "auto"})
+            index = next(
+                (i for i in range(combo.count()) if combo.itemData(i) == selected),
+                -1,
+            )
+            if index < 0:
+                description = (
+                    "Kapalı"
+                    if selected.get("mode") == "off"
+                    else " / ".join(
+                        value for value in (selected.get("lang"), selected.get("title")) if value
+                    )
+                )
+                combo.addItem(f"Kayıtlı tercih: {description}", selected)
+                index = combo.count() - 1
+            combo.setCurrentIndex(index)
+        self.remember_checkbox.setChecked(normalized.get("remember", True))
+
+    def playback_preferences(self):
+        """Return a detached snapshot for the owner's explicit play action."""
+        return normalize_preferences(
+            {
+                "audio": self.audio_combo.currentData(),
+                "sub": self.subtitle_combo.currentData(),
+                "remember": self.remember_checkbox.isChecked(),
+            }
+        )
 
     @staticmethod
     def _fill_metadata(layout, info, *, show_missing=False):

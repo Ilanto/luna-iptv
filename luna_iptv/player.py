@@ -9,6 +9,8 @@ from PySide6.QtCore import QByteArray, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+from .preferences import DEFAULT_TRACK_OPTIONS
+
 _GL_BLEND = 0x0BE2
 
 
@@ -23,7 +25,7 @@ class Player(QObject):
     playback_finished = Signal(int, str, str)
     playback_tracking_lost = Signal(int)
 
-    _HEALTH_PROPERTIES = {"time-pos", "pause", "paused-for-cache"}
+    _TAGGED_PROPERTIES = {"time-pos", "pause", "paused-for-cache", "track-list"}
     _MAX_TRACKED_ENTRIES = 16
     _MAX_PENDING_EVENTS = 64
 
@@ -118,7 +120,7 @@ class Player(QObject):
             return
         name = str(name)
         self.property_changed.emit(name, value)
-        if name in self._HEALTH_PROPERTIES and self._current_entry_id is not None:
+        if name in self._TAGGED_PROPERTIES and self._current_entry_id is not None:
             self._dispatch_entry_event(self._current_entry_id, "property", name, value)
 
     def _on_start(self, event):
@@ -132,7 +134,18 @@ class Player(QObject):
 
     def _on_loaded(self, _event):
         if not self._closed and self._current_entry_id is not None:
-            self._dispatch_entry_event(self._current_entry_id, "loaded")
+            entry_id = self._current_entry_id
+            try:
+                tracks = self._mpv.track_list
+            except (AttributeError, ValueError, RuntimeError, OSError):
+                tracks = None
+            if isinstance(tracks, list):
+                # A synchronous local property read, not a second stream probe.
+                # Queue this snapshot ahead of loaded even when loadfile's
+                # playlist-entry ID has not arrived yet.
+                snapshot = [dict(track) for track in tracks if isinstance(track, dict)]
+                self._dispatch_entry_event(entry_id, "property", "track-list", snapshot)
+            self._dispatch_entry_event(entry_id, "loaded")
 
     def _on_end(self, event):
         if self._closed:
@@ -179,6 +192,7 @@ class Player(QObject):
         start: float = 0,
         *,
         token: int | None = None,
+        track_options: dict[str, str] | None = None,
     ):
         if token is None:
             token = self._reserved_load_token
@@ -206,6 +220,18 @@ class Player(QObject):
                 )
                 return token
             fields.append(f"{name}: {value}")
+        options = dict(DEFAULT_TRACK_OPTIONS)
+        for name, value in (track_options or {}).items():
+            if (
+                name not in options
+                or not isinstance(value, str)
+                or any(c in value for c in "\r\n\x00")
+            ):
+                self._emit_entry_event(
+                    token, "finished", "invalid", "Oynatma dili tercihleri geçersiz."
+                )
+                return token
+            options[name] = value
         if self._mpv is None:
             self._emit_entry_event(
                 token,
@@ -215,16 +241,22 @@ class Player(QObject):
             )
             return token
         if not self._render_ready:
-            self._pending_load = (url, fields, start, token)
+            self._pending_load = (url, fields, start, token, options)
             return token
-        self._issue_load(url, fields, start, token)
+        self._issue_load(url, fields, start, token, options)
         return token
 
-    def _issue_load(self, url: str, fields: list[str], start: float, token: int):
+    def _issue_load(
+        self, url: str, fields: list[str], start: float, token: int, track_options: dict[str, str]
+    ):
         # Reset per-source headers for every load; escape mpv string-list separators.
         encoded = ",".join(v.replace("\\", "\\\\").replace(",", "\\,") for v in fields)
         options = (
             f"start={max(0, start)},http-header-fields=%{len(encoded.encode('utf-8'))}%{encoded}"
+        )
+        options += "".join(
+            f",{name}=%{len(value.encode('utf-8'))}%{value}"
+            for name, value in track_options.items()
         )
         self.set_property("pause", False)
         if self._closed:
@@ -321,6 +353,8 @@ class Player(QObject):
             return
         if kind == "loaded":
             self.file_loaded.emit()
+        elif kind == "property":
+            self.property_changed.emit(values[0], values[1])
         elif kind == "finished":
             _reason, message = values
             if message:

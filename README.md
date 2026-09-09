@@ -5,7 +5,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.5.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.6.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -17,7 +17,19 @@ Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlıl
 
 Film/dizi kartında afiş, açıklama ve sağlayıcının verdiği yıl, tür, süre, yönetmen, oyuncular ve puan görünür. Kaynağı bilinmeyen puan **IMDb** diye etiketlenmez; geçerli `tt…` kimliği varsa **IMDb'de aç** bağlantısı gösterilir. Bu bağlantı puanın kaynağını doğrulamaz. Xtream dizilerinde kartın **Sezon / Bölüm** alanlarından seçim yapıp **Oynat** düğmesine basın. Başlık, açıklama, puan, IMDb bağlantısı ve **Bölümü favorilere ekle/çıkar** düğmesi seçilen bölüme aittir; eksik bölüm bilgisi dizi bilgisiyle doldurulmaz. **Dizi bilgileri** alanı genel açıklamayı, metadata ve ayrı **Diziyi favorilere ekle/çıkar** işlemini gösterir. Bölüm afişi yoksa kullanılan dizi afişi açıkça etiketlenir. Kayıtlı ilerleme varsa mevcut **Devam et / Baştan başlat / Vazgeç** seçimi Oynat sonrasında açılır. Kartı açmak, favoriye eklemek veya kapatmak açık yayını değiştirmez. M3U/doğrudan dosya için sağlayıcı ayrıntıları sorgulanmaz; eksik açıklama ve afiş açıkça belirtilir, film yine oynatılabilir.
 
+Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + Türkçe altyazı gibi oynatma tercihlerini hazırlar. Ses için **Otomatik**, altyazı için **Otomatik / Kapalı** vardır. Bunlar içerikte bulunduğu doğrulanmış dillerin listesi değildir; gerçek parçalar normal yayın yüklemesinden öğrenilir, keşif için ikinci bağlantı açılmaz. Kartı değiştirmek/kapatmak veya devam sorusunu iptal etmek açık yayını ve kayıtlı tercihleri değiştirmez.
+
+**Bu kaynak için hatırla** işaretliyse seçim ancak Oynat ve varsa devam/baştan başlat kararı onaylandığında kaynak bazında kaydedilir. İşaretli değilse seçilen diller yine bu oynatmada, aynı içeriğin yeniden başlatılmasında ve yeniden denemesinde kullanılır; önceki kayıtlı diller silinmez, kaynak için hatırlama kapalı kalır. Aynı kartta bölüm değiştirmek hazırlanan dil tercihlerini korur.
+
+Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
+
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.6.0 · oynatma öncesi dil tercihleri
+
+- Detay kartında bağımsız ses/altyazı dili, Otomatik/Kapalı ve kaynak bazında hatırlama.
+- Onaylanan yeni yayına dosyaya özel dil seçenekleri; kart/iptal sırasında açık yayına müdahale yok.
+- İlk parça seçimi, eksik dil geri dönüşleri, bölüm ve devam/yeniden başlatma için native regresyonlar.
 
 ### 0.5.0 · film ve dizi ayrıntıları
 
