@@ -52,7 +52,6 @@ class ChannelFilter(QSortFilterProxyModel):
         self._query_key = ""
         self.group = ""
         self.source = ""
-        self.episode_ids = None
         self.recent = {}
 
     def set_recent_ids(self, channel_ids):
@@ -60,7 +59,7 @@ class ChannelFilter(QSortFilterProxyModel):
         self.invalidate()
 
     def lessThan(self, left, right):
-        if self.section == "recent" and self.episode_ids is None:
+        if self.section == "recent":
             channels = self.sourceModel().channels
             return self.recent.get(channels[left.row()].id, len(self.recent)) < self.recent.get(
                 channels[right.row()].id, len(self.recent)
@@ -71,10 +70,7 @@ class ChannelFilter(QSortFilterProxyModel):
         channel = self.sourceModel().channels[row]
         if self.source and not channel.id.startswith(self.source + ":"):
             return False
-        if self.episode_ids is not None:
-            if channel.id not in self.episode_ids:
-                return False
-        elif self.section == "favorites":
+        if self.section == "favorites":
             if channel.id not in self.sourceModel().favorites:
                 return False
         elif self.section == "recent":
@@ -88,7 +84,7 @@ class ChannelFilter(QSortFilterProxyModel):
 
     def refresh(self):
         self._query_key = search_key(self.query)
-        self.sort(0 if self.section == "recent" and self.episode_ids is None else -1)
+        self.sort(0 if self.section == "recent" else -1)
         if hasattr(self, "endFilterChange"):
             self.beginFilterChange()
             self.endFilterChange(QSortFilterProxyModel.Direction.Rows)

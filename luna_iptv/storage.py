@@ -5,11 +5,13 @@ import os
 import sqlite3
 import unicodedata
 import uuid
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
-from .accounts import AccountProfile, sanitize_profile
+from .accounts import AccountProfile, bounded_timestamp, sanitize_profile
+from .media_details import MediaDetails, normalize_info
 from .models import Channel, Playlist
 
 _SOURCE_FIELDS = ("id", "name", "type", "location", "username", "password", "epg_url")
@@ -71,6 +73,12 @@ class Store:
                 duration REAL NOT NULL,
                 updated_at INTEGER NOT NULL DEFAULT 0,
                 history_hidden INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS media_detail_cache (
+                channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+                fingerprint TEXT NOT NULL,
+                data TEXT NOT NULL,
+                checked_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS account_snapshots (
                 source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
@@ -422,6 +430,92 @@ class Store:
                 [(item_id,) for (item_id,) in existing_ids if item_id not in incoming_ids],
             )
         return True
+
+    def media_details(self, channel_id: str, fingerprint: str) -> tuple[MediaDetails, int] | None:
+        row = self._db.execute(
+            "SELECT data,checked_at FROM media_detail_cache WHERE channel_id=? AND fingerprint=?",
+            (channel_id, fingerprint),
+        ).fetchone()
+        if row is None:
+            return None
+        checked_at = bounded_timestamp(row[1])
+        if checked_at is None:
+            return None
+        try:
+            payload = json.loads(row[0])
+            if (
+                not isinstance(payload, dict)
+                or not isinstance(payload.get("info"), dict)
+                or not isinstance(payload.get("episodes"), list)
+                or not isinstance(payload.get("episode_info"), dict)
+                or not isinstance(payload.get("series_title"), str)
+                or any(not isinstance(value, str) for value in payload["info"].values())
+                or any(
+                    not isinstance(info, dict)
+                    or any(not isinstance(value, str) for value in info.values())
+                    for info in payload["episode_info"].values()
+                )
+            ):
+                return None
+            episodes = []
+            channel_fields = {field.name for field in fields(Channel)}
+            for item in payload["episodes"]:
+                if (
+                    not isinstance(item, dict)
+                    or set(item) != channel_fields
+                    or any(
+                        not isinstance(value, str)
+                        for key, value in item.items()
+                        if key != "headers"
+                    )
+                    or not isinstance(item["headers"], dict)
+                    or any(
+                        not isinstance(key, str) or not isinstance(value, str)
+                        for key, value in item["headers"].items()
+                    )
+                    or not item["id"]
+                    or not item["url"]
+                    or item["kind"] != "movie"
+                    or not item["series_id"]
+                ):
+                    return None
+                episodes.append(Channel(**item))
+            return MediaDetails(
+                normalize_info(payload["info"]),
+                episodes,
+                {key: normalize_info(info) for key, info in payload["episode_info"].items()},
+                payload["series_title"],
+            ), checked_at
+        except (ValueError, TypeError, KeyError, RecursionError):
+            return None
+
+    def save_media_details(
+        self, channel_id: str, fingerprint: str, details: MediaDetails, checked_at: int
+    ) -> None:
+        checked_at = bounded_timestamp(checked_at)
+        if checked_at is None:
+            raise ValueError("Invalid media details timestamp")
+        data = json.dumps(
+            {
+                "info": normalize_info(details.info),
+                "episodes": [asdict(channel) for channel in details.episodes],
+                "episode_info": {
+                    key: normalize_info(info) for key, info in details.episode_info.items()
+                },
+                "series_title": details.series_title,
+            },
+            ensure_ascii=False,
+        )
+        with self._db:
+            self._db.execute(
+                """
+                INSERT INTO media_detail_cache(channel_id,fingerprint,data,checked_at)
+                VALUES(?,?,?,?)
+                ON CONFLICT(channel_id) DO UPDATE SET fingerprint=excluded.fingerprint,
+                  data=excluded.data, checked_at=excluded.checked_at
+                """,
+                (channel_id, fingerprint, data, checked_at),
+            )
 
     def set_favorite(self, channel_id: str, favorite: bool) -> None:
         with self._db:

@@ -212,6 +212,9 @@ def test_native_render_playback_controls_and_teardown(tmp_path, qt_app):
         pytest.skip("Native render integration requires a desktop display")
     if not shutil.which("ffmpeg"):
         pytest.skip("ffmpeg needed for generated test fixture")
+    from PySide6.QtCore import QCoreApplication, QEvent, Qt
+    from shiboken6 import isValid
+
     from luna_iptv.player import Player, VideoWidget
 
     media = tmp_path / "fixture.mkv"
@@ -241,6 +244,7 @@ def test_native_render_playback_controls_and_teardown(tmp_path, qt_app):
     app = qt_app
     player = Player()
     widget = VideoWidget(player)
+    widget.setAttribute(Qt.WA_DeleteOnClose)
     widget.resize(640, 360)
     values, failures, loaded, ended = {}, [], [], []
     player.property_changed.connect(lambda name, value: values.update({name: value}))
@@ -294,3 +298,7 @@ def test_native_render_playback_controls_and_teardown(tmp_path, qt_app):
         player.shutdown()  # Idempotent window/application teardown.
         widget.close()
         app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        assert not isValid(widget), "The test must destroy its GL widget on the GUI thread"
+        if player._termination:
+            player._termination.join(timeout=20)

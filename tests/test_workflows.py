@@ -201,18 +201,16 @@ def test_xtream_catalog_episode_seasons_and_movie_filter(
     assert window.proxy.rowCount() == 1
     series = window.proxy.index(0, 0).data(Qt.UserRole)
     assert series.name == "The Test"
-    window.open_series(series)
-    wait_until(app, lambda: not window._busy and window._episodes_title == "The Test")
-
-    assert window.proxy.rowCount() == 2
-    assert {window.proxy.index(row, 0).data(Qt.UserRole).group for row in range(2)} == {
-        "Sezon 1",
-        "Sezon 2",
-    }
-    assert window.category.count() == 3
-    episodes = [
-        window.proxy.index(row, 0).data(Qt.UserRole) for row in range(window.proxy.rowCount())
-    ]
+    window.activate_index(window.proxy.index(0, 0))
+    wait_until(app, lambda: not window._tasks)
+    card = window.details.dialog
+    assert card.season_combo.count() == 2
+    episodes = []
+    for season in range(card.season_combo.count()):
+        card.season_combo.setCurrentIndex(season)
+        episodes.append(card.selected_channel())
+    assert {episode.group for episode in episodes} == {"Sezon 1", "Sezon 2"}
+    assert window.proxy.rowCount() == 1
     favorite_episode = episodes[0]
     window.store.set_favorite(favorite_episode.id, True)
     window.store.save_progress(favorite_episode.id, 35, 60)

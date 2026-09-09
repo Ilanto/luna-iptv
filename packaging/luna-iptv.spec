@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.4.0
+Version:        0.5.0
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -59,3 +59,6 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/scalable/apps/luna-iptv.svg
 
 %changelog
+* Wed Sep 09 2026 Luna IPTV contributors - 0.5.0-1
+- Add cached movie and series details with explicit episode metadata/actions.
+- Preserve valid metadata on provider authentication and error responses.
