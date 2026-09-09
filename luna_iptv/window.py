@@ -25,6 +25,7 @@ from .epg import now_next, parse_xmltv
 from .fullscreen import FullscreenController
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
+from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
@@ -60,7 +61,6 @@ class MainWindow(QMainWindow):
         self._tasks = set()
         self._retry = None
         self._guide_data = {}
-        self._episodes_title = ""
         self._tracks = []
         self._fullscreen = False
         self._last_saved = 0.0
@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
         self.recovery = RecoveryController(self)
         self.track_preferences = TrackPreferences(store, self.player)
         build_window(self)
+        self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.mini_player = MiniPlayerController(self)
         self.transport.changed.connect(self.refresh_transport)
@@ -299,6 +300,7 @@ class MainWindow(QMainWindow):
             self.update_guide()
         self.refresh_categories()
         self.filter_changed()
+        self.details.invalidate()
         has_channels = bool(self.model.channels)
         self.welcome_title.setText("Yayının hazır." if has_channels else "Ekran senin.")
         self.welcome_subtitle.setText(
@@ -311,9 +313,6 @@ class MainWindow(QMainWindow):
     def set_section(self, section):
         self.proxy.section = section
         self.history_clear_button.setVisible(section == "recent")
-        self.proxy.episode_ids = None
-        self.back_button.hide()
-        self._episodes_title = ""
         for key, b in self.nav_buttons.items():
             b.setChecked(key == section)
         self.section_title.setText(
@@ -332,8 +331,6 @@ class MainWindow(QMainWindow):
 
     def source_changed(self):
         self.proxy.source = self.source_combo.currentData() or ""
-        self.proxy.episode_ids = None
-        self.back_button.hide()
         self.refresh_categories()
         self.filter_changed()
 
@@ -346,16 +343,7 @@ class MainWindow(QMainWindow):
             for c in self.model.channels
             if c.group
             and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
-            and (
-                (self.proxy.episode_ids is not None and c.id in self.proxy.episode_ids)
-                or (
-                    self.proxy.episode_ids is None
-                    and (
-                        self.proxy.section in ("favorites", "recent")
-                        or c.kind == self.proxy.section
-                    )
-                )
-            )
+            and (self.proxy.section in ("favorites", "recent") or c.kind == self.proxy.section)
         }
         for group in sorted(groups, key=str.casefold):
             self.category.addItem(group, group)
@@ -379,51 +367,15 @@ class MainWindow(QMainWindow):
         channel = index.data(Qt.UserRole)
         if not channel:
             return
-        if channel.kind == "series":
-            self.open_series(channel)
-        else:
+        if channel.kind == "live":
+            self.details.dismiss()
             self.request_play(channel)
+        else:
+            self.details.open(channel)
 
     def source_for(self, channel):
         prefix = channel.id.split(":", 1)[0]
         return next((s for s in self.store.sources() if s["id"] == prefix), None)
-
-    def open_series(self, channel):
-        if self._busy:
-            return
-        source = self.source_for(channel)
-        if not source or source["type"] != "xtream":
-            self.status("Bu kaynağın dizi bölüm bilgisi bulunmuyor.")
-            return
-
-        def loaded(episodes):
-            stored_source = next(
-                (item for item in self.store.sources() if item["id"] == source["id"]), None
-            )
-            if stored_source is None or not self._same_source(stored_source, source):
-                return
-            if not episodes:
-                self.status("Bu dizide henüz bölüm bulunmuyor.")
-                return
-            stored_episodes = self.store.upsert_channels(source["id"], episodes)
-            self.model.reset(self.store.channels(), self.store.favorites())
-            self.proxy.episode_ids = {channel.id for channel in stored_episodes}
-            self._episodes_title = channel.name
-            self.section_title.setText("Bölümler")
-            self.back_button.show()
-            self.search.clear()
-            self.refresh_categories()
-            self.filter_changed()
-            self.status(channel.name)
-
-        self.run_task(
-            lambda: XtreamClient(
-                source["location"], source["username"], source["password"]
-            ).episodes(channel.series_id),
-            loaded,
-            "Bölümler alınıyor…",
-            lambda: self.open_series(channel),
-        )
 
     def resume_position(self, channel):
         position, duration = self.store.progress(channel.id)
@@ -863,14 +815,19 @@ class MainWindow(QMainWindow):
     def toggle_favorite(self):
         if not self.current or not self._current_persistent:
             return
-        favorite = self.current.id not in self.store.favorites()
-        self.store.set_favorite(self.current.id, favorite)
+        self.toggle_channel_favorite(self.current)
+
+    def toggle_channel_favorite(self, channel):
+        favorite = channel.id not in self.store.favorites()
+        self.store.set_favorite(channel.id, favorite)
         self.model.favorites = self.store.favorites()
         if self.model.rowCount():
             self.model.dataChanged.emit(
                 self.model.index(0), self.model.index(self.model.rowCount() - 1)
             )
-        self.favorite_button.setText("★" if favorite else "☆")
+        if self.current and self.current.id == channel.id:
+            self.favorite_button.setText("★" if favorite else "☆")
+        self.details.refresh_favorite()
         self.filter_changed()
 
     def track_menu(self):
@@ -1395,6 +1352,7 @@ class MainWindow(QMainWindow):
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()
         self.dismiss_resume()
+        self.details.close()
         self.track_preferences.finish()
         self.fullscreen.close()
         self.transport.close()

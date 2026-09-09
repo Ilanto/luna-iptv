@@ -34,6 +34,8 @@ def test_library_selection_waits_for_resume_choice(window, choice, start):
     window.set_section("movie")
     window.activate_index(window.proxy.index(0, 0))
     assert not window.loads
+    assert window._resume_dialog is None
+    window.details.dialog.play_button.click()
     dialog = window._resume_dialog
     assert isinstance(dialog, QDialog)
     getattr(dialog, choice).click()

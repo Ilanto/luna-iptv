@@ -163,9 +163,11 @@ class LogoCache(QObject):
         disk_limit=64 * 1024 * 1024,
         success_ttl=7 * 86400,
         negative_ttl=15 * 60,
+        size=None,
+        cache_suffix=".logos",
     ):
         super().__init__(parent)
-        self.cache_dir = Path(store_path).parent / (Path(store_path).name + ".logos")
+        self.cache_dir = Path(store_path).parent / (Path(store_path).name + cache_suffix)
         self._clock = clock
         self._max_concurrent = max(1, min(4, max_concurrent))
         self._timeout_ms = max(1, min(5000, timeout_ms))
@@ -181,7 +183,7 @@ class LogoCache(QObject):
             min(64 * 1024 * 1024, disk_limit),
             self._max_bytes,
             min(4_000_000, max_pixels),
-            QSize(76, 76),
+            QSize(size) if size is not None else QSize(76, 76),
             clock,
         )
         self._executor = ThreadPoolExecutor(

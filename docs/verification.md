@@ -1,3 +1,20 @@
+# Film/dizi ayrıntı kartı · #31
+
+2026-09-09 · ayrı `feat/media-detail-card` çalışma ağacı; kurulu uygulama ve kişisel kütüphane kullanılmadı. Yeni çalışma zamanı bağımlılığı yok.
+
+- Gerçek `MainWindow`, Qt'nin native `wayland` platformunda, `DISPLAY` kaldırılarak ve geçici SQLite diziniyle çalıştırıldı. Yerel HTTP sunucusu gecikmeli sentetik Xtream metadata ve FFmpeg üretimi 640 × 360 MPEG-2/MP2 video sundu; gerçek sağlayıcı bilgisi kullanılmadı.
+- Film kartı açılmadan önce canlı konum **15,875 sn**, kart ve afiş geldikten sonra **32,917 sn**; video yüzeyinin frameSwapped sayacı **75 → 250** ilerledi. Aynı mpv nesnesi, OpenGL bağlamı ve oynatma kimliği korundu. Karttan favori işlemi ve kapatma yayını değiştirmedi.
+- Film ve dizi kartlarının yeniden açılması toplam **bir get_vod_info + bir get_series_info** isteğiyle tamamlandı; kartların önbellekten açıldığı gözlendi. İki sezondan ikinci sezonun bölümü seçildi; Oynat sonrası **Devam et / Baştan başlat / Vazgeç** penceresi görsel olarak incelendi. Vazgeç canlı yayını korudu; 24 sn kaydından devam edilen bölümde **27,042 sn**, baştan başlatmadan 1,2 sn sonra **0,75 sn** gözlendi.
+- 75 ms aralıklarla altı canlı kanal seçimi sonunda son kanal seçiliydi, yüklenme tamamlandı, kare sayacı ilerledi ve aynı mpv/GL bağlamı korundu. Bu bir davranış smoke kontrolüdür; önce/sonra gecikme karşılaştırması veya p95 performans ölçümü değildir.
+- Film, dizi, devam seçimi ve **540 × 400** mantıksal boyuttaki eksik bilgi/afiş kartı gerçek Qt ekran görüntüleriyle incelendi. Eksik afiş ve açıklama açıkça belirtildi, Oynat kullanılabilir kaldı. Görseller çalışma ağacının `work/qa/detail-*.png` dosyalarında, Git dışında tutuldu.
+- Regresyon kapsamı: puan kaynağı/IMDb kimlik ve bağlantı güvenliği, eksik ve bozuk sağlayıcı alanları, sezon/bölüm sırası, kalıcı önbellek ve bağlantı izolasyonu, eski yanıtların elenmesi, sınırlı istek kuyruğu, hata sonrası eski bilgi/bölümler, kapatma ve silme, afiş boyutu/yaşam döngüsü, favori ve devam seçimi.
+- İlk tam test turu native tercih testi sırasında **SIGABRT** ile kesildi. Core dökümünde mpv iş parçacığındaki Python GC'nin `QOpenGLWidget` yıkıcısından `makeCurrent()` çağırdığı görüldü. Önceki bağımsız renderer testinin kapanışında widget yalnız gizleniyordu; test artık `WA_DeleteOnClose` ve GUI-thread deferred-delete ile yüzeyi gerçekten yok ediyor ve bunu doğruluyor. Üretim oynatıcı/renderer kodu değiştirilmedi. Bu düzeltmeden sonra renderer kapanış testi ve native tercih/devam testi birlikte **2 geçti, 2,62 sn**. Yeni hata ve test düzeltmesi nedeniyle tam tur tekrarlandı; başarılı sonucu tekrar çalıştırılmayacak.
+- Düzeltme sonrası tam komut: `env -u DISPLAY -u GDK_BACKEND QT_QPA_PLATFORM=wayland ./scripts/test.sh` → **371 geçti, 58,23 sn**, `-W error`; Ruff lint/format başarılı. Yerel ve HLS probe'larında **94 renk**, özel HLS başlıkları ve seek/pause/mute; tam pencere smoke'unda **99 renk**, M3U/XMLTV, favori, tam ekran, VOD stop/replay ve yeniden açılış doğrulandı. Her iki probe `platform: wayland`, `DISPLAY_present: false`, `success: true` döndürdü. Başarılı tam tur tekrarlanmadı.
+- MCP GUI başlatıcısı depo için gereken `LD_LIBRARY_PATH` ortamını aktarmadığı için `libgthread-2.0.so.0` yüklenemedi. Görsel doğrulama bunun yerine aynı depo bağımlılıklarıyla doğrudan native Qt sürecinde yapıldı; girişler Qt düğme/sinyal çağrılarıdır, fiziksel fare/klavye testi olarak sunulmaz.
+- Doğrulanmayanlar: gerçek abonelik sağlayıcısı ve bütün Xtream varyantları, gerçek IMDb kaydının varlığı (yalnız kimlik biçimi ve güvenli hedef URL), internet üzerinden afiş/metadata gecikmesi, farklı GPU/compositor ortamları. Sistem paketi kurulmadı veya güncellenmedi; bu denemenin PR'ı merge edilmeyecek.
+
+---
+
 # Luna IPTV 0.4.0 doğrulama kaydı
 
 2026-09-05 · openSUSE Tumbleweed · GNOME Wayland · Python 3.13 · Qt/PySide6 6.11.2 · python-mpv 1.0.8. Yeni çalışma zamanı bağımlılığı eklenmedi; tek mpv oynatıcısı ve mevcut Qt OpenGL yüzeyi korunur.

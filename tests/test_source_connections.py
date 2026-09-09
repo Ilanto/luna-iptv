@@ -14,6 +14,7 @@ from shiboken6 import isValid
 
 from luna_iptv.accounts import AccountProfile
 from luna_iptv.dialogs import SourceDialog
+from luna_iptv.media_details import MediaDetails
 from luna_iptv.models import Channel, Playlist
 from luna_iptv.network import XtreamClient
 from luna_iptv.source_connections import (
@@ -582,21 +583,23 @@ def test_old_episode_reply_after_connection_edit_is_ignored(window, monkeypatch)
         "run_task",
         lambda function, success, *args, **kwargs: callbacks.update(success=success),
     )
-    window.open_series(series)
+    window.details.open(series)
     window.store.save_source(
         xtream_source("https://new.invalid", user="new-user", password="new-pass")
     )
     callbacks["success"](
-        [
-            Channel(
-                "episode",
-                "Pilot",
-                "https://old.invalid/series/old-user/old-pass/101.mkv",
-                kind="movie",
-                series_id="42",
-                provider_key="episode:42:101",
-            )
-        ]
+        MediaDetails(
+            episodes=[
+                Channel(
+                    "episode",
+                    "Pilot",
+                    "https://old.invalid/series/old-user/old-pass/101.mkv",
+                    kind="movie",
+                    series_id="42",
+                    provider_key="episode:42:101",
+                )
+            ]
+        )
     )
     assert all("old-pass" not in channel.url for channel in window.store.channels())
 

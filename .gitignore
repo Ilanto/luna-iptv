@@ -52,6 +52,7 @@ secrets/
 /data/
 /cache/
 *.logos/
+*.posters/
 /logs/
 /playlists/
 /recordings/

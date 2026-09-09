@@ -8,10 +8,11 @@ import io
 import json
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from .accounts import AccountProfile, normalize_profile
+from .media_details import MediaDetails, normalize_info
 from .models import Channel, Playlist
 from .playlist import parse_m3u, resolve_logo
 
@@ -184,14 +185,79 @@ class XtreamClient:
 
     def episodes(self, series_id: str) -> list[Channel]:
         response = self._api("get_series_info", series_id=series_id)
+        return [
+            self._episode_channel(season, row, series_id)
+            for season, row in self._episode_rows(response)
+        ]
+
+    def media_details(self, channel: Channel) -> MediaDetails:
+        from .source_connections import episode_identity
+
+        episode = episode_identity(channel)
+        if channel.kind == "series" or episode is not None:
+            series_id = episode[0] if episode else channel.series_id
+            if not series_id and channel.provider_key.startswith("series:"):
+                series_id = unquote(channel.provider_key.split(":", 1)[1])
+            if not series_id:
+                raise NetworkError("Dizi kimliği bulunamadı.")
+            response = self._api("get_series_info", series_id=series_id)
+            if not isinstance(response, dict):
+                raise NetworkError("Dizi bilgisi alınamadı.")
+            channels = []
+            info = normalize_info(response.get("info"), base_url=self.base + "/")
+            for season, row in self._episode_rows(response):
+                channels.append(self._episode_channel(season, row, series_id))
+                if episode and str(row["id"]) == episode[1]:
+                    selected_info = normalize_info(row.get("info"), row, base_url=self.base + "/")
+                    # An unlabelled episode rating must not inherit the series label.
+                    if "rating" in selected_info:
+                        info.pop("rating_source", None)
+                    info.update(selected_info)
+            return MediaDetails(info, channels)
+        if channel.kind != "movie":
+            raise NetworkError("Bu yayın için medya bilgisi desteklenmiyor.")
+        vod_id = ""
+        if channel.provider_key.startswith("movie:"):
+            vod_id = unquote(channel.provider_key.split(":", 1)[1])
+        elif not channel.provider_key:
+            try:
+                path = urlsplit(channel.url).path
+            except ValueError:
+                path = ""
+            if "/movie/" in path:
+                vod_id = unquote(path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
+        if not vod_id:
+            raise NetworkError("Film kimliği bulunamadı.")
+        response = self._api("get_vod_info", vod_id=vod_id)
+        if not isinstance(response, dict):
+            raise NetworkError("Film bilgisi alınamadı.")
+        return MediaDetails(
+            normalize_info(
+                response.get("info"), response.get("movie_data"), base_url=self.base + "/"
+            )
+        )
+
+    @staticmethod
+    def _episode_rows(response: dict):
         if not isinstance(response, dict) or not isinstance(response.get("episodes"), (dict, list)):
             raise NetworkError("Dizi bölüm bilgisi alınamadı.")
         seasons = response["episodes"]
         if isinstance(seasons, list):
-            seasons = {str(i): rows for i, rows in enumerate(seasons)}
-        channels = []
+            grouped = {}
+            for index, rows in enumerate(seasons):
+                if isinstance(rows, dict):
+                    season = rows.get("season", 0)
+                    season = str(season) if isinstance(season, (str, int)) else "0"
+                    grouped.setdefault(season, []).append(rows)
+                elif isinstance(rows, list):
+                    grouped.setdefault(str(index), []).extend(rows)
+            seasons = grouped
+        seen = set()
         for season, rows in sorted(
-            seasons.items(), key=lambda pair: int(pair[0]) if str(pair[0]).isdigit() else 9999
+            seasons.items(),
+            key=lambda pair: (
+                int(pair[0]) if str(pair[0]).isascii() and str(pair[0]).isdigit() else 9999
+            ),
         ):
             if not isinstance(rows, list):
                 continue
@@ -199,28 +265,40 @@ class XtreamClient:
                 (r for r in rows if isinstance(r, dict)),
                 key=lambda r: (
                     int(r.get("episode_num") or 0)
-                    if str(r.get("episode_num") or 0).isdigit()
+                    if str(r.get("episode_num") or 0).isascii()
+                    and str(r.get("episode_num") or 0).isdigit()
                     else 0
                 ),
             ):
-                if row.get("id") is None or str(row["id"]).strip() == "":
+                item_id = row.get("id")
+                if (
+                    not isinstance(item_id, (str, int))
+                    or isinstance(item_id, bool)
+                    or not str(item_id).strip()
+                    or str(item_id) in seen
+                ):
                     continue
-                provider_key = (
-                    f"episode:{quote(str(series_id), safe='')}:{quote(str(row['id']), safe='')}"
-                )
-                url = self.stream_url("series", row["id"], row.get("container_extension") or "mp4")
-                channels.append(
-                    Channel(
-                        id=provider_channel_id(provider_key),
-                        name=str(row.get("title") or f"Bölüm {row.get('episode_num', '')}"),
-                        url=url,
-                        group=f"Sezon {season}",
-                        kind="movie",
-                        series_id=series_id,
-                        provider_key=provider_key,
-                    )
-                )
-        return channels
+                seen.add(str(item_id))
+                yield season, row
+
+    def _episode_channel(self, season: str, row: dict, series_id: str) -> Channel:
+        provider_key = f"episode:{quote(str(series_id), safe='')}:{quote(str(row['id']), safe='')}"
+        url = self.stream_url("series", row["id"], row.get("container_extension") or "mp4")
+        info = normalize_info(row.get("info"), row, base_url=self.base + "/")
+        title = row.get("title")
+        number = row.get("episode_num", "")
+        if not isinstance(number, (str, int)):
+            number = ""
+        return Channel(
+            id=provider_channel_id(provider_key),
+            name=title if isinstance(title, str) and title.strip() else f"Bölüm {number}",
+            url=url,
+            group=f"Sezon {season}",
+            logo=info.get("poster", ""),
+            kind="movie",
+            series_id=series_id,
+            provider_key=provider_key,
+        )
 
     def epg_url(self) -> str:
         return f"{self.base}/xmltv.php?{urlencode({'username': self.username, 'password': self.password})}"
