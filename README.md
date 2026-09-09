@@ -5,7 +5,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.4.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.5.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -15,9 +15,15 @@ Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlıl
 
 “Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Canlı kanallar doğrudan açılır; film ve diziler önce ayrıntı kartını gösterir. Yıldız favoriye ekler. Kaynak menüsünden seçili kaynağı yeniden adlandırabilir, bağlantısını düzenleyebilir, yenileyebilir, kontrol edebilir veya kaldırabilirsiniz. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.
 
-Film/dizi kartında afiş, açıklama ve sağlayıcının verdiği yıl, tür, süre, yönetmen, oyuncular ve puan görünür. Kaynağı bilinmeyen puan **IMDb** diye etiketlenmez; geçerli `tt…` kimliği varsa **IMDb'de aç** bağlantısı gösterilir. Bu bağlantı puanın kaynağını doğrulamaz. Xtream dizilerinde kartın **Sezon / Bölüm** alanlarından seçim yapıp **Oynat** düğmesine basın. Kayıtlı ilerleme varsa mevcut **Devam et / Baştan başlat / Vazgeç** seçimi bundan sonra açılır. Kartı açmak, favoriye eklemek veya kapatmak açık yayını değiştirmez. Favori düğmesi kartın başlığındaki film/diziye; favorilerden veya geçmişten açılmış bölüm kartında ise o bölüme aittir. M3U/doğrudan dosya için sağlayıcı ayrıntıları sorgulanmaz; eksik açıklama ve afiş açıkça belirtilir, film yine oynatılabilir.
+Film/dizi kartında afiş, açıklama ve sağlayıcının verdiği yıl, tür, süre, yönetmen, oyuncular ve puan görünür. Kaynağı bilinmeyen puan **IMDb** diye etiketlenmez; geçerli `tt…` kimliği varsa **IMDb'de aç** bağlantısı gösterilir. Bu bağlantı puanın kaynağını doğrulamaz. Xtream dizilerinde kartın **Sezon / Bölüm** alanlarından seçim yapıp **Oynat** düğmesine basın. Başlık, açıklama, puan, IMDb bağlantısı ve **Bölümü favorilere ekle/çıkar** düğmesi seçilen bölüme aittir; eksik bölüm bilgisi dizi bilgisiyle doldurulmaz. **Dizi bilgileri** alanı genel açıklamayı, metadata ve ayrı **Diziyi favorilere ekle/çıkar** işlemini gösterir. Bölüm afişi yoksa kullanılan dizi afişi açıkça etiketlenir. Kayıtlı ilerleme varsa mevcut **Devam et / Baştan başlat / Vazgeç** seçimi Oynat sonrasında açılır. Kartı açmak, favoriye eklemek veya kapatmak açık yayını değiştirmez. M3U/doğrudan dosya için sağlayıcı ayrıntıları sorgulanmaz; eksik açıklama ve afiş açıkça belirtilir, film yine oynatılabilir.
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.5.0 · film ve dizi ayrıntıları
+
+- Film/dizi kartları, arka plan metadata sorgusu ve kalıcı önbellek; ayrı bölüm/dizi bilgileri, sezon/bölüm seçimi ve açık oynatma/favori hedefleri.
+- `auth: 0`, sağlayıcı hataları ve başarısız yanıtlar boş başarı sayılmaz; eski metadata korunur ve **Yeniden dene** sunulur. Geçerli ama eksik metadata gösterilebilir.
+- Eski deneme sürümünün bölüm ve dizi bilgilerini birleştiren önbellek kayıtları yeniden alınır; hesaplar, kaynaklar, favoriler, geçmiş ve izleme konumları silinmez.
 
 ### 0.4.0 · bağlantılar ve günlük kullanım
 

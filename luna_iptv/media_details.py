@@ -15,6 +15,8 @@ from .playlist import resolve_logo
 class MediaDetails:
     info: dict[str, str] = field(default_factory=dict)
     episodes: list[Channel] = field(default_factory=list)
+    episode_info: dict[str, dict[str, str]] = field(default_factory=dict)
+    series_title: str = ""
 
 
 def _text(value: object) -> str:

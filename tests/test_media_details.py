@@ -117,8 +117,91 @@ def test_malformed_fields_do_not_hide_usable_fallback_metadata(provider):
     details = client.media_details(movie())
     assert details.info == {"description": "Fallback story", "year": "2021", "duration": "00:02:05"}
     assert requests[0]["vod_id"] == ["99"]
-    responses["get_vod_info"] = {"info": [], "movie_data": None}
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {},
+        {"message": "https://provider.invalid/synthetic-password"},
+        {"info": [], "movie_data": None},
+        {"info": "invalid", "movie_data": []},
+        {"auth": 0},
+        {"user_info": {"auth": "0"}},
+    ],
+)
+def test_malformed_or_error_only_movie_envelopes_raise(provider, response):
+    client, responses, _ = provider
+    responses["get_vod_info"] = response
+    with pytest.raises(NetworkError) as error:
+        client.media_details(movie())
+    assert "synthetic-password" not in str(error.value)
+    assert "provider.invalid" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"auth": False},
+        {"auth": 0},
+        {"auth": "0"},
+        {"user_info": {"auth": False}},
+        {"user_info": {"auth": 0}},
+        {"user_info": {"auth": "0"}},
+        {"error": "https://provider.invalid/synthetic-password"},
+        {"errors": ["https://provider.invalid/synthetic-password"]},
+        {"errors": {"message": "https://provider.invalid/synthetic-password"}},
+        {"status": False},
+        {"status": "failed"},
+        {"status": "error"},
+        {"success": False},
+        {"success": 0},
+        {"success": "false"},
+        {"user_info": {"auth": 1, "status": "Expired"}},
+    ],
+)
+@pytest.mark.parametrize("kind", ["movie", "series"])
+def test_explicit_provider_failures_override_apparently_valid_metadata(provider, failure, kind):
+    client, responses, _ = provider
+    if kind == "movie":
+        responses["get_vod_info"] = {"info": {}, "movie_data": {"stream_id": 99}, **failure}
+        channel = movie()
+    else:
+        responses["get_series_info"] = {"info": {}, "episodes": [], **failure}
+        channel = series()
+        with pytest.raises(NetworkError):
+            client.episodes("42")
+    with pytest.raises(NetworkError) as error:
+        client.media_details(channel)
+    assert "synthetic-password" not in str(error.value)
+    assert "provider.invalid" not in str(error.value)
+
+
+def test_empty_movie_info_with_valid_movie_data_is_partial_success(provider):
+    client, responses, _ = provider
+    responses["get_vod_info"] = {
+        "info": {},
+        "movie_data": {"stream_id": 99, "name": "A film"},
+        "auth": 1,
+        "success": True,
+        "error": None,
+        "errors": [],
+    }
     assert client.media_details(movie()).info == {}
+    responses["get_vod_info"]["movie_data"]["plot"] = "Partial story"
+    assert client.media_details(movie()).info == {"description": "Partial story"}
+
+
+def test_ordinary_metadata_fields_are_not_provider_failure_markers(provider):
+    client, responses, _ = provider
+    responses["get_series_info"] = {
+        "status": "Ended",
+        "info": {"name": "A series", "status": "Canceled", "plot": "General story"},
+        "episodes": [{"id": 7, "info": {"status": "failed", "plot": "An episode story"}}],
+    }
+    details = client.media_details(series())
+    assert details.info == {"description": "General story"}
+    assert details.episode_info["episode:42:7"] == {"description": "An episode story"}
 
 
 @pytest.mark.parametrize(
@@ -218,20 +301,38 @@ def test_missing_episode_container_is_an_error_but_empty_container_is_valid(prov
     with pytest.raises(NetworkError):
         client.media_details(series())
     responses["get_series_info"]["episodes"] = []
-    assert client.media_details(series()) == MediaDetails({"description": "Series story"})
+    assert client.media_details(series()) == MediaDetails(
+        {"description": "Series story"}, series_title="A series"
+    )
 
 
-def test_cached_episode_uses_selected_metadata_not_parent_rating_provenance(provider):
+def test_episode_metadata_stays_separate_without_inheriting_parent_fields(provider):
     client, responses, requests = provider
     responses["get_series_info"] = {
-        "info": {"plot": "Parent story", "imdb_rating": "9", "genre": "Drama"},
+        "info": {
+            "name": "Provider series",
+            "plot": "Parent story",
+            "imdb_rating": "9",
+            "genre": "Drama",
+            "year": "2020",
+            "imdb_id": "tt1234567",
+            "cover": "/series.jpg",
+        },
         "episodes": {
             "1": [
-                {"id": 7, "info": {"plot": "Other episode"}},
+                {"id": 7, "title": "Other episode", "info": {"plot": "Other story"}},
                 {
                     "id": 8,
-                    "info": {"plot": "Selected story", "rating": "7.5", "air_date": "2022-02-01"},
+                    "title": "Selected episode",
+                    "info": {
+                        "plot": "Selected story",
+                        "rating": "7.5",
+                        "air_date": "2022-02-01",
+                        "movie_image": "/selected.jpg",
+                        "imdb_id": "tt7654321",
+                    },
                 },
+                {"id": 9, "title": "No metadata"},
             ]
         },
     }
@@ -244,19 +345,47 @@ def test_cached_episode_uses_selected_metadata_not_parent_rating_provenance(prov
     )
     details = client.media_details(episode)
     assert details.info == {
-        "description": "Selected story",
-        "rating": "7.5",
-        "year": "2022",
+        "description": "Parent story",
+        "rating": "9",
+        "rating_source": "IMDb",
         "genre": "Drama",
+        "year": "2020",
+        "imdb_id": "tt1234567",
+        "poster": "https://provider.invalid/series.jpg",
     }
+    assert details.series_title == "Provider series"
+    assert details.episode_info == {
+        "episode:42:7": {"description": "Other story"},
+        "episode:42:8": {
+            "description": "Selected story",
+            "rating": "7.5",
+            "year": "2022",
+            "poster": "https://provider.invalid/selected.jpg",
+            "imdb_id": "tt7654321",
+        },
+        "episode:42:9": {},
+    }
+    assert [item.logo for item in details.episodes] == [
+        "",
+        "https://provider.invalid/selected.jpg",
+        "",
+    ]
     assert requests[0]["series_id"] == ["42"]
     assert len(requests) == 1
+
+
+def test_episode_name_is_never_used_as_missing_series_title(provider):
+    client, responses, _ = provider
+    responses["get_series_info"] = {"info": {}, "episodes": []}
+    episode = Channel("scoped-id", "Episode A", "", kind="movie", provider_key="episode:42:7")
+    assert client.media_details(episode).series_title == ""
+    assert client.media_details(series()).series_title == "A series"
 
 
 def test_cache_persists_and_isolated_by_source_and_connection(tmp_path):
     path = tmp_path / "library.sqlite"
     episode = Channel(
-        "episode",
+        "source:scoped-episode",
         "First",
         "https://provider.invalid/series/u/p/1.mp4",
         group="Sezon 1",
@@ -264,8 +393,23 @@ def test_cache_persists_and_isolated_by_source_and_connection(tmp_path):
         series_id="42",
         provider_key="episode:42:1",
     )
+    other_episode = Channel(
+        "source:scoped-other",
+        "Second",
+        "https://provider.invalid/series/u/p/2.mp4",
+        group="Sezon 1",
+        kind="movie",
+        series_id="42",
+        provider_key="episode:42:2",
+    )
     details = MediaDetails(
-        {"description": "Saved story", "rating": "8", "imdb_id": "tt1234567"}, [episode]
+        {"description": "Saved story", "rating": "8", "imdb_id": "tt1234567"},
+        [episode, other_episode],
+        {
+            episode.provider_key: {"description": "First story", "rating": "7"},
+            other_episode.provider_key: {"description": "Second story"},
+        },
+        "Saved series title",
     )
     with closing(Store(path)) as store:
         for source_id in ("one", "two"):
@@ -307,7 +451,20 @@ def test_cache_persists_and_isolated_by_source_and_connection(tmp_path):
 
 @pytest.mark.parametrize(
     "corrupt",
-    ["{", "[]", '{"info": [], "episodes": []}', '{"info": {}, "episodes": [{"id": "bad"}]}'],
+    [
+        "{",
+        "[]",
+        '{"info": {}, "episodes": []}',
+        '{"info": {"description": "Legacy merged A story"}, "episodes": []}',
+        '{"info": {}, "episodes": [], "episode_info": {}}',
+        '{"info": {}, "episodes": [], "series_title": ""}',
+        '{"info": [], "episodes": [], "episode_info": {}, "series_title": ""}',
+        '{"info": {}, "episodes": [{"id": "bad"}], "episode_info": {}, "series_title": ""}',
+        '{"info": {}, "episodes": [], "episode_info": [], "series_title": ""}',
+        '{"info": {}, "episodes": [], "episode_info": {"episode:42:1": []}, "series_title": ""}',
+        '{"info": {}, "episodes": [], "episode_info": {"episode:42:1": {"rating": 8}}, "series_title": ""}',
+        '{"info": {}, "episodes": [], "episode_info": {}, "series_title": null}',
+    ],
 )
 def test_corrupt_cached_payload_is_a_cache_miss(tmp_path, corrupt):
     path = tmp_path / "library.sqlite"

@@ -186,7 +186,12 @@ class XtreamClient:
     def episodes(self, series_id: str) -> list[Channel]:
         response = self._api("get_series_info", series_id=series_id)
         return [
-            self._episode_channel(season, row, series_id)
+            self._episode_channel(
+                season,
+                row,
+                series_id,
+                normalize_info(row.get("info"), row, base_url=self.base + "/"),
+            )
             for season, row in self._episode_rows(response)
         ]
 
@@ -201,19 +206,21 @@ class XtreamClient:
             if not series_id:
                 raise NetworkError("Dizi kimliği bulunamadı.")
             response = self._api("get_series_info", series_id=series_id)
-            if not isinstance(response, dict):
-                raise NetworkError("Dizi bilgisi alınamadı.")
+            self._validate_detail_response(response, "Dizi bilgisi alınamadı.")
             channels = []
+            episode_info = {}
             info = normalize_info(response.get("info"), base_url=self.base + "/")
             for season, row in self._episode_rows(response):
-                channels.append(self._episode_channel(season, row, series_id))
-                if episode and str(row["id"]) == episode[1]:
-                    selected_info = normalize_info(row.get("info"), row, base_url=self.base + "/")
-                    # An unlabelled episode rating must not inherit the series label.
-                    if "rating" in selected_info:
-                        info.pop("rating_source", None)
-                    info.update(selected_info)
-            return MediaDetails(info, channels)
+                item_info = normalize_info(row.get("info"), row, base_url=self.base + "/")
+                item = self._episode_channel(season, row, series_id, item_info)
+                channels.append(item)
+                episode_info[item.provider_key] = item_info
+            series_info = response.get("info")
+            title = series_info.get("name") if isinstance(series_info, dict) else None
+            series_title = title.strip() if isinstance(title, str) else ""
+            if not series_title and channel.kind == "series":
+                series_title = channel.name
+            return MediaDetails(info, channels, episode_info, series_title)
         if channel.kind != "movie":
             raise NetworkError("Bu yayın için medya bilgisi desteklenmiyor.")
         vod_id = ""
@@ -229,7 +236,8 @@ class XtreamClient:
         if not vod_id:
             raise NetworkError("Film kimliği bulunamadı.")
         response = self._api("get_vod_info", vod_id=vod_id)
-        if not isinstance(response, dict):
+        self._validate_detail_response(response, "Film bilgisi alınamadı.")
+        if not any(isinstance(response.get(key), dict) for key in ("info", "movie_data")):
             raise NetworkError("Film bilgisi alınamadı.")
         return MediaDetails(
             normalize_info(
@@ -238,7 +246,40 @@ class XtreamClient:
         )
 
     @staticmethod
+    def _validate_detail_response(response: object, message: str) -> None:
+        """Reject provider failure envelopes without exposing their remote messages."""
+        if not isinstance(response, dict):
+            raise NetworkError(message)
+        for envelope in (response, response.get("user_info")):
+            if not isinstance(envelope, dict):
+                continue
+            if any(envelope.get(key) for key in ("error", "errors")):
+                raise NetworkError(message)
+            for key in ("auth", "success", "status"):
+                marker = envelope.get(key)
+                if isinstance(marker, (str, int, float, bool)) and str(
+                    marker
+                ).strip().casefold() in {
+                    "0",
+                    "0.0",
+                    "false",
+                    "no",
+                    "error",
+                    "failed",
+                    "failure",
+                    "denied",
+                    "unauthorized",
+                    "forbidden",
+                    "expired",
+                    "disabled",
+                    "inactive",
+                    "banned",
+                }:
+                    raise NetworkError(message)
+
+    @staticmethod
     def _episode_rows(response: dict):
+        XtreamClient._validate_detail_response(response, "Dizi bölüm bilgisi alınamadı.")
         if not isinstance(response, dict) or not isinstance(response.get("episodes"), (dict, list)):
             raise NetworkError("Dizi bölüm bilgisi alınamadı.")
         seasons = response["episodes"]
@@ -281,10 +322,11 @@ class XtreamClient:
                 seen.add(str(item_id))
                 yield season, row
 
-    def _episode_channel(self, season: str, row: dict, series_id: str) -> Channel:
+    def _episode_channel(
+        self, season: str, row: dict, series_id: str, info: dict[str, str]
+    ) -> Channel:
         provider_key = f"episode:{quote(str(series_id), safe='')}:{quote(str(row['id']), safe='')}"
         url = self.stream_url("series", row["id"], row.get("container_extension") or "mp4")
-        info = normalize_info(row.get("info"), row, base_url=self.base + "/")
         title = row.get("title")
         number = row.get("episode_num", "")
         if not isinstance(number, (str, int)):

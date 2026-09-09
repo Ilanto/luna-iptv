@@ -1,11 +1,13 @@
 import time
 
 import pytest
+from PySide6.QtWidgets import QLabel
 from shiboken6 import isValid
 
 from luna_iptv.media_controller import DETAIL_TTL, source_fingerprint
 from luna_iptv.media_details import MediaDetails
 from luna_iptv.models import Channel
+from luna_iptv.network import XtreamClient
 from luna_iptv.storage import Store
 from luna_iptv.window import MainWindow
 
@@ -199,3 +201,103 @@ def test_changed_connection_never_plays_cached_episode(window):
     window.details.dialog.play_button.click()
     assert window.details.dialog is None
     assert not window.loads
+
+
+def test_cached_episode_selection_updates_information_favorite_and_resume_target(window):
+    source = window.store.sources()[0]
+    fingerprint = source_fingerprint(source)
+    episodes = [
+        Channel(
+            name,
+            f"Episode {name}",
+            f"https://fixture.invalid/series/test/test/{name}.mp4",
+            group="Sezon 1",
+            kind="movie",
+            series_id="3",
+            provider_key=f"episode:3:{name}",
+        )
+        for name in ("A", "B")
+    ]
+    stored = window.store.upsert_channels("home", episodes)
+    details = MediaDetails(
+        info={"description": "General series plot", "year": "2020"},
+        episodes=episodes,
+        episode_info={
+            "episode:3:A": {"description": "Plot A", "imdb_id": "tt1111111"},
+            "episode:3:B": {"description": "Plot B", "imdb_id": "tt2222222"},
+        },
+        series_title="Series",
+    )
+    window.store.save_media_details(stored[0].id, fingerprint, details, int(time.time()))
+    window.store.set_favorite(stored[0].id, True)
+    window.store.save_progress(stored[1].id, 42, 100)
+    window.request_play(channel(window, "live"))
+    window.refresh_library()
+    window.details.open(stored[0])
+    card = window.details.dialog
+    card.episode_combo.setCurrentIndex(1)
+    assert card.title_label.text() == "Episode B"
+    assert card.description_label.text() == "Plot B"
+    assert card._imdb_url == "https://www.imdb.com/title/tt2222222/"
+    assert "General series plot" in [label.text() for label in card.findChildren(QLabel)]
+    assert "Plot A" not in [label.text() for label in card.findChildren(QLabel)]
+    card.favorite_button.click()
+    assert {stored[0].id, stored[1].id} <= window.store.favorites()
+    card.favorite_button.click()
+    assert stored[0].id in window.store.favorites()
+    assert stored[1].id not in window.store.favorites()
+    assert window.current.kind == "live" and len(window.loads) == 1
+    card.play_button.click()
+    assert window._resume_dialog is not None
+    assert window.current.kind == "live"
+    window._resume_dialog.resume_button.click()
+    assert window.current.id == stored[1].id and window.loads[-1][1]["start"] == 42
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"user_info": {"auth": 0}},
+        {"error": "provider secret must not be displayed"},
+    ],
+)
+def test_async_vod_error_preserves_cached_details_and_retry_recovers(
+    window, qt_app, monkeypatch, response
+):
+    film = channel(window, "film")
+    fingerprint = source_fingerprint(window.store.sources()[0])
+    checked_at = int(time.time()) - DETAIL_TTL - 1
+    cached = MediaDetails(info={"description": "Saved plot", "rating": "8.2"})
+    window.store.save_media_details(film.id, fingerprint, cached, checked_at)
+    state = {"response": response, "calls": 0}
+
+    def api(*_args, **_kwargs):
+        state["calls"] += 1
+        return state["response"]
+
+    def wait_for_details():
+        deadline = time.monotonic() + 5
+        while window._tasks and time.monotonic() < deadline:
+            qt_app.processEvents()
+            time.sleep(0.005)
+        assert not window._tasks
+
+    monkeypatch.setattr(XtreamClient, "_api", api)
+    monkeypatch.setattr(window, "run_task", MainWindow.run_task.__get__(window, MainWindow))
+    window.details.open(film)
+    wait_for_details()
+    card = window.details.dialog
+    assert card.description_label.text() == "Saved plot"
+    assert window.store.media_details(film.id, fingerprint) == (cached, checked_at)
+    assert not card.retry_button.isHidden()
+    assert "provider secret" not in card.status_label.text()
+    assert state["calls"] == 1
+    state["response"] = {"info": {"plot": "Refreshed plot"}, "movie_data": {}}
+    card.retry_button.click()
+    wait_for_details()
+    assert state["calls"] == 2
+    assert card.description_label.text() == "Refreshed plot"
+    assert card.retry_button.isHidden()
+    assert (
+        window.store.media_details(film.id, fingerprint)[0].info["description"] == "Refreshed plot"
+    )

@@ -1,3 +1,16 @@
+# Luna IPTV 0.5.0 · PR #32 inceleme düzeltmeleri
+
+2026-09-09 · bölüm/dizi metadata ayrımı ve sağlayıcı hata yanıtları düzeltildi. Kullanıcı bu aşamada merge ve mevcut kurulumun yükseltilmesine izin verdi; aşağıdaki ilk deneme kaydı o aşamanın tarihsel sınırlarını anlatır.
+
+- A bölümünden B'ye seçim, görünen başlık/açıklama/puan/IMDb/afiş ile Oynat ve bölüm favorisini aynı B kimliğine geçirir. Dizi metadata ve dizi favorisi ayrı **Dizi bilgileri** alanındadır; eksik bölüm alanları dizi veya önceki bölümden doldurulmaz.
+- VOD `auth: 0`, explicit hata ve başarısız durum yanıtları `NetworkError` üretir; eski metadata ve kontrol zamanı korunur, **Yeniden dene** kullanılabilir. Geçerli fakat eksik `info`/`movie_data` metadata kabul edilir. Yeni cache yükü tüm bölüm bilgilerini kararlı provider kimlikleriyle ayrı tutar; eski birleştirilmiş payload cache miss olur. Kaynak/favori/geçmiş/konum tabloları dönüştürülmez.
+- Hedefli tur: **121 geçti, 2 hata**; hatalar iki yeni testin Qt enum'larını instance üzerinden çağırmasındaydı. `QFormLayout.ItemRole` kullanımı düzeltildi; yalnız bu iki test yeniden çalıştırıldı, **2 geçti / 0,23 sn**.
+- Düzeltmeler tamamlandıktan sonra tam komut **bir kez** çalıştırıldı: `env -u DISPLAY -u GDK_BACKEND QT_QPA_PLATFORM=wayland ./scripts/test.sh` → **425 geçti / 59,87 sn**, Ruff lint/format başarılı. Yerel/HLS probe'ları **94**, pencere smoke'u **86** framebuffer rengi; her biri `wayland`, `DISPLAY_present: false`, `success: true`. Başarılı tam paket tekrar edilmedi.
+- Ayrı yerel HTTP/native Qt senaryosu: A kartında B seçimi ve favorisi, ayrı dizi açıklaması, tek metadata isteğiyle önbellekten yeniden açılış, Vazgeç'in canlı yayını koruması, **8 sn'den Devam et**, **0 sn'den Baştan başlat** ve 75 ms aralıklı altı kanal geçişi doğrulandı. Aynı mpv/GL bağlamı korundu. Yerel kanıtlar `work/qa/review-native-result.json` ve `review-selected-b.png`; fiziksel masaüstü girdisi veya internet gecikmesi ölçümü değildir.
+- Sürüm `0.5.0`; yeni çalışma zamanı bağımlılığı yok. 0.4.0 üzerine ilk açılışta yalnız ayrıntı önbelleği tablosu eklenir. Yükseltme öncesinde özel veri dizini Git dışında kopyalandı, SQLite backup API ile tutarlı kopya alındı ve mevcut tabloların içerik özetleri karşılaştırıldı; yedek dizinleri 0700, dosyalar 0600 izinli.
+
+---
+
 # Film/dizi ayrıntı kartı · #31
 
 2026-09-09 · ayrı `feat/media-detail-card` çalışma ağacı; kurulu uygulama ve kişisel kütüphane kullanılmadı. Yeni çalışma zamanı bağımlılığı yok.

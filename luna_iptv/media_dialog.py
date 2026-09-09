@@ -26,6 +26,8 @@ class MediaDetailDialog(QDialog):
     play_requested = Signal(object)
     favorite_requested = Signal(object)
     retry_requested = Signal()
+    selection_changed = Signal(object)
+    series_favorite_requested = Signal(object)
 
     def __init__(self, channel, poster_cache, parent=None):
         super().__init__(parent)
@@ -40,6 +42,10 @@ class MediaDetailDialog(QDialog):
         self._imdb_url = ""
         self._episodes = []
         self._series = channel.kind == "series" or bool(channel.series_id)
+        self._details = None
+        self._selection_identity = None
+        self._series_channel = channel if channel.kind == "series" else None
+        self._series_imdb_url = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -57,7 +63,13 @@ class MediaDetailDialog(QDialog):
         self.poster_label.setFixedSize(240, 360)
         self.poster_label.setAlignment(Qt.AlignCenter)
         self.poster_label.setAccessibleName("İçerik afişi")
-        columns.addWidget(self.poster_label, 0, Qt.AlignTop)
+        artwork = QVBoxLayout()
+        artwork.addWidget(self.poster_label)
+        self.poster_scope_label = text_label("", "muted")
+        self.poster_scope_label.setWordWrap(True)
+        artwork.addWidget(self.poster_scope_label)
+        artwork.addStretch()
+        columns.addLayout(artwork)
 
         content = QVBoxLayout()
         content.setSpacing(12)
@@ -81,6 +93,34 @@ class MediaDetailDialog(QDialog):
         self.imdb_button.clicked.connect(self._open_imdb)
         self.imdb_button.hide()
         content.addWidget(self.imdb_button, 0, Qt.AlignLeft)
+        self.series_section = QWidget()
+        series_layout = QVBoxLayout(self.series_section)
+        series_layout.setContentsMargins(0, 12, 0, 0)
+        series_layout.setSpacing(12)
+        series_layout.addWidget(text_label("Dizi bilgileri", "heading"))
+        self.series_title_label = text_label("", "heading")
+        self.series_description_label = text_label("Açıklama bulunmuyor.")
+        for label in (self.series_title_label, self.series_description_label):
+            label.setWordWrap(True)
+            label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            series_layout.addWidget(label)
+        self.series_metadata = QFormLayout()
+        self.series_metadata.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.series_metadata.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        self.series_metadata.setHorizontalSpacing(12)
+        self.series_metadata.setVerticalSpacing(8)
+        series_layout.addLayout(self.series_metadata)
+        self.series_imdb_button = QPushButton("Diziyi IMDb'de aç")
+        self.series_imdb_button.clicked.connect(self._open_series_imdb)
+        self.series_imdb_button.hide()
+        series_layout.addWidget(self.series_imdb_button, 0, Qt.AlignLeft)
+        self.series_favorite_button = QPushButton()
+        self.series_favorite_button.clicked.connect(self._request_series_favorite)
+        self.set_series_favorite(False)
+        series_layout.addWidget(self.series_favorite_button, 0, Qt.AlignLeft)
+        self.series_section.setVisible(self._series)
+        content.addWidget(self.series_section)
         content.addStretch()
         columns.addLayout(content, 1)
         self.scroll.setWidget(body)
@@ -100,7 +140,7 @@ class MediaDetailDialog(QDialog):
             combo.setMinimumContentsLength(12)
             selector_layout.addRow(label, combo)
         self.season_combo.currentIndexChanged.connect(self._populate_episodes)
-        self.episode_combo.currentIndexChanged.connect(self._update_play_button)
+        self.episode_combo.currentIndexChanged.connect(self._refresh_selection)
         self.selectors.setVisible(self._series)
         self.season_combo.setEnabled(False)
         self.episode_combo.setEnabled(False)
@@ -138,10 +178,14 @@ class MediaDetailDialog(QDialog):
             self.close_button,
             self.retry_button,
             self.imdb_button,
+            self.series_imdb_button,
+            self.series_favorite_button,
         ):
             button.setAutoDefault(False)
         self.setTabOrder(self.scroll, self.imdb_button)
-        self.setTabOrder(self.imdb_button, self.season_combo)
+        self.setTabOrder(self.imdb_button, self.series_imdb_button)
+        self.setTabOrder(self.series_imdb_button, self.series_favorite_button)
+        self.setTabOrder(self.series_favorite_button, self.season_combo)
         self.setTabOrder(self.season_combo, self.episode_combo)
         self.setTabOrder(self.episode_combo, self.retry_button)
         self.setTabOrder(self.retry_button, self.play_button)
@@ -151,14 +195,12 @@ class MediaDetailDialog(QDialog):
         # A QObject-bound slot gives Qt a receiver context: destroying the card
         # automatically disconnects it even while the shared cache is working.
         poster_cache.ready.connect(self._poster_ready)
-        self._set_poster(channel.logo)
-        self._update_play_button()
+        self.set_series_channel(self._series_channel)
 
-    def set_details(self, details: MediaDetails):
-        info = details.info
-        self.description_label.setText(info.get("description") or "Açıklama bulunmuyor.")
-        while self.metadata.rowCount():
-            self.metadata.removeRow(0)
+    @staticmethod
+    def _fill_metadata(layout, info, *, show_missing=False):
+        while layout.rowCount():
+            layout.removeRow(0)
         fields = [
             ("year", "Yıl"),
             ("genre", "Tür"),
@@ -171,24 +213,33 @@ class MediaDetailDialog(QDialog):
             ),
         ]
         for key, title in fields:
-            if value := info.get(key):
-                label = text_label(value)
+            value = info.get(key)
+            if value or show_missing:
+                label = text_label(value or "Belirtilmemiş")
                 label.setWordWrap(True)
                 label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
                 label.setAccessibleName(title)
                 label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                self.metadata.addRow(text_label(title, "muted"), label)
+                layout.addRow(text_label(title, "muted"), label)
+
+    @staticmethod
+    def _imdb_link(info):
         imdb_id = info.get("imdb_id", "")
-        self._imdb_url = (
+        return (
             f"https://www.imdb.com/title/{imdb_id}/"
             if re.fullmatch(r"tt[0-9]{7,}", imdb_id)
             else ""
         )
-        self.imdb_button.setVisible(bool(self._imdb_url))
-        self._set_poster(info.get("poster") or self._channel.logo)
 
-        selected = self.selected_channel()
-        selected_id = selected.id if selected else self._channel.id
+    @staticmethod
+    def _identity(channel):
+        return (channel.provider_key or channel.id) if channel else None
+
+    def set_details(self, details: MediaDetails):
+        selected_id = self._identity(self._current_channel())
+        self._details = details
+        if self._series:
+            self._refresh_series_info()
         previous_season = self.season_combo.currentData()
         self._episodes = details.episodes
         groups = list(dict.fromkeys(episode.group for episode in self._episodes))
@@ -198,53 +249,132 @@ class MediaDetailDialog(QDialog):
         for group in groups:
             self.season_combo.addItem(group or "Sezon belirtilmemiş", group)
         preferred = next(
-            (ep.group for ep in self._episodes if ep.id == selected_id), previous_season
+            (ep.group for ep in self._episodes if self._identity(ep) == selected_id),
+            previous_season,
         )
         index = self.season_combo.findData(preferred)
         self.season_combo.setCurrentIndex(index if index >= 0 else (0 if groups else -1))
         self.season_combo.blockSignals(False)
         self.season_combo.setEnabled(bool(groups))
-        self._populate_episodes()
-        for index in range(self.episode_combo.count()):
-            if self.episode_combo.itemData(index).id == selected_id:
-                self.episode_combo.setCurrentIndex(index)
-                break
+        self._populate_episodes(selected_id=selected_id)
 
     @staticmethod
     def _season_order(group):
         match = re.fullmatch(r"Sezon\s+([0-9]+)", group)
         return (0, int(match[1])) if match else (1, group.casefold())
 
-    def _populate_episodes(self):
+    def _populate_episodes(self, _index=None, *, selected_id=None):
+        if selected_id is None:
+            selected_id = self._identity(self._current_channel())
         self.episode_combo.blockSignals(True)
         self.episode_combo.clear()
         group = self.season_combo.currentData()
         for episode in self._episodes:
             if episode.group == group:
                 self.episode_combo.addItem(episode.name, episode)
+        for index in range(self.episode_combo.count()):
+            if self._identity(self.episode_combo.itemData(index)) == selected_id:
+                self.episode_combo.setCurrentIndex(index)
+                break
         self.episode_combo.blockSignals(False)
         self.episode_combo.setEnabled(self.episode_combo.count() > 0)
-        self._update_play_button()
+        self._refresh_selection()
+
+    def _current_channel(self) -> Channel | None:
+        if self._series and self._details is not None:
+            return self.episode_combo.currentData()
+        return self._channel if self._channel.kind != "series" else None
 
     def selected_channel(self) -> Channel | None:
-        if self._series and self.episode_combo.count():
-            channel = self.episode_combo.currentData()
-        else:
-            channel = self._channel
-        return channel if channel.kind != "series" and channel.url else None
+        channel = self._current_channel()
+        return channel if channel is not None and channel.url else None
 
-    def _update_play_button(self):
+    def favorite_channel(self) -> Channel | None:
+        return self._current_channel()
+
+    def _refresh_selection(self, _index=None):
+        channel = self._current_channel()
+        identity = self._identity(channel)
+        changed = identity != self._selection_identity
+        self._selection_identity = identity
+        info = {}
+        if self._details is not None:
+            if not self._series:
+                info = self._details.info
+            elif channel:
+                info = self._details.episode_info.get(channel.provider_key, {})
+        title = channel.name if channel else "Bölüm seçilmedi"
+        self.title_label.setText(title)
+        self.setWindowTitle(title)
+        self.description_label.setText(info.get("description") or "Açıklama bulunmuyor.")
+        self._fill_metadata(self.metadata, info, show_missing=self._series)
+        self._imdb_url = self._imdb_link(info)
+        self.imdb_button.setVisible(bool(self._imdb_url))
+        poster = info.get("poster", "")
+        scope = "Bölüm afişi" if self._series else "İçerik afişi"
+        if self._series and not poster:
+            poster = self._details.info.get("poster", "") if self._details else ""
+            poster = poster or (self._series_channel.logo if self._series_channel else "")
+            if poster:
+                scope = "Dizi afişi (bölüm afişi bulunmuyor)"
+            elif self._details is None and channel:
+                poster = channel.logo
+                scope = "Kayıtlı afiş (bölüm veya dizi)"
+        elif not self._series:
+            poster = poster or self._channel.logo
+        self.poster_scope_label.setText(scope if poster and self._series else "")
+        self.poster_label.setAccessibleName(scope)
+        self._set_poster(poster)
         self.play_button.setEnabled(self.selected_channel() is not None)
+        self.favorite_button.setEnabled(self.favorite_channel() is not None)
+        if changed:
+            self.set_favorite(False)
+            self.selection_changed.emit(channel)
+
+    def _refresh_series_info(self):
+        info = self._details.info if self._details else {}
+        title = self._details.series_title if self._details else ""
+        title = title or (self._series_channel.name if self._series_channel else "")
+        self.series_title_label.setText(title or "Dizi adı bulunmuyor.")
+        self.series_description_label.setText(info.get("description") or "Açıklama bulunmuyor.")
+        self._fill_metadata(self.series_metadata, info)
+        self._series_imdb_url = self._imdb_link(info)
+        self.series_imdb_button.setVisible(bool(self._series_imdb_url))
 
     def _request_play(self):
         if channel := self.selected_channel():
             self.play_requested.emit(channel)
 
     def _request_favorite(self):
-        self.favorite_requested.emit(self._channel)
+        if channel := self.favorite_channel():
+            self.favorite_requested.emit(channel)
+
+    def set_series_channel(self, channel: Channel | None):
+        self._series_channel = channel
+        self.series_favorite_button.setVisible(channel is not None)
+        self.series_favorite_button.setEnabled(channel is not None)
+        self._refresh_series_info()
+        self._refresh_selection()
+
+    def set_series_favorite(self, favorite: bool):
+        self.series_favorite_button.setText(
+            "Diziyi favorilerden çıkar" if favorite else "Diziyi favorilere ekle"
+        )
+
+    def _request_series_favorite(self):
+        if self._series_channel is not None:
+            self.series_favorite_requested.emit(self._series_channel)
+
+    def _open_series_imdb(self):
+        if self._series_imdb_url:
+            QDesktopServices.openUrl(QUrl(self._series_imdb_url))
 
     def set_favorite(self, favorite: bool):
-        self.favorite_button.setText("Favorilerden çıkar" if favorite else "Favorilere ekle")
+        if self._series:
+            text = "Bölümü favorilerden çıkar" if favorite else "Bölümü favorilere ekle"
+        else:
+            text = "Favorilerden çıkar" if favorite else "Favorilere ekle"
+        self.favorite_button.setText(text)
 
     def set_status(self, text, retry=False):
         self.status_label.setText(text)

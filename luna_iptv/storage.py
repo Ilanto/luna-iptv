@@ -447,7 +447,14 @@ class Store:
                 not isinstance(payload, dict)
                 or not isinstance(payload.get("info"), dict)
                 or not isinstance(payload.get("episodes"), list)
+                or not isinstance(payload.get("episode_info"), dict)
+                or not isinstance(payload.get("series_title"), str)
                 or any(not isinstance(value, str) for value in payload["info"].values())
+                or any(
+                    not isinstance(info, dict)
+                    or any(not isinstance(value, str) for value in info.values())
+                    for info in payload["episode_info"].values()
+                )
             ):
                 return None
             episodes = []
@@ -473,7 +480,12 @@ class Store:
                 ):
                     return None
                 episodes.append(Channel(**item))
-            return MediaDetails(normalize_info(payload["info"]), episodes), checked_at
+            return MediaDetails(
+                normalize_info(payload["info"]),
+                episodes,
+                {key: normalize_info(info) for key, info in payload["episode_info"].items()},
+                payload["series_title"],
+            ), checked_at
         except (ValueError, TypeError, KeyError, RecursionError):
             return None
 
@@ -487,6 +499,10 @@ class Store:
             {
                 "info": normalize_info(details.info),
                 "episodes": [asdict(channel) for channel in details.episodes],
+                "episode_info": {
+                    key: normalize_info(info) for key, info in details.episode_info.items()
+                },
+                "series_title": details.series_title,
             },
             ensure_ascii=False,
         )

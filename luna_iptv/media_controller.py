@@ -33,6 +33,7 @@ class MediaDetailController(QObject):
         self.dialog = None
         self.posters = None
         self._channel = None
+        self._series_channel = None
         self._fingerprint = None
         self._active = None
         self._pending = None
@@ -59,6 +60,20 @@ class MediaDetailController(QObject):
             return
         self._channel = channel
         self._fingerprint = source_fingerprint(source)
+        self._series_channel = (
+            channel
+            if channel.kind == "series"
+            else next(
+                (
+                    item
+                    for item in self.window.store.channels(source["id"])
+                    if item.kind == "series" and item.series_id == channel.series_id
+                ),
+                None,
+            )
+            if channel.series_id
+            else None
+        )
         if self.posters is None:
             self.posters = LogoCache(
                 self.window.store.path, self, size=QSize(240, 360), cache_suffix=".posters"
@@ -67,6 +82,9 @@ class MediaDetailController(QObject):
         self.dialog = dialog
         dialog.play_requested.connect(self._play)
         dialog.favorite_requested.connect(self._favorite)
+        dialog.selection_changed.connect(self.refresh_favorite)
+        dialog.series_favorite_requested.connect(self._favorite)
+        dialog.set_series_channel(self._series_channel)
         dialog.retry_requested.connect(lambda: self._request(channel, source, force=True))
 
         def finished(_result):
@@ -75,7 +93,7 @@ class MediaDetailController(QObject):
                 self._pending = None
 
         dialog.finished.connect(finished)
-        dialog.set_favorite(channel.id in self.window.store.favorites())
+        self.refresh_favorite()
         dialog.show()
         if source["type"] != "xtream":
             dialog.set_status("Bu kaynak ayrıntılı içerik bilgisi sağlamıyor.")
@@ -117,7 +135,16 @@ class MediaDetailController(QObject):
             episodes = self.window.store.upsert_channels(source["id"], episodes)
             self.window.model.reset(self.window.store.channels(), self.window.store.favorites())
             self.window.filter_changed()
-        self.dialog.set_details(MediaDetails(info=details.info, episodes=episodes))
+        self.dialog.set_details(
+            MediaDetails(
+                info=details.info,
+                episodes=episodes,
+                episode_info=details.episode_info,
+                series_title=details.series_title
+                or (self._series_channel.name if self._series_channel else ""),
+            )
+        )
+        self.refresh_favorite()
 
     def _request(self, channel, source, *, force=False):
         fingerprint = source_fingerprint(source)
@@ -196,9 +223,14 @@ class MediaDetailController(QObject):
         if self.dialog is not None and self._valid(channel, self._fingerprint):
             self.window.toggle_channel_favorite(channel)
 
-    def refresh_favorite(self):
+    def refresh_favorite(self, *_):
         if self.dialog is not None:
-            self.dialog.set_favorite(self._channel.id in self.window.store.favorites())
+            favorites = self.window.store.favorites()
+            target = self.dialog.favorite_channel()
+            self.dialog.set_favorite(target is not None and target.id in favorites)
+            self.dialog.set_series_favorite(
+                self._series_channel is not None and self._series_channel.id in favorites
+            )
 
     def invalidate(self):
         if self.dialog is not None and not self._valid(self._channel, self._fingerprint):
