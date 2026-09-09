@@ -16,6 +16,7 @@ class EventBackend:
         self.events = {}
         self.observer = None
         self.commands = []
+        self.track_list = []
 
     def observe_property(self, _name, callback):
         self.observer = callback
@@ -58,12 +59,17 @@ def test_pending_render_load_keeps_the_token_returned_to_caller(event_player):
     player, backend = event_player
     player._render_ready = False
 
-    token = player.load("https://example.test/live")
+    options = {"alang": "tr", "slang": "en", "subs-fallback": "no"}
+    token = player.load("https://example.test/live", track_options=options)
+    options["alang"] = "de"
     player._ready()
 
     load_args, _future = next(item for item in backend.commands if item[0][0] == "loadfile")
     assert token == 1
     assert load_args[1] == "https://example.test/live"
+    assert "alang=%2%tr" in load_args[-1]
+    assert "slang=%2%en" in load_args[-1]
+    assert "subs-fallback=%2%no" in load_args[-1]
     assert player._pending_load is None
 
 
@@ -71,6 +77,11 @@ def test_tagged_events_wait_for_loadfile_playlist_id_result(event_player):
     player, backend = event_player
     loaded = []
     properties = []
+    order = []
+    tracks = [{"type": "audio", "id": 4, "lang": "tur", "selected": True}]
+    backend.track_list = tracks
+    player.playback_loaded.connect(lambda _token: order.append("loaded"))
+    player.playback_property_changed.connect(lambda _token, name, _value: order.append(name))
     player.playback_loaded.connect(loaded.append)
     player.playback_property_changed.connect(
         lambda token, name, value: properties.append((token, name, value))
@@ -86,7 +97,10 @@ def test_tagged_events_wait_for_loadfile_playlist_id_result(event_player):
 
     load_future.set_result({"playlist_entry_id": 41})
     assert loaded == [token]
-    assert properties == [(token, "time-pos", 2.5)]
+    assert properties == [(token, "time-pos", 2.5), (token, "track-list", tracks)]
+    assert order == ["time-pos", "track-list", "loaded"]
+    tracks[0]["lang"] = "eng"
+    assert properties[-1][2][0]["lang"] == "tur"
 
 
 def test_old_entry_failure_is_tagged_but_not_emitted_as_current_legacy_error(event_player):
@@ -125,6 +139,11 @@ def test_missing_playlist_id_disables_tracking_without_stalling_legacy_playback(
     lost = []
     loaded = []
     tagged = []
+    snapshots = []
+    backend.track_list = [{"type": "audio", "id": 1, "selected": True}]
+    player.property_changed.connect(
+        lambda name, value: snapshots.append(value) if name == "track-list" else None
+    )
     player.playback_tracking_lost.connect(lost.append)
     player.file_loaded.connect(lambda: loaded.append(True))
     player.playback_loaded.connect(tagged.append)
@@ -138,6 +157,7 @@ def test_missing_playlist_id_disables_tracking_without_stalling_legacy_playback(
     assert lost == [token]
     assert loaded == [True]
     assert tagged == []
+    assert snapshots == [backend.track_list]
 
 
 def test_missing_playlist_id_does_not_treat_previous_entry_end_as_current(event_player):
@@ -205,6 +225,52 @@ def test_set_property_returns_async_command_completion_future():
 
     assert result is player._mpv.future
     assert player._mpv.args == ("set", "pause", "yes")
+
+
+def test_track_options_are_per_file_and_cannot_inject_other_options(event_player):
+    player, backend = event_player
+    language = "tr,aid=no"
+    player.load(
+        "https://example.test/one",
+        headers={"User-Agent": "Luna, test"},
+        start=12,
+        track_options={"alang": language, "sid": "no"},
+    )
+    first = [args for args, _future in backend.commands if args[0] == "loadfile"][-1]
+    assert f"alang=%{len(language)}%{language}" in first[-1]
+    assert "start=12," in first[-1]
+    assert "http-header-fields=%23%User-Agent: Luna\\, test" in first[-1]
+    player.load("https://example.test/two")
+    second = [args for args, _future in backend.commands if args[0] == "loadfile"][-1]
+    assert "alang=%0%" in second[-1]
+    assert "slang=%0%" in second[-1]
+    assert "aid=%4%auto" in second[-1]
+    assert "sid=%4%auto" in second[-1]
+    assert not any(args[:2] in (("set", "aid"), ("set", "sid")) for args, _ in backend.commands)
+
+
+def test_superseded_track_snapshot_keeps_old_token_until_new_entry_starts(event_player):
+    player, backend = event_player
+    snapshots = []
+    player.playback_property_changed.connect(
+        lambda token, name, value: (
+            snapshots.append((token, value)) if name == "track-list" else None
+        )
+    )
+    old = player.load("https://example.test/old")
+    old_future = [future for args, future in backend.commands if args[0] == "loadfile"][-1]
+    backend.events["start-file"](mpv_event(playlist_entry_id=10))
+    backend.track_list = [{"type": "audio", "id": 1, "lang": "eng", "selected": True}]
+    backend.events["file-loaded"](mpv_event())
+    current = player.load("https://example.test/new")
+    old_future.set_result({"playlist_entry_id": 10})
+    assert snapshots == [(old, backend.track_list)]
+    new_future = [future for args, future in backend.commands if args[0] == "loadfile"][-1]
+    new_future.set_result({"playlist_entry_id": 11})
+    backend.events["start-file"](mpv_event(playlist_entry_id=11))
+    new_tracks = [{"type": "audio", "id": 2, "lang": "tur", "selected": True}]
+    backend.observer("track-list", new_tracks)
+    assert snapshots[-1] == (current, new_tracks)
 
 
 def test_native_render_playback_controls_and_teardown(tmp_path, qt_app):

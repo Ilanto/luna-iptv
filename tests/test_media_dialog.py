@@ -339,6 +339,156 @@ def test_movie_refresh_retry_and_close_do_not_play(card_factory, qt_app):
     assert played == [original]
 
 
+def test_language_edits_apply_only_to_explicit_play_snapshot(card_factory):
+    channel = movie()
+    card, cache = card_factory(channel)
+    seed = {"audio": {"mode": "auto"}, "sub": {"mode": "off"}, "remember": True}
+    card.set_playback_preferences(seed)
+    played, selected = [], []
+    card.play_requested.connect(
+        lambda current: played.append((current, card.playback_preferences()))
+    )
+    card.selection_changed.connect(selected.append)
+
+    card.audio_combo.setCurrentIndex(card.audio_combo.findText("İngilizce"))
+    card.subtitle_combo.setCurrentIndex(card.subtitle_combo.findText("Türkçe"))
+    card.remember_checkbox.setChecked(False)
+    preferences = card.playback_preferences()
+    assert preferences["audio"]["lang"] == "en"
+    assert preferences["sub"]["lang"] == "tr"
+    assert preferences["remember"] is False
+    assert seed == {"audio": {"mode": "auto"}, "sub": {"mode": "off"}, "remember": True}
+    assert played == selected == cache.requests == []
+
+    card.play_button.click()
+    assert played == [(channel, preferences)]
+    preferences["audio"]["lang"] = "de"
+    assert card.playback_preferences()["audio"]["lang"] == "en"
+    card.close_button.click()
+    assert len(played) == 1
+
+
+def test_language_auto_off_and_cancel_are_local_to_card(card_factory):
+    card, _ = card_factory(movie())
+    card.set_playback_preferences({"audio": {"mode": "off"}, "sub": {"mode": "auto"}})
+    assert card.playback_preferences()["audio"] == {"mode": "off"}
+    seed = {
+        "audio": {"mode": "track", "lang": "eng"},
+        "sub": {"mode": "track", "lang": "tur"},
+        "remember": True,
+    }
+    card.set_playback_preferences(seed)
+    played = []
+    card.play_requested.connect(played.append)
+    card.audio_combo.setCurrentIndex(card.audio_combo.findText("Otomatik"))
+    card.subtitle_combo.setCurrentIndex(card.subtitle_combo.findText("Kapalı"))
+    assert card.playback_preferences() == {
+        "audio": {"mode": "auto"},
+        "sub": {"mode": "off"},
+        "remember": True,
+    }
+    card.subtitle_combo.setCurrentIndex(card.subtitle_combo.findText("Otomatik"))
+    card.remember_checkbox.setChecked(False)
+    assert card.playback_preferences() == {
+        "audio": {"mode": "auto"},
+        "sub": {"mode": "auto"},
+        "remember": False,
+    }
+    card.close_button.click()
+    assert played == []
+    assert seed["audio"]["lang"] == "eng"
+    assert seed["sub"]["lang"] == "tur"
+    assert seed["remember"] is True
+
+
+@pytest.mark.parametrize(
+    "choice, expected",
+    [
+        ({"lang": " ENG_us "}, {"lang": "en", "title": ""}),
+        ({"lang": "tur"}, {"lang": "tr", "title": ""}),
+        (
+            {"lang": "nld", "title": "Commentary <b>saved</b>", "forced": True},
+            {"lang": "nld", "title": "Commentary <b>saved</b>", "forced": True},
+        ),
+        (
+            {"title": "Saved descriptive audio", "hearing_impaired": True},
+            {"lang": "", "title": "Saved descriptive audio", "hearing_impaired": True},
+        ),
+    ],
+)
+def test_saved_language_choices_normalize_without_track_inventory(card_factory, choice, expected):
+    card, cache = card_factory(movie())
+    card.set_playback_preferences(
+        {"audio": {"mode": "track", **choice}, "sub": {"mode": "off"}, "remember": False}
+    )
+    snapshot = card.playback_preferences()
+    assert snapshot == {
+        "audio": {
+            "mode": "track",
+            "lang": "",
+            "title": "",
+            "forced": False,
+            "hearing_impaired": False,
+            **expected,
+        },
+        "sub": {"mode": "off"},
+        "remember": False,
+    }
+    assert card.selected_channel().url == "file:///film.mkv"
+    assert cache.requests == []
+    # A saved semantic preference survives even when no stream tracks are known.
+    card.set_details(MediaDetails(info={"description": "Metadata only"}))
+    assert card.playback_preferences() == snapshot
+
+
+def test_episode_and_metadata_changes_preserve_pending_language_choices(card_factory):
+    first, second = episode(1, 1), episode(2, 2)
+    card, _ = card_factory(first)
+    card.set_playback_preferences(
+        {"audio": {"mode": "track", "lang": "en"}, "sub": {"mode": "off"}, "remember": True}
+    )
+    card.subtitle_combo.setCurrentIndex(card.subtitle_combo.findText("Türkçe"))
+    card.remember_checkbox.setChecked(False)
+    pending = card.playback_preferences()
+    played = []
+    card.play_requested.connect(
+        lambda current: played.append((current, card.playback_preferences()))
+    )
+    card.set_details(MediaDetails(episodes=[first, second]))
+    card.season_combo.setCurrentIndex(card.season_combo.findData(second.group))
+    assert card.selected_channel() is second
+    assert card.playback_preferences() == pending
+    refreshed = episode(2, 2)
+    refreshed.url = "file:///refreshed.mkv"
+    card.set_details(
+        MediaDetails(
+            episodes=[first, refreshed],
+            episode_info={refreshed.provider_key: {"description": "Updated episode"}},
+        )
+    )
+    assert card.selected_channel() is refreshed
+    assert card.playback_preferences() == pending
+    assert played == []
+    card.play_button.click()
+    assert played == [(refreshed, pending)]
+
+
+def test_language_controls_scroll_without_hiding_minimum_card_actions(card_factory, qt_app):
+    card, _ = card_factory(episode(1, 1))
+    card.resize(540, 320)
+    card.show()
+    qt_app.processEvents()
+    for combo in (card.audio_combo, card.subtitle_combo):
+        card.scroll.ensureWidgetVisible(combo)
+        qt_app.processEvents()
+        assert combo.visibleRegion().boundingRect().contains(combo.rect())
+    for button in (card.play_button, card.favorite_button, card.close_button):
+        assert button.isVisible()
+        assert card.rect().contains(button.geometry())
+    assert card.width() == 540
+    assert card.height() == 320
+
+
 def test_stale_poster_completion_cannot_replace_current_poster_or_access_deleted_card(card_factory):
     old_url, new_url = "https://art.invalid/old.png", "https://art.invalid/new.png"
     card, cache = card_factory(movie(logo=old_url))

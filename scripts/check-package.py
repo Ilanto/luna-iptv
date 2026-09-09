@@ -47,8 +47,18 @@ with tempfile.TemporaryDirectory(prefix="luna-rpm-") as directory:
         LUNA_PACKAGE_ROOT=str(package),
         LUNA_PACKAGE_REPORT=str(output),
     )
+    # The installed launcher prepends /usr/share/luna-iptv. Pin the extracted
+    # package first so an older installed version cannot shadow this RPM.
+    version_probe = """
+import os, runpy, sys
+import luna_iptv
+assert str(luna_iptv.__file__).startswith(os.environ['LUNA_PACKAGE_ROOT'])
+launcher = sys.argv[1]
+sys.argv = [launcher, '--version']
+runpy.run_path(launcher, run_name='__main__')
+"""
     result = subprocess.run(
-        [sys.executable, str(extracted / "usr/bin/luna-iptv"), "--version"],
+        [sys.executable, "-c", version_probe, str(extracted / "usr/bin/luna-iptv")],
         env=env,
         cwd=extracted,
         capture_output=True,

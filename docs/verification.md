@@ -1,3 +1,18 @@
+# Luna IPTV 0.6.0 · #33 oynatma öncesi diller
+
+2026-09-09 · mevcut TrackPreferences ile dil seçimi ve kaynak bazında hatırlama. Yeni çalışma zamanı bağımlılığı ve veri şeması değişikliği yok; mevcut tercih JSON'u Otomatik seçimini de kabul eder.
+
+- `TrackPreferences.begin()` açık oynatıcıya global aid/sid yazmaz; onaylanmış seçimden dosyaya özel `alang/slang/aid/sid` seçenekleri üretir. Altyazı dili istendiğinde farklı dile ve forced altyazıya fallback kapatılır. Otomatik davranışı kurulu mpv varsayılanlarıyla (`subs-fallback=default`, forced/matching-audio=yes) korunur.
+- Hedefli testler **64 geçti / 5,97 sn**. Ardından ilk native seçim için İngilizce ses + Türkçe altyazı kombinasyonu da eklendi; yalnız değişen native test yeniden çalıştırıldı: **1 geçti / 2,54 sn**. İlk lint geçişinde bulunan bir döngü-lambda bağlama hatası testler başlamadan düzeltildi.
+- Son tam paket **bir kez** çalıştırıldı: `env -u DISPLAY -u GDK_BACKEND QT_QPA_PLATFORM=wayland ./scripts/test.sh` → **448 geçti / 62,11 sn**, Ruff lint/format başarılı. Yerel ve HLS probe'ları 94, pencere smoke'u 99 framebuffer rengi; tamamı `wayland`, `DISPLAY_present:false`, `success:true`. Başarılı paket tekrar çalıştırılmadı.
+- Native HTTP regresyonu ilk `playback_loaded` olayındaki otoritatif parça listesinde Türkçe/Türkçe, İngilizce/İngilizce, İngilizce/Türkçe, olmayan dil, Kapalı ve Otomatik davranışını doğrular; yükleme sonrası tercih uygulaması çağırarak başlangıç hatalarını gizlemez. Her yüklemede **bir GET**, toplamda ek probe/HEAD yok; aynı render bağlamı korunur.
+- Gerçek Qt kartında İngilizce ses + Türkçe altyazı hazırlanırken açık Türkçe ses/İngilizce altyazı yayını ve kayıtlı tercihler değişmedi. Bölüm B'ye seçim korundu; devam sorusunu iptal etmek açık yayını korudu. **8,042 sn** devam ve baştan başlatmada İngilizce/Türkçe kaldı. Almanca parçaları olmayan içerikte varsayılan İngilizce ses ve kapalı altyazı, görünür kısa bilgiyle doğrulandı. `wayland`, `DISPLAY_present: false`, aynı mpv/GL bağlamı ve `success:true`; yerel kanıt `work/qa/preplay-native-result.json`, `preplay-card.png`.
+- Nesil kimliğiyle etiketli parça listeleri, eski yayın olaylarının yeni tercihlere uygulanmasını engeller. Kapatma/iptal kalıcılığı değiştirmez; `remember=false` tek oynatmalık seçimleri uygular, önceki kayıtlı dilleri silmez; aynı içerikte devam/stop/yeniden deneme için aktif snapshot korunur.
+- Paket kontrol yardımcısı çıkarılan paketi launcher'dan önce import ederek `/usr/share` altındaki eski kurulumun sürüm kontrolünü gölgelemesini engeller. Kurulu uygulama dosyaları test için değiştirilmez.
+- Sınırlar: gerçek sağlayıcıların tüm dil etiketleri, farklı GPU/compositor'lar ve fiziksel masaüstü girdileri kapsam dışıdır. Dil seçimi mpv'nin bildirdiği dil etiketlerine dayanır; bilinmeyen parça listesi mevcut dil envanteri olarak sunulmaz.
+
+---
+
 # Luna IPTV 0.5.0 · PR #32 inceleme düzeltmeleri
 
 2026-09-09 · bölüm/dizi metadata ayrımı ve sağlayıcı hata yanıtları düzeltildi. Kullanıcı bu aşamada merge ve mevcut kurulumun yükseltilmesine izin verdi; aşağıdaki ilk deneme kaydı o aşamanın tarihsel sınırlarını anlatır.

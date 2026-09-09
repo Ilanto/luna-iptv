@@ -106,7 +106,9 @@ def test_track_menu_selection_is_remembered_and_old_menu_cannot_change_new_file(
     film = next(c for c in window.store.channels() if c.kind == "movie")
     window.play(film)
     window.loaded()
-    window.player_property("track-list", [{"type": "audio", "id": 2, "lang": "tur"}])
+    window.playback_property(
+        window._playback_token, "track-list", [{"type": "audio", "id": 2, "lang": "tur"}]
+    )
     menu = window.build_track_menu()
     menu.actions()[0].menu().actions()[1].trigger()
     assert window.store.playback_preferences("home")["audio"]["lang"] == "tr"

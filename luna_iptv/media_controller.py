@@ -85,6 +85,7 @@ class MediaDetailController(QObject):
         dialog.selection_changed.connect(self.refresh_favorite)
         dialog.series_favorite_requested.connect(self._favorite)
         dialog.set_series_channel(self._series_channel)
+        dialog.set_playback_preferences(self.window.track_preferences.preview(source["id"]))
         dialog.retry_requested.connect(lambda: self._request(channel, source, force=True))
 
         def finished(_result):
@@ -216,8 +217,9 @@ class MediaDetailController(QObject):
             return
         fresh = next((c for c in self.window.store.channels() if c.id == selected.id), None)
         if fresh is not None:
+            preferences = self.dialog.playback_preferences()
             self.dismiss()
-            self.window.request_play(fresh)
+            self.window.request_play(fresh, preferences=preferences)
 
     def _favorite(self, channel):
         if self.dialog is not None and self._valid(channel, self._fingerprint):

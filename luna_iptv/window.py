@@ -32,7 +32,7 @@ from .models import Channel, Playlist
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
-from .preferences import TrackPreferences
+from .preferences import TrackPreferences, normalize_preferences
 from .recovery import RecoveryController
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
@@ -89,6 +89,10 @@ class MainWindow(QMainWindow):
         self.recovery = RecoveryController(self)
         self.track_preferences = TrackPreferences(store, self.player)
         build_window(self)
+        self._language_notice_timer = QTimer(self)
+        self._language_notice_timer.setSingleShot(True)
+        self._language_notice_timer.setInterval(7000)
+        self._language_notice_timer.timeout.connect(self.language_notice.hide)
         self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.mini_player = MiniPlayerController(self)
@@ -395,11 +399,12 @@ class MainWindow(QMainWindow):
         if dialog is not None and isValid(dialog):
             dialog.reject()
 
-    def request_play(self, channel):
+    def request_play(self, channel, *, preferences=None):
         self.dismiss_resume()
+        preferences = normalize_preferences(preferences) if preferences is not None else None
         position = self.resume_position(channel)
         if not position:
-            self.play(channel, start_override=0)
+            self.play(channel, start_override=0, preferences=preferences)
             return
         dialog = ResumeDialog(channel.name, clock_text(position), self)
         self._resume_dialog = dialog
@@ -412,7 +417,11 @@ class MainWindow(QMainWindow):
                 return
             fresh = next((c for c in self.model.channels if c.id == channel.id), None)
             if fresh is not None:
-                self.play(fresh, start_override=position if dialog.choice == "resume" else 0)
+                self.play(
+                    fresh,
+                    start_override=position if dialog.choice == "resume" else 0,
+                    preferences=preferences,
+                )
 
         dialog.finished.connect(finished)
         dialog.open()
@@ -421,7 +430,7 @@ class MainWindow(QMainWindow):
         if self.current and self._current_persistent and self.current.kind != "live":
             self.play(self.current, start_override=0)
 
-    def play(self, channel, *, start_override=None, recovering=False):
+    def play(self, channel, *, start_override=None, recovering=False, preferences=None):
         if not channel.url:
             self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
             return
@@ -445,6 +454,8 @@ class MainWindow(QMainWindow):
             self._record_recent = True
             self._record_progress = True
         start = self.resume_position(channel) if start_override is None else start_override
+        if preferences is None and self.current is not None and self.current.id == channel.id:
+            preferences = self.track_preferences.current_choices()
         self.current = channel
         self._current_persistent = True
         self._position = float(start)
@@ -461,7 +472,11 @@ class MainWindow(QMainWindow):
         self._loading = True
         self._tracks = []
         source = self.source_for(channel)
-        self.track_preferences.begin(source["id"] if source else None)
+        track_options = self.track_preferences.begin(
+            source["id"] if source else None, preferences=preferences
+        )
+        self._language_notice_timer.stop()
+        self.language_notice.hide()
         self.transport.prepare(live=channel.kind == "live")
         self.media_info.begin_load()
         self.refresh_media_info()
@@ -486,7 +501,7 @@ class MainWindow(QMainWindow):
         )
         self.refresh_recovery()
         if self._playback_token is not None:
-            self.player.load(channel.url, channel.headers, start=start)
+            self.player.load(channel.url, channel.headers, start=start, track_options=track_options)
         source = self.source_for(channel)
         if source and source.get("epg_url") and source["id"] not in self._guide_data:
             self.load_guide(source)
@@ -514,6 +529,7 @@ class MainWindow(QMainWindow):
         self._loading = False
         self.transport.loaded()
         self.track_preferences.loaded()
+        self._show_track_notice()
         self.media_info.mark_loaded()
         self.refresh_media_info()
         self.info_button.setEnabled(self.current is not None)
@@ -541,6 +557,20 @@ class MainWindow(QMainWindow):
             self.recovery.paused(token, bool(value))
         elif name == "paused-for-cache":
             self.recovery.buffering(token, bool(value))
+        elif name == "track-list" and self._playback_active:
+            self._update_tracks(value)
+
+    def _update_tracks(self, value):
+        self._tracks = value if isinstance(value, list) else []
+        self.track_preferences.update_tracks(self._tracks)
+        if not self._loading:
+            self._show_track_notice()
+
+    def _show_track_notice(self):
+        if not self._closed and (notice := self.track_preferences.take_notice()):
+            self.language_notice.setText(notice)
+            self.language_notice.show()
+            self._language_notice_timer.start()
 
     def playback_finished(self, token, reason, message):
         if token != self._playback_token or not self._playback_active:
@@ -633,8 +663,8 @@ class MainWindow(QMainWindow):
             self.volume.setValue(round(value))
             self.volume.blockSignals(False)
         elif name == "track-list":
-            self._tracks = value if isinstance(value, list) else []
-            self.track_preferences.update_tracks(self._tracks)
+            if self._untracked_playback_token == self._playback_token:
+                self._update_tracks(value)
         elif name == "idle-active":
             self._idle = bool(value)
         elif name == "paused-for-cache" and value:
@@ -732,6 +762,8 @@ class MainWindow(QMainWindow):
         self._untracked_playback_token = None
         self._playback_active = False
         self.track_preferences.finish()
+        self._language_notice_timer.stop()
+        self.language_notice.hide()
         self.transport.finished()
         self._idle = True
         self._loading = False
