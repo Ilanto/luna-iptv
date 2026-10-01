@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.12.1
+Version:        0.12.2
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,11 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Fri Oct 02 2026 Luna IPTV contributors - 0.12.2-1
+- Release the idle inhibit on pause for players without playlist entry ids.
+- Keep a detail card's pending poster when the grid scrolls.
+- Fix a missing grid column at widths that divide exactly.
+
 * Thu Oct 01 2026 Luna IPTV contributors - 0.12.1-1
 - Keep the sidebar logo still while video is on screen.
 - Crop posters in wide favorite and history cards instead of stretching them.

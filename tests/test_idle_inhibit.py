@@ -123,3 +123,14 @@ def test_close_releases_inhibit(window):
     window.play(live(window))
     window.close()
     assert window.bus.held == set()
+
+
+def test_untracked_pause_also_releases_inhibit(window):
+    # Without playlist entry ids the player reports pause only through the
+    # general property signal; the inhibit must follow it there too.
+    window.play(live(window))
+    window._untracked_playback_token = window._playback_token
+    window.player_property("pause", True)
+    assert not window.idle_inhibit.active
+    window.player_property("pause", False)
+    assert window.idle_inhibit.active

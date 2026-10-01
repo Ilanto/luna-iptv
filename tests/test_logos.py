@@ -484,3 +484,18 @@ def test_nonregular_local_logo_is_rejected_without_blocking(qt_app, cache_factor
     finally:
         stop.set()
         thread.join(timeout=1)
+
+
+def test_explicit_request_survives_visible_queue_replacement(qt_app, cache_factory, server):
+    # The detail card shares the poster cache with the grid: scrolling the grid
+    # must not drop the card's own pending poster.
+    cache = cache_factory()
+    for n in range(4):
+        server["routes"][f"/busy{n}"] = (200, {}, png(), 0.3)
+    cache.request_visible([server["base"] + f"/busy{n}" for n in range(4)])
+    spin(qt_app, lambda: sum(server["counts"].values()) == 4)
+    card = server["base"] + "/card"
+    cache.request_logo(card)
+    cache.request_visible([server["base"] + "/scrolled"])
+    spin(qt_app, lambda: cache.prepared_logo(card) is not None)
+    assert server["counts"]["/card"] == 1

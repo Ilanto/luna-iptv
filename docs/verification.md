@@ -30,3 +30,10 @@
 
 - `imdb.find`: `v3.sg.media-imdb.com/suggestion` yanıtında başlık anahtarı (aksan/noktalama duyarsız), tür (film: movie/tvMovie/video; dizi: tvSeries/tvMiniSeries) ve yıl (±1) birlikte tek bir kayda uyarsa başlık sayfası; birden çok, sıfır eşleşme veya hata → `imdb.com/find` arama sayfası. Canlı deneme: Aquaman (2018), Coco (2017), 1883, Bosch: Legacy, Downton Abbey doğrudan; "Alita: Savaş Meleği", "Dokuz Kusursuz Yabancı" arama sayfası.
 - Tam ekran: 0.9.0'daki 16:9 oran kuralı tam ekranda da geçerliydi; 16:10 ekranda video pencereyi doldurmuyordu (`test_fullscreen_button_idle_hides_and_mouse_restores_controls` ara sıra düşüyordu). Kural tam ekranda kapatıldı.
+
+# Luna IPTV 0.12.2 · Codex inceleme düzeltmeleri
+
+PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310..780f923` incelendi; üç bulgu önce başarısız testle doğrulandı, sonra düzeltildi:
+- `untracked` oynatma yolunda pause yalnız `player_property` ile gelir; uyku engeli orada da güncellenir (`test_untracked_pause_also_releases_inhibit`).
+- Paylaşılan afiş önbelleğinde `request_visible` kuyruğu temizlerken detay kartının bekleyen isteğini siliyordu; açık istekler (`request_logo`) tamamlanana kadar kuyruğun başında tutulur (`test_explicit_request_survives_visible_queue_replacement`).
+- Hücreler görünüm genişliğini tam doldurunca Qt son hücreyi alt satıra taşıyordu (600 px'te 2 yerine 1 sütun); hücre genişliği bir piksel kısaltıldı, test gerçek `visualRect` satırlarını doğrular.
