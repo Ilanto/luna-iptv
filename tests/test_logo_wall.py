@@ -66,3 +66,17 @@ def test_live_cards_ask_the_guide_index_only_for_live_channels(qt_app, tmp_path)
         if isValid(window):
             window.close()
         qt_app.processEvents()
+
+
+def test_cover_source_crops_instead_of_stretching(qt_app):
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPixmap
+
+    from luna_iptv.library import cover_source
+
+    frame = QRectF(0, 0, 60, 90)  # 2:3
+    landscape = cover_source(QPixmap(300, 100), frame)
+    assert landscape.height() == 100 and abs(landscape.width() / landscape.height() - 2 / 3) < 1e-6
+    assert landscape.center().x() == 150
+    tall = cover_source(QPixmap(100, 300), frame)
+    assert tall.width() == 100 and abs(tall.width() / tall.height() - 2 / 3) < 1e-6

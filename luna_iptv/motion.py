@@ -229,7 +229,11 @@ class NavFrame(QFrame):
 
 
 class LogoMark(QWidget):
-    """The eclipse logo; it moves while hovered and rests otherwise."""
+    """The eclipse logo; it moves while hovered and rests otherwise.
+
+    ``set_quiet(True)`` keeps it still regardless of the pointer; the window
+    uses that while video is on screen.
+    """
 
     FRAME_MS = 33
 
@@ -239,6 +243,7 @@ class LogoMark(QWidget):
         self.setToolTip("Luna IPTV")
         self._clock = QElapsedTimer()
         self._seconds = 0.0
+        self._quiet = False
         self._timer = QTimer(self)
         self._timer.setInterval(self.FRAME_MS)
         self._timer.timeout.connect(self._tick)
@@ -247,13 +252,24 @@ class LogoMark(QWidget):
     def animating(self):
         return self._timer.isActive()
 
+    def set_quiet(self, quiet):
+        self._quiet = bool(quiet)
+        if self._quiet:
+            self._timer.stop()
+        elif self.underMouse() and self.isVisible():
+            self._start()
+
+    def _start(self):
+        if not self._quiet:
+            self._clock.start()
+            self._timer.start()
+
     def _tick(self):
         self._seconds += self._clock.restart() / 1000.0
         self.update()
 
     def enterEvent(self, event):
-        self._clock.start()
-        self._timer.start()
+        self._start()
         super().enterEvent(event)
 
     def leaveEvent(self, event):

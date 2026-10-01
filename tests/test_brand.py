@@ -46,3 +46,16 @@ def test_logo_mark_moves_only_while_hovered(qt_app):
     mark.leaveEvent(QEvent(QEvent.Leave))
     assert not mark.animating
     mark.close()
+
+
+def test_logo_mark_stays_still_while_quiet(qt_app):
+    mark = LogoMark(46)
+    mark.show()
+    centre = mark.rect().center()
+    mark.enterEvent(QEnterEvent(centre, centre, centre))
+    assert mark.animating
+    mark.set_quiet(True)  # video started under the pointer
+    assert not mark.animating
+    mark.enterEvent(QEnterEvent(centre, centre, centre))
+    assert not mark.animating
+    mark.close()

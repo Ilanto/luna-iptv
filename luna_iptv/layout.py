@@ -263,6 +263,8 @@ def build_window(w):
     w.video_stack.addWidget(empty)
     w.video = VideoWidget(w.player, w)
     w.video_stack.addWidget(w.video)
+    # No logo motion while video is on screen, even with the pointer on the logo.
+    w.video_stack.currentChanged.connect(lambda index: w.logo_mark.set_quiet(index == 1))
     view.addWidget(w.video_stack)
     w.info_panel = QFrame()
     w.info_panel.setObjectName("mediaInfo")

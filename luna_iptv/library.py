@@ -109,6 +109,17 @@ POSTER_HEIGHT = POSTER_ART_HEIGHT + 62
 POSTER_KINDS = ("movie", "series")
 
 
+def cover_source(pixmap, target):
+    """The part of ``pixmap`` that fills ``target`` without stretching: a centred crop."""
+    source = QRectF(pixmap.rect())
+    ratio = target.width() / target.height()
+    if source.width() / source.height() > ratio:
+        width = source.height() * ratio
+        return QRectF(source.center().x() - width / 2, 0, width, source.height())
+    height = source.width() / ratio
+    return QRectF(0, source.center().y() - height / 2, source.width(), height)
+
+
 def tile_color(name):
     return TILE_HUES[sum(map(ord, name)) % len(TILE_HUES)]
 
@@ -270,15 +281,7 @@ class ChannelDelegate(QStyledItemDelegate):
         poster = self.artwork(channel)
         if poster is not None:
             # Cover the 2:3 frame; posters of other shapes are cropped, never stretched.
-            source = QRectF(poster.rect())
-            target_ratio = art.width() / art.height()
-            if source.width() / source.height() > target_ratio:
-                width = source.height() * target_ratio
-                source = QRectF(source.center().x() - width / 2, 0, width, source.height())
-            else:
-                height = source.width() / target_ratio
-                source = QRectF(0, source.center().y() - height / 2, source.width(), height)
-            painter.drawPixmap(art, poster, source)
+            painter.drawPixmap(art, poster, cover_source(poster, art))
             if hovered:
                 painter.fillRect(art, QColor(255, 255, 255, 18))
         else:
@@ -305,7 +308,7 @@ class ChannelDelegate(QStyledItemDelegate):
             # A poster in a wide card (favorites, history): artwork left, name right.
             height = stage.height() - 16
             poster = QRectF(stage.left() + 12, stage.top() + 8, height * 2 / 3, height)
-            painter.drawPixmap(poster, logo, QRectF(logo.rect()))
+            painter.drawPixmap(poster, logo, cover_source(logo, poster))
             area = QRectF(
                 poster.right() + 12,
                 stage.top(),
