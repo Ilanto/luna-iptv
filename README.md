@@ -1,15 +1,17 @@
 # Luna IPTV
 
+<img src="docs/luna-logo.gif" width="160" alt="Luna IPTV tutulma logosu">
+
 Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. GNOME Wayland üzerinde Qt'nin OpenGL yüzeyine doğrudan video çizer; XWayland zorunlu değildir.
 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.6.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.12.0-1.noarch.rpm
 luna-iptv
 ```
 
-Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlılıkları: Python >=3.11, python3-pyside6 >=6.8, python3-python-mpv >=1.0.8 ve libmpv2. PySide6 ve python-mpv üst sınırları pyproject/spec içinde sabittir. RPM yerel geliştirme çıktısıdır, dağıtım deposu imzası içermez. openSUSE Tumbleweed üzerinde üretilir; Leap uyumluluğu ayrıca doğrulanmamıştır. Kurulum yönetici yetkisi gerektirir; geliştirme sırasında sistem paketleri değiştirilmez.
+Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlılıkları: Python >=3.11, python3-pyside6 >=6.8, python3-python-mpv >=1.0.8 libmpv2 ve python3-dbus-python. PySide6 ve python-mpv üst sınırları pyproject/spec içinde sabittir. RPM yerel geliştirme çıktısıdır, dağıtım deposu imzası içermez. openSUSE Tumbleweed üzerinde üretilir; Leap uyumluluğu ayrıca doğrulanmamıştır. Kurulum yönetici yetkisi gerektirir; geliştirme sırasında sistem paketleri değiştirilmez.
 
 ## Kullanım
 
@@ -24,6 +26,45 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.12.0 · tutulma logosu
+
+- Yeni logo: ay güneşi örterken taşan ışık halkası ve kenarında "elmas yüzük" parıltısı. Masaüstü ikonu 16–512 px PNG boyutlarında kurulur.
+- Logo uygulamada hareket eder: sol menüdeki logo fareyle üzerine gelince, karşılama ekranındaki büyük logo ekran görünürken. Işık halkası yavaşça salınır, parıltı nabız atar. Video oynarken hiçbiri çalışmaz.
+- Görseller katmanlıdır (`assets/logo`): gece zemini, siyah üzerinde ışık halkası ve siyah üzerinde parıltı. Parlak katmanlar "toplama" kipinde eklenir; disk ve oynat işareti vektör çizilir. `scripts/build-logo.py KATMAN_KLASÖRÜ` yerleşimi ölçer, ikonları ve `docs/luna-logo.gif` animasyonunu üretir.
+
+### 0.11.0 · IMDb'de bul
+
+- Sağlayıcı IMDb kimliği vermediğinde film kartında **IMDb'de bul**, dizi bilgilerinde **Diziyi IMDb'de bul** görünür. Basıldığında temizlenmiş ad ve yıl IMDb'nin başlık önerisi servisine sorulur; ad, tür ve yıl tek bir kayıtla kesin eşleşirse o sayfa, aksi hâlde IMDb arama sayfası açılır. Türkçe çeviri adlar genellikle arama sayfasına düşer. Servis belgelenmemiştir; hata, zaman aşımı veya beklenmeyen yanıtta arama sayfası açılır. Sorgu yalnız düğmeye basınca gönderilir.
+- Geçersiz IMDb kimlikleri yine asla açılmaz; bölüm kartı dizinin bağlantısını ödünç almaz.
+- Tam ekranda video, ekran oranı 16:9 olmasa da ekranın tamamını doldurur.
+
+### 0.10.0 · afiş kartları ve yeni detay kartı
+
+- Filmler ve Diziler bölümünde içerikler 2:3 afiş kartları olarak dizilir; afişler kart çözünürlüğünde (240×360) hazırlanır ve detay kartıyla aynı önbelleği paylaşır. Afiş oranı korunur, gerekirse kırpılır, asla esnetilmez.
+- Detay kartı: afişin bulanık hâli arka planda, solda yuvarlak köşeli afiş, büyük başlık, "yıl · tür · süre · ★ puan" satırı ve açıklama. Künye, dizi bilgileri ve oynatma tercihleri ayrı panellerde. **Oynat** ve **Favorilere ekle** kartın altındaki sabit çubukta, kart küçültülse de görünür kalır.
+- Izgara, pencere veya paneller yeniden boyutlandığında sütun sayısını hemen günceller.
+
+### 0.9.0 · Logo Duvarı
+
+- Kanallar geniş logolu kartlar olarak ızgarada görünür; sütun sayısı pencere genişliğine uyar. Logosu olmayan kanalda adı logo yerine yazılır.
+- XMLTV rehberi bağlıysa kart, o an yayındaki programı, saatini ve ilerlemesini gösterir; ilerleme yarım dakikada bir tazelenir. Kanal başına sıralı rehber dizini sayesinde çizim sırasında tüm rehber taranmaz.
+- Solda ince ikon menüsü; kaynak ve kategori seçimi kütüphane başlığında. Oynatıcı sağ panelde 16:9 oranında; altında şimdi ve sıradaki dört program.
+- Oynatma sırasında pencere kapatılırken ara sıra oluşan çökme düzeltildi (python-mpv'nin güncelleme geri çağrısını libmpv onu kullanırken serbest bırakması).
+
+### 0.8.0 · Gece Ayı arayüzü
+
+- Yeni görünüm: gece mavisi zemin, ay ışığı vurgu rengi ve favoriler için sıcak altın. Kenar çubuğu, kanal listesi, oynatıcı, rehber ve pencereler aynı tasarım dilini kullanır.
+- Luna'ya özel çizgi ikonlar (canlı TV, film, dizi, favori, oynatıcı düğmeleri). İkonlar vektördür, her ekran ölçeğinde keskin kalır.
+- Hafif hareket: düğmeler üzerine gelince yumuşakça aydınlanır, seçili bölüm göstergesi menüde kayar, karşılama ekranında yıldızlar parıldar ve ay nefes alır. Animasyonlar yalnız etkileşimde ve karşılama ekranı görünürken çalışır; video oynarken hiçbir animasyon zamanlayıcısı çalışmaz.
+- Yazı tipi: Poppins kuruluysa arayüzde o, değilse Adwaita Sans/Cantarell kullanılır. Logo, küçük başlıklar ve süre göstergesi Hurmit daktilo karakterini korur.
+- Yeni dosya oynamaya başladığında oynat düğmesi hemen "duraklat" simgesine geçer.
+
+### 0.7.0 · oynatırken ekran uyanık
+
+- Yayın oynarken GNOME ekranı karartmaz ve bilgisayar boşta uyku moduna geçmez. GNOME oturum yöneticisi yoksa freedesktop ekran koruyucu arayüzü kullanılır.
+- Pause, durdurma, yayının bitmesi veya hata, kaynak yenilenince kalkan kanal ve pencereyi kapatma engeli hemen bırakır. Uygulama çökerse masaüstü engeli kendiliğinden kaldırır.
+- D-Bus yoksa oynatma etkilenmez; yalnız uyku engeli çalışmaz.
 
 ### 0.6.0 · oynatma öncesi dil tercihleri
 

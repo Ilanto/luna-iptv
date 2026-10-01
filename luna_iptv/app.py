@@ -28,7 +28,7 @@ def main():
     app.setApplicationName("Luna IPTV")
     app.setOrganizationName("Luna")
     app.setDesktopFileName("luna-iptv")
-    icon = Path(__file__).resolve().parents[1] / "assets" / "luna-iptv.svg"
+    icon = Path(__file__).resolve().parents[1] / "assets" / "logo" / "icon-256.png"
     app.setWindowIcon(QIcon(str(icon)) if icon.exists() else QIcon.fromTheme("luna-iptv"))
     apply_theme(app)
     data_dir = (

@@ -48,6 +48,12 @@ def card_factory(qt_app):
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+def poster_centre(card):
+    # Posters have rounded corners; the centre pixel identifies the artwork.
+    image = card.poster_label.pixmap().toImage()
+    return image.pixelColor(image.width() // 2, image.height() // 2)
+
+
 def movie(**kwargs):
     return Channel("home:film", "Film <b>title</b>", "file:///film.mkv", kind="movie", **kwargs)
 
@@ -89,9 +95,13 @@ def test_provider_text_is_literal_and_invalid_imdb_never_opens(card_factory, mon
         label for label in card.findChildren(QLabel) if label.accessibleName() == "Oyuncular"
     )
     assert cast.text() == payload
-    assert card.imdb_button.isHidden()
+    # An invalid id never opens; the film is looked up by its title instead.
+    lookups = []
+    card.imdb_lookup_requested.connect(lambda *query: lookups.append(query))
+    assert card.imdb_button.text() == "IMDb'de bul"
     card.imdb_button.click()
     assert opened == []
+    assert lookups == [(movie().name, "", "movie")]
 
 
 def test_valid_imdb_link_does_not_attribute_unknown_rating(card_factory, monkeypatch):
@@ -107,7 +117,8 @@ def test_valid_imdb_link_does_not_attribute_unknown_rating(card_factory, monkeyp
     card.set_details(MediaDetails(info={"rating": "8.1", "rating_source": "IMDb"}))
     rating = next(label for label in card.findChildren(QLabel) if label.text() == "8.1")
     assert rating.accessibleName() == "IMDb puanı"
-    assert card.imdb_button.isHidden()
+    # A rating source is not an id: the stale link is gone and only a lookup is offered.
+    assert card.imdb_button.text() == "IMDb'de bul"
     card.imdb_button.click()
     assert opened == ["https://www.imdb.com/title/tt1234567/"]
 
@@ -240,9 +251,9 @@ def test_episode_selection_updates_visible_details_and_both_actions(card_factory
     assert fields["Puan"] == "8.3"
     assert "IMDb puanı" not in fields
     assert card.poster_scope_label.text() == "Bölüm afişi"
-    assert card.poster_label.pixmap().toImage().pixelColor(0, 0) == Qt.blue
+    assert poster_centre(card) == Qt.blue
     cache.ready.emit(first_art)
-    assert card.poster_label.pixmap().toImage().pixelColor(0, 0) == Qt.blue
+    assert poster_centre(card) == Qt.blue
     card.imdb_button.click()
     assert opened == ["https://www.imdb.com/title/tt2222222/"]
     assert card.series_title_label.text() == "Sağlayıcı dizi adı"
@@ -306,7 +317,7 @@ def test_missing_episode_metadata_never_inherits_episode_or_series_fields(
     card.imdb_button.click()
     assert opened == []
     assert card.poster_scope_label.text() == "Dizi afişi (bölüm afişi bulunmuyor)"
-    assert card.poster_label.pixmap().toImage().pixelColor(0, 0) == Qt.green
+    assert poster_centre(card) == Qt.green
     assert card.series_description_label.text() == "Dizi konusu"
     assert card.favorite_channel() is card.selected_channel() is other
     card.set_details(MediaDetails())
@@ -503,8 +514,9 @@ def test_stale_poster_completion_cannot_replace_current_poster_or_access_deleted
     cache.images[new_url] = current
     cache.ready.emit(new_url)
     rendered = card.poster_label.pixmap()
-    assert rendered.size() == QSize(180, 360)
-    assert rendered.toImage().pixelColor(0, 0) == current.toImage().pixelColor(0, 0)
+    # A 1:2 poster fitted into the 220×330 poster frame.
+    assert rendered.deviceIndependentSize().toSize() == QSize(165, 330)
+    assert poster_centre(card) == Qt.blue
     card.close()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     assert not isValid(card)

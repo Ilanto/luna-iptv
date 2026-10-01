@@ -21,8 +21,9 @@ from shiboken6 import isValid
 from . import __version__
 from .accounts import sanitize_profile
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
-from .epg import now_next, parse_xmltv
+from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
+from .idle_inhibit import IdleInhibit
 from .layout import build_window
 from .library import ChannelFilter, ChannelModel
 from .media_controller import MediaDetailController
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self._tasks = set()
         self._retry = None
         self._guide_data = {}
+        self._guide_index = {}
         self._tracks = []
         self._fullscreen = False
         self._last_saved = 0.0
@@ -96,6 +98,8 @@ class MainWindow(QMainWindow):
         self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.mini_player = MiniPlayerController(self)
+        self.idle_inhibit = IdleInhibit()
+        self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
         self.recovery.changed.connect(self.refresh_recovery)
         self.recovery.retry_requested.connect(self._retry_live)
@@ -115,6 +119,7 @@ class MainWindow(QMainWindow):
         self._guide_timer = QTimer(self)
         self._guide_timer.setInterval(30000)
         self._guide_timer.timeout.connect(self.update_guide)
+        self._guide_timer.timeout.connect(self._refresh_live_cards)
         self._guide_timer.start()
         QTimer.singleShot(0, self.load_cached_guides)
 
@@ -263,6 +268,7 @@ class MainWindow(QMainWindow):
         if self.current and self.current.id.startswith(source_id + ":"):
             if self.current.id not in incoming:
                 self._playback_active = False
+                self._sync_idle_inhibit()
                 self.player.stop()
                 self.current = None
                 self._loading = False
@@ -316,6 +322,7 @@ class MainWindow(QMainWindow):
 
     def set_section(self, section):
         self.proxy.section = section
+        self.channel_list.set_poster_mode(section in ("movie", "series"))
         self.history_clear_button.setVisible(section == "recent")
         for key, b in self.nav_buttons.items():
             b.setChecked(key == section)
@@ -430,6 +437,10 @@ class MainWindow(QMainWindow):
         if self.current and self._current_persistent and self.current.kind != "live":
             self.play(self.current, start_override=0)
 
+    def _sync_idle_inhibit(self):
+        """Keep the screen awake exactly while a playback session is running."""
+        self.idle_inhibit.set_active(self._playback_active and not self._playback_paused)
+
     def play(self, channel, *, start_override=None, recovering=False, preferences=None):
         if not channel.url:
             self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
@@ -494,6 +505,8 @@ class MainWindow(QMainWindow):
         self._playback_token = self.player.reserve_load()
         self._untracked_playback_token = None
         self._playback_active = self._playback_token is not None
+        self._playback_paused = False
+        self._sync_idle_inhibit()
         self.recovery.watch(self._playback_token)
         self.status(
             "Yayın açılıyor…",
@@ -533,6 +546,8 @@ class MainWindow(QMainWindow):
         self.media_info.mark_loaded()
         self.refresh_media_info()
         self.info_button.setEnabled(self.current is not None)
+        # mpv only reports pause changes; a new file starting unpaused sends none.
+        self.play_button.setText("▶" if self._playback_paused else "Ⅱ")
         self.status(self.recovery.message or "Yayın oynatılıyor.")
         self.player.set_property("volume", self.volume.value())
         self.save_progress()
@@ -554,7 +569,9 @@ class MainWindow(QMainWindow):
         if name == "time-pos":
             self.recovery.progress(token, value)
         elif name == "pause":
+            self._playback_paused = bool(value)
             self.recovery.paused(token, bool(value))
+            self._sync_idle_inhibit()
         elif name == "paused-for-cache":
             self.recovery.buffering(token, bool(value))
         elif name == "track-list" and self._playback_active:
@@ -608,6 +625,8 @@ class MainWindow(QMainWindow):
     def _finish_playback(self, *, end_session=True):
         if end_session:
             self._playback_active = False
+            self._playback_paused = False
+            self._sync_idle_inhibit()
             self.track_preferences.finish()
         self._idle = True
         self._loading = False
@@ -761,6 +780,8 @@ class MainWindow(QMainWindow):
         self.recovery.cancel()
         self._untracked_playback_token = None
         self._playback_active = False
+        self._playback_paused = False
+        self._sync_idle_inhibit()
         self.track_preferences.finish()
         self._language_notice_timer.stop()
         self.language_notice.hide()
@@ -1182,6 +1203,7 @@ class MainWindow(QMainWindow):
                 account_dialog.close()
         self.store.remove_source(source["id"])
         self._guide_data.pop(source["id"], None)
+        self._guide_index.pop(source["id"], None)
         (self.store.path.parent / f"epg-{source['id']}.xml").unlink(missing_ok=True)
         self.refresh_library()
         self.status("Kaynak kaldırıldı.")
@@ -1242,6 +1264,8 @@ class MainWindow(QMainWindow):
                 return
             raw, programmes = result
             self._guide_data[source["id"]] = programmes
+            self._guide_index[source["id"]] = GuideIndex(programmes)
+            self._refresh_live_cards()
             if not cached:
                 import os
 
@@ -1255,6 +1279,17 @@ class MainWindow(QMainWindow):
             read, done, "Program rehberi okunuyor…", lambda: self.load_guide(source), busy=False
         )
 
+    def programme_now(self, channel):
+        """What a live card shows as on now; cheap enough to call while painting."""
+        if channel.kind != "live" or not channel.tvg_id:
+            return None
+        index = self._guide_index.get(channel.id.split(":", 1)[0])
+        return index.now(channel.tvg_id) if index else None
+
+    def _refresh_live_cards(self):
+        if self._guide_index and not self._closed:
+            self.channel_list.viewport().update()
+
     def update_guide(self):
         if self._closed:
             return
@@ -1267,16 +1302,18 @@ class MainWindow(QMainWindow):
             )
             return
         source = self.source_for(self.current)
-        programmes = self._guide_data.get(source["id"], []) if source else []
-        now, nxt = now_next(programmes, self.current.tvg_id)
+        index = self._guide_index.get(source["id"]) if source else None
+        now = index.now(self.current.tvg_id) if index else None
+        upcoming = index.upcoming(self.current.tvg_id, 4) if index else []
         self.now_title.setText(
             f"ŞİMDİ  {now.start.astimezone():%H:%M} — {now.end.astimezone():%H:%M}   {now.title}"
             if now
             else "Bu kanal için güncel program bulunamadı."
         )
         self.next_title.setText(
-            f"SIRADAKİ  {nxt.start.astimezone():%H:%M}   {nxt.title}"
-            if nxt
+            "SIRADA\n"
+            + "\n".join(f"{item.start.astimezone():%H:%M}   {item.title}" for item in upcoming)
+            if upcoming
             else "Rehber kanal kimliği, listedeki tvg-id ile eşleşmelidir."
         )
 
@@ -1309,6 +1346,7 @@ class MainWindow(QMainWindow):
                 self.normalGeometry() if self.isMaximized() else self.geometry()
             )
         self._fullscreen = not self._fullscreen
+        self.video_stack.updateGeometry()
         if self.mini_player.active:
             self.mini_player.set_fullscreen(self._fullscreen)
         else:
@@ -1380,6 +1418,7 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self._closed = True
+        self.idle_inhibit.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()
@@ -1392,6 +1431,7 @@ class MainWindow(QMainWindow):
         self._guide_timer.stop()
         self.logo_viewport.close()
         self.logos.close()
+        self.posters.close()
         self.player.shutdown()
         self.store.close()
         event.accept()
