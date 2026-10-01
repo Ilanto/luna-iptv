@@ -176,6 +176,8 @@ class LogoCache(QObject):
         self._success_ttl, self._negative_ttl = success_ttl, negative_ttl
         self._memory = OrderedDict()
         self._queue = OrderedDict()
+        # Explicit requests (a detail card's poster) outlive visible-row churn.
+        self._pinned = OrderedDict()
         self._jobs = {}
         self._closed = False
         self._disk = _DiskCache(
@@ -214,11 +216,27 @@ class LogoCache(QObject):
             return
         if len(self._queue) < 256:
             self._queue[url] = None
+        self._pinned[url] = None
+        while len(self._pinned) > 32:
+            self._pinned.popitem(last=False)
         self._start()
 
+    def release(self, url):
+        """Forget an explicit request nobody waits for any more (a closed card)."""
+        if self._pinned.pop(url, None) is not None or url in self._queue:
+            self._queue.pop(url, None)
+
     def request_visible(self, urls):
-        """Replace obsolete queued rows; running work remains bounded to four jobs."""
+        """Replace obsolete queued rows; running work remains bounded to four jobs.
+
+        Explicitly requested URLs that are still pending keep their place first.
+        """
         self._queue.clear()
+        for url in list(self._pinned):
+            if self._cached(url):
+                del self._pinned[url]
+            elif url not in self._jobs:
+                self._queue[url] = None
         for url in dict.fromkeys(urls):
             if len(self._queue) >= 256:
                 break
@@ -370,6 +388,7 @@ class LogoCache(QObject):
         while len(self._memory) > self._memory_limit:
             self._memory.popitem(last=False)
         del self._jobs[url]
+        self._pinned.pop(url, None)
         self.ready.emit(url)
         self._start()
 
@@ -379,6 +398,7 @@ class LogoCache(QObject):
         self._closed = True
         self._poll.stop()
         self._queue.clear()
+        self._pinned.clear()
         for job in self._jobs.values():
             if job["timer"] is not None:
                 job["timer"].stop()

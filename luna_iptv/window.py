@@ -675,6 +675,10 @@ class MainWindow(QMainWindow):
             self.seek.setEnabled(self._seekable and self._duration > 0)
         elif name == "pause":
             self.play_button.setText("▶" if value else "Ⅱ")
+            if self._playback_active and self._untracked_playback_token == self._playback_token:
+                # Players without playlist entry ids report pause only here.
+                self._playback_paused = bool(value)
+                self._sync_idle_inhibit()
         elif name == "mute":
             self.mute_button.setText("Sessiz" if value else "Ses")
         elif name == "volume" and value is not None:

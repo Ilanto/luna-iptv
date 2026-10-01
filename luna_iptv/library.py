@@ -162,7 +162,9 @@ class CardGrid(QListView):
         return max(1, self.viewport().width() // (self.card_size().width() + CARD_GAP))
 
     def _fit_columns(self):
-        width = max(1, self.viewport().width() // self.columns())
+        # One pixel short of the full width: Qt wraps a cell that ends exactly
+        # on the viewport edge onto the next row.
+        width = max(1, (self.viewport().width() - 1) // self.columns())
         if self.poster_mode:
             # Posters keep 2:3 as columns widen, so the caption below always fits.
             height = round((width - CARD_GAP) * 1.5) + POSTER_HEIGHT - POSTER_ART_HEIGHT

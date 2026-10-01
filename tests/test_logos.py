@@ -484,3 +484,35 @@ def test_nonregular_local_logo_is_rejected_without_blocking(qt_app, cache_factor
     finally:
         stop.set()
         thread.join(timeout=1)
+
+
+def test_explicit_request_survives_visible_queue_replacement(qt_app, cache_factory, server):
+    # The detail card shares the poster cache with the grid: scrolling the grid
+    # must not drop the card's own pending poster.
+    cache = cache_factory()
+    for n in range(4):
+        server["routes"][f"/busy{n}"] = (200, {}, png(), 0.3)
+    cache.request_visible([server["base"] + f"/busy{n}" for n in range(4)])
+    spin(qt_app, lambda: sum(server["counts"].values()) == 4)
+    card = server["base"] + "/card"
+    cache.request_logo(card)
+    cache.request_visible([server["base"] + "/scrolled"])
+    spin(qt_app, lambda: cache.prepared_logo(card) is not None)
+    assert server["counts"]["/card"] == 1
+
+
+def test_pins_end_on_completion_and_release_drops_abandoned_requests(qt_app, cache_factory, server):
+    cache = cache_factory()
+    done = server["base"] + "/done"
+    request(qt_app, cache, done)
+    assert done not in cache._pinned
+    for n in range(4):
+        server["routes"][f"/slow{n}"] = (200, {}, png(), 0.3)
+    cache.request_visible([server["base"] + f"/slow{n}" for n in range(4)])
+    spin(qt_app, lambda: sum(server["counts"].values()) == 5)
+    abandoned = server["base"] + "/abandoned"
+    cache.request_logo(abandoned)
+    cache.release(abandoned)
+    cache.request_visible([])
+    spin(qt_app, lambda: not cache._jobs, timeout=4)
+    assert server["counts"]["/abandoned"] == 0

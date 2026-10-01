@@ -43,7 +43,7 @@ def test_card_grid_fills_its_width_with_whole_columns(qt_app):
     qt_app.processEvents()
     columns = grid.viewport().width() // (CARD_WIDTH + CARD_GAP)
     assert columns >= 1
-    assert grid.gridSize().width() == grid.viewport().width() // columns
+    assert grid.gridSize().width() == (grid.viewport().width() - 1) // columns
     grid.close()
 
 
@@ -80,3 +80,24 @@ def test_cover_source_crops_instead_of_stretching(qt_app):
     assert landscape.center().x() == 150
     tall = cover_source(QPixmap(100, 300), frame)
     assert tall.width() == 100 and abs(tall.width() / tall.height() - 2 / 3) < 1e-6
+
+
+def test_grid_columns_really_fit_on_one_row(qt_app):
+    from luna_iptv.models import Channel
+
+    store_free = [Channel(f"c{i}", f"C{i}", "file:///c.ts") for i in range(8)]
+    from luna_iptv.library import ChannelDelegate, ChannelModel
+
+    model = ChannelModel()
+    model.reset(store_free, set())
+    grid = CardGrid()
+    grid.setModel(model)
+    grid.setItemDelegate(ChannelDelegate(grid))
+    grid.show()
+    for width in (600, 1000, 1210):
+        grid.resize(width + grid.verticalScrollBar().sizeHint().width() + 2, 700)
+        qt_app.processEvents()
+        columns = grid.columns()
+        tops = {grid.visualRect(model.index(i, 0)).top() for i in range(columns)}
+        assert len(tops) == 1, (width, columns)
+    grid.close()
