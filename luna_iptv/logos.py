@@ -221,6 +221,11 @@ class LogoCache(QObject):
             self._pinned.popitem(last=False)
         self._start()
 
+    def release(self, url):
+        """Forget an explicit request nobody waits for any more (a closed card)."""
+        if self._pinned.pop(url, None) is not None or url in self._queue:
+            self._queue.pop(url, None)
+
     def request_visible(self, urls):
         """Replace obsolete queued rows; running work remains bounded to four jobs.
 
@@ -383,6 +388,7 @@ class LogoCache(QObject):
         while len(self._memory) > self._memory_limit:
             self._memory.popitem(last=False)
         del self._jobs[url]
+        self._pinned.pop(url, None)
         self.ready.emit(url)
         self._start()
 

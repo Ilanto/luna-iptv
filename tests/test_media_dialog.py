@@ -22,6 +22,7 @@ class PosterCache(QObject):
         self.images = {}
         self.reads = []
         self.requests = []
+        self.released = []
 
     def request_logo(self, url):
         self.requests.append(url)
@@ -29,6 +30,9 @@ class PosterCache(QObject):
     def prepared_logo(self, url):
         self.reads.append(url)
         return self.images.get(url)
+
+    def release(self, url):
+        self.released.append(url)
 
 
 @pytest.fixture
@@ -546,3 +550,13 @@ def test_poster_cache_does_not_reuse_list_thumbnail_dimensions(qt_app, tmp_path)
     finally:
         logos.close()
         posters.close()
+
+
+def test_card_releases_posters_it_no_longer_waits_for(card_factory):
+    old_url, new_url = "https://art.invalid/a.png", "https://art.invalid/b.png"
+    card, cache = card_factory(movie(logo=old_url))
+    card.set_details(MediaDetails(info={"poster": new_url}))
+    assert cache.released == [old_url]
+    card.show()
+    card.close()
+    assert cache.released == [old_url, new_url]

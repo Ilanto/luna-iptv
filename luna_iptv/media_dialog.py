@@ -390,6 +390,7 @@ class MediaDetailDialog(QDialog):
         # A QObject-bound slot gives Qt a receiver context: destroying the card
         # automatically disconnects it even while the shared cache is working.
         poster_cache.ready.connect(self._poster_ready)
+        self.finished.connect(self._release_poster)
         self.set_series_channel(self._series_channel)
 
     def set_playback_preferences(self, preferences):
@@ -655,7 +656,13 @@ class MediaDetailDialog(QDialog):
         elif self._imdb_query:
             self.imdb_lookup_requested.emit(*self._imdb_query)
 
+    def _release_poster(self, *_):
+        if self._poster_url:
+            self._poster_cache.release(self._poster_url)
+
     def _set_poster(self, url):
+        if url != self._poster_url:
+            self._release_poster()
         self._poster_url = url
         self.poster_label.clear()
         self.poster_label.setText("Afiş yok")
