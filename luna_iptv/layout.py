@@ -1,16 +1,14 @@
 """Build the original desktop view; behavior lives in MainWindow."""
 
-from pathlib import Path
-
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QFontDatabase, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
-    QListView,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -20,11 +18,37 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__
+from . import __version__, icons, theme
 from .dialogs import text_label
-from .library import ChannelDelegate
+from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
+from .motion import IconButton, LogoMark, MoonSky, NavFrame
 from .player import VideoWidget
+
+
+class VideoStack(QStackedWidget):
+    """Video area that keeps a 16:9 shape in the side panel.
+
+    Mini mode swaps in its own size policy and fullscreen switches the shape
+    rule off, so the video then fills whatever room it gets.
+    """
+
+    def __init__(self):
+        super().__init__()
+        policy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def hasHeightForWidth(self):
+        # Fullscreen video fills the screen whatever its shape.
+        fullscreen = getattr(self.window(), "_fullscreen", False)
+        return self.sizePolicy().hasHeightForWidth() and not fullscreen
+
+    def heightForWidth(self, width):
+        return max(self.minimumHeight(), round(width * 9 / 16))
+
+    def sizeHint(self):
+        return QSize(480, 270)
 
 
 def button(text, callback, name="", tip=""):
@@ -32,6 +56,16 @@ def button(text, callback, name="", tip=""):
     widget.clicked.connect(callback)
     if name:
         widget.setObjectName(name)
+    if tip:
+        widget.setToolTip(tip)
+        widget.setAccessibleName(tip)
+    return widget
+
+
+def icon_button(text, callback, icon=None, name="transport", tip="", **options):
+    widget = IconButton(text, icon, **options)
+    widget.clicked.connect(callback)
+    widget.setObjectName(name)
     if tip:
         widget.setToolTip(tip)
         widget.setAccessibleName(tip)
@@ -47,78 +81,116 @@ def build_window(w):
     body.setSpacing(0)
     body.setContentsMargins(0, 0, 0, 0)
     outer.addLayout(body, 1)
-    w.sidebar = QFrame()
+    w.sidebar = NavFrame()
     w.sidebar.setObjectName("sidebar")
-    w.sidebar.setFixedWidth(212)
+    w.sidebar.setFixedWidth(96)
     side = QVBoxLayout(w.sidebar)
-    side.setContentsMargins(18, 26, 18, 20)
-    side.setSpacing(9)
-    brand = text_label("◔  LUNA", "brand")
-    side.addWidget(brand)
-    side.addWidget(text_label("KİŞİSEL TELEVİZYON", "eyebrow"))
-    side.addSpacing(34)
-    side.addWidget(text_label("KÜTÜPHANE", "eyebrow"))
+    side.setContentsMargins(12, 24, 12, 16)
+    side.setSpacing(6)
+    w.logo_mark = LogoMark(46)
+    side.addWidget(w.logo_mark, 0, Qt.AlignHCenter)
+    side.addWidget(text_label("LUNA", "railBrand"), 0, Qt.AlignHCenter)
+    side.addSpacing(22)
     w.nav_buttons = {}
-    for key, title in [
-        ("live", "Canlı TV"),
-        ("movie", "Filmler"),
-        ("series", "Diziler"),
-        ("favorites", "Favoriler"),
-        ("recent", "Son izlenenler"),
+    for key, title, icon in [
+        ("live", "Canlı TV", "live"),
+        ("movie", "Filmler", "movie"),
+        ("series", "Diziler", "series"),
+        ("favorites", "Favoriler", "star"),
+        ("recent", "Geçmiş", "recent"),
     ]:
-        b = button(title, lambda checked=False, k=key: w.set_section(k), "nav")
+        b = icon_button(
+            title,
+            lambda checked=False, k=key: w.set_section(k),
+            icon,
+            "rail",
+            tip={"recent": "Son izlenenler"}.get(key, title),
+            stacked=True,
+            size=22,
+        )
         b.setCheckable(True)
-        side.addWidget(b)
+        b.setFixedSize(72, 64)
+        b.toggled.connect(lambda on, b=b: on and w.sidebar.indicator.follow(b))
+        side.addWidget(b, 0, Qt.AlignHCenter)
         w.nav_buttons[key] = b
     w.nav_buttons["live"].setChecked(True)
     side.addStretch()
-    side.addWidget(text_label("BU BİLGİSAYARDA", "eyebrow"))
-    w.source_combo = QComboBox()
-    w.source_combo.setAccessibleName("Kaynak seç")
-    side.addWidget(w.source_combo)
-    w.source_combo.currentIndexChanged.connect(w.source_changed)
-    w.add_button = button("+  Kaynak ekle", w.add_source, "primary")
-    side.addWidget(w.add_button)
-    side.addWidget(button("Kaynak menüsü", w.source_menu))
-    side.addSpacing(20)
-    side.addWidget(text_label(f"Luna IPTV  /  {__version__}", "muted"))
+    w.add_button = icon_button("Kaynak ekle", w.add_source, "plus", "primary", tip="Kaynak ekle")
+    w.add_button.setFixedSize(52, 52)
+    side.addWidget(w.add_button, 0, Qt.AlignHCenter)
+    w.source_menu_button = icon_button(
+        "Kaynak menüsü", w.source_menu, "sliders", "ghost", tip="Kaynak menüsü", size=21
+    )
+    w.source_menu_button.setFixedSize(52, 52)
+    side.addWidget(w.source_menu_button, 0, Qt.AlignHCenter)
+    side.addSpacing(8)
+    version = text_label(__version__, "faint")
+    version.setAlignment(Qt.AlignCenter)
+    version.setToolTip(f"Luna IPTV {__version__}")
+    side.addWidget(version)
     body.addWidget(w.sidebar)
     w.splitter = QSplitter(Qt.Horizontal)
     w.splitter.setChildrenCollapsible(False)
     body.addWidget(w.splitter, 1)
     w.library = QFrame()
     w.library.setObjectName("library")
-    w.library.setMinimumWidth(265)
+    w.library.setMinimumWidth(300)
     lib = QVBoxLayout(w.library)
-    lib.setContentsMargins(16, 24, 16, 16)
-    lib.setSpacing(12)
-    w.section_title = text_label("Canlı TV", "heading")
-    lib.addWidget(w.section_title)
-    w.count_label = text_label("0 yayın", "muted")
-    lib.addWidget(w.count_label)
-    w.history_clear_button = button("Geçmişi temizle", w.confirm_clear_history)
+    lib.setContentsMargins(28, 26, 16, 0)
+    lib.setSpacing(14)
+    row = QHBoxLayout()
+    row.setSpacing(12)
+    w.section_title = text_label("Canlı TV", "display")
+    row.addWidget(w.section_title)
+    w.count_label = text_label("0 yayın", "count")
+    w.count_label.setFixedHeight(22)
+    row.addWidget(w.count_label, 0, Qt.AlignVCenter)
+    row.addStretch()
+    w.history_clear_button = icon_button(
+        "Geçmişi temizle", w.confirm_clear_history, "trash", "ghost", label=True, size=16
+    )
     w.history_clear_button.hide()
-    lib.addWidget(w.history_clear_button)
+    row.addWidget(w.history_clear_button)
     w.search = QLineEdit()
-    w.search.setPlaceholderText("Kütüphanede ara…")
+    w.search.setPlaceholderText("Kanal veya içerik ara…")
     w.search.setClearButtonEnabled(True)
     w.search.setAccessibleName("Yayın ara")
-    lib.addWidget(w.search)
+    w.search.setMinimumWidth(180)
+    w.search.setMaximumWidth(320)
+    w.search.addAction(
+        QIcon(icons.pixmap("search", theme.TEXT_MUTED, 16, w.devicePixelRatioF())),
+        QLineEdit.LeadingPosition,
+    )
+    row.addWidget(w.search, 1)
+    lib.addLayout(row)
     w.search.textChanged.connect(w.filter_changed)
+    row = QHBoxLayout()
+    row.setSpacing(10)
+    w.source_combo = QComboBox()
+    w.source_combo.setAccessibleName("Kaynak seç")
+    w.source_combo.setMinimumWidth(160)
+    w.source_combo.currentIndexChanged.connect(w.source_changed)
+    row.addWidget(w.source_combo)
     w.category = QComboBox()
     w.category.setAccessibleName("Kategori")
+    w.category.setMinimumWidth(180)
     w.category.addItem("Tüm kategoriler", "")
-    lib.addWidget(w.category)
+    row.addWidget(w.category)
     w.category.currentIndexChanged.connect(w.filter_changed)
-    w.channel_list = QListView()
+    row.addStretch()
+    lib.addLayout(row)
+    w.channel_list = CardGrid()
     w.channel_list.setObjectName("channels")
     w.channel_list.setAccessibleName("Yayınlar")
     w.channel_list.setMouseTracking(True)
-    w.channel_list.setUniformItemSizes(True)
     w.channel_list.setModel(w.proxy)
-    w.logos = LogoCache(w.store.path, w)
-    w.channel_list.setItemDelegate(ChannelDelegate(w.channel_list, logos=w.logos))
-    w.logo_viewport = LogoViewportController(w.channel_list, w.logos)
+    w.logos = LogoCache(w.store.path, w, size=QSize(240, 96))
+    # Shared with the detail card, so a poster decoded for the grid is reused there.
+    w.posters = LogoCache(w.store.path, w, size=QSize(240, 360), cache_suffix=".posters")
+    w.channel_list.setItemDelegate(
+        ChannelDelegate(w.channel_list, logos=w.logos, posters=w.posters, now_for=w.programme_now)
+    )
+    w.logo_viewport = LogoViewportController(w.channel_list, w.logos, w.posters)
     w.channel_list.clicked.connect(w.activate_index)
     w.channel_list.activated.connect(w.activate_index)
     lib.addWidget(w.channel_list, 1)
@@ -127,29 +199,31 @@ def build_window(w):
     w.no_results.setAlignment(Qt.AlignCenter)
     lib.addWidget(w.no_results, 1)
     w.splitter.addWidget(w.library)
-    w.watch = QWidget()
+    w.watch = QFrame()
+    w.watch.setObjectName("watchPanel")
+    w.watch.setMinimumWidth(380)
     view = QVBoxLayout(w.watch)
     w.view_layout = view
-    view.setContentsMargins(25, 24, 25, 20)
+    view.setContentsMargins(22, 26, 22, 18)
     view.setSpacing(14)
     w.player_header = QWidget()
     header = QVBoxLayout(w.player_header)
     header.setContentsMargins(0, 0, 0, 0)
-    header.setSpacing(14)
+    header.setSpacing(4)
     row = QHBoxLayout()
     w.video_badge = text_label("İZLEME ALANI", "eyebrow")
     row.addWidget(w.video_badge)
     row.addStretch()
-    w.engine_label = text_label("mpv  ·  yerel oynatıcı", "muted")
+    w.engine_label = text_label("mpv  ·  yerel oynatıcı", "faint")
     row.addWidget(w.engine_label)
     header.addLayout(row)
     row = QHBoxLayout()
-    w.video_title = text_label("İyi bir yayına yer aç.", "heading")
+    w.video_title = text_label("İyi bir yayına yer aç.", "title")
     w.video_title.setWordWrap(True)
     row.addWidget(w.video_title, 1)
-    w.favorite_button = button("☆", w.toggle_favorite, tip="Favorilere ekle / çıkar")
+    w.favorite_button = icon_button("☆", w.toggle_favorite, tip="Favorilere ekle / çıkar", size=22)
     w.favorite_button.setEnabled(False)
-    row.addWidget(w.favorite_button)
+    row.addWidget(w.favorite_button, 0, Qt.AlignTop)
     header.addLayout(row)
     w.language_notice = text_label("", "muted")
     w.language_notice.setWordWrap(True)
@@ -157,49 +231,41 @@ def build_window(w):
     w.language_notice.hide()
     header.addWidget(w.language_notice)
     view.addWidget(w.player_header)
-    w.video_stack = QStackedWidget()
-    w.video_stack.setMinimumHeight(230)
-    w.video_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-    empty = QFrame()
-    empty.setStyleSheet(
-        "QFrame { background: #17191a; border: 1px solid #363435; border-radius: 8px; } QLabel { border: none; }"
-    )
+    w.video_stack = VideoStack()
+    w.video_stack.setMinimumHeight(200)
+    empty = MoonSky()
+    w.welcome_sky = empty
     welcome = QVBoxLayout(empty)
-    welcome.setContentsMargins(30, 24, 30, 24)
-    welcome.addStretch()
-    moon = text_label("◔")
-    moon.setAlignment(Qt.AlignCenter)
-    moon.setStyleSheet("font-size: 64px; color: #e889a8;")
-    icon_path = Path(__file__).resolve().parents[1] / "assets" / "luna-iptv.svg"
-    if not icon_path.exists():
-        icon_path = Path("/usr/share/icons/hicolor/scalable/apps/luna-iptv.svg")
-    if icon_path.exists():
-        moon.setPixmap(
-            QPixmap(str(icon_path)).scaled(84, 84, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
-    welcome.addWidget(moon)
+    welcome.setContentsMargins(20, 14, 20, 16)
+    welcome.setSpacing(4)
+    welcome.addStretch(3)
+    moon = QWidget()
+    moon.setFixedSize(90, 76)
+    empty.moon_anchor = moon
+    welcome.addWidget(moon, 0, Qt.AlignHCenter)
+    welcome.addSpacing(10)
     title = text_label("Ekran senin.")
     w.welcome_title = title
     title.setAlignment(Qt.AlignCenter)
-    title.setStyleSheet("font-size: 27px;")
+    title.setStyleSheet("font-size: 22px; font-weight: 600;")
     welcome.addWidget(title)
-    subtitle = text_label(
-        "Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak.", "muted"
-    )
+    subtitle = text_label("Kendi listeni ekle, sevdiğin yayını seç.", "muted")
     w.welcome_subtitle = subtitle
     subtitle.setWordWrap(True)
     subtitle.setAlignment(Qt.AlignCenter)
     welcome.addWidget(subtitle)
-    welcome.addSpacing(14)
-    action = button("İlk kaynağını ekle", w.add_source, "primary")
+    welcome.addSpacing(10)
+    action = icon_button("İlk kaynağını ekle", w.add_source, "plus", "primary", label=True, size=17)
     w.welcome_action = action
-    action.setMaximumWidth(230)
+    action.setMinimumSize(200, 40)
     welcome.addWidget(action, 0, Qt.AlignHCenter)
-    welcome.addStretch()
+    welcome.addStretch(4)
     w.video_stack.addWidget(empty)
     w.video = VideoWidget(w.player, w)
     w.video_stack.addWidget(w.video)
-    view.addWidget(w.video_stack, 1)
+    # No logo motion while video is on screen, even with the pointer on the logo.
+    w.video_stack.currentChanged.connect(lambda index: w.logo_mark.set_quiet(index == 1))
+    view.addWidget(w.video_stack)
     w.info_panel = QFrame()
     w.info_panel.setObjectName("mediaInfo")
     info = QGridLayout(w.info_panel)
@@ -233,8 +299,8 @@ def build_window(w):
     w.controls = QFrame()
     w.controls.setObjectName("controls")
     ctrl = QVBoxLayout(w.controls)
-    ctrl.setContentsMargins(12, 9, 12, 9)
-    ctrl.setSpacing(4)
+    ctrl.setContentsMargins(16, 10, 16, 10)
+    ctrl.setSpacing(6)
     w.seek = QSlider(Qt.Horizontal)
     w.seek.setRange(0, 1000)
     w.seek.setEnabled(False)
@@ -243,76 +309,90 @@ def build_window(w):
     w.seek.sliderReleased.connect(w.seek_to_slider)
     ctrl.addWidget(w.seek)
     row = QHBoxLayout()
-    row.setSpacing(6)
-    w.seek_back_button = button(
-        "−5 sn", lambda: w.transport.seek_relative(-5), "transport", "5 saniye geri (←)"
+    row.setSpacing(2)
+    w.seek_back_button = icon_button(
+        "−5 sn",
+        lambda: w.transport.seek_relative(-5),
+        "back",
+        tip="5 saniye geri (←)",
+        caption="5",
     )
     row.addWidget(w.seek_back_button)
-    w.rewind_button = button(
-        "≪", lambda: w.transport.cycle(-1), "transport", "Geri tara: 2× / 4× / 8× / 16× (J)"
+    w.rewind_button = icon_button(
+        "≪", lambda: w.transport.cycle(-1), tip="Geri tara: 2× / 4× / 8× / 16× (J)"
     )
     w.rewind_button.setCheckable(True)
     row.addWidget(w.rewind_button)
-    w.play_button = button("▶", w.toggle_play, "transport", "Oynat / duraklat (Boşluk)")
+    w.play_button = icon_button(
+        "▶", w.toggle_play, name="hero", tip="Oynat / duraklat (Boşluk)", size=22
+    )
+    w.play_button.setFixedSize(46, 46)
     row.addWidget(w.play_button)
-    w.forward_button = button(
-        "≫", lambda: w.transport.cycle(1), "transport", "İleri tara: 2× / 4× / 8× / 16× (L)"
+    w.forward_button = icon_button(
+        "≫", lambda: w.transport.cycle(1), tip="İleri tara: 2× / 4× / 8× / 16× (L)"
     )
     w.forward_button.setCheckable(True)
     row.addWidget(w.forward_button)
-    w.seek_forward_button = button(
-        "+5 sn", lambda: w.transport.seek_relative(5), "transport", "5 saniye ileri (→)"
+    w.seek_forward_button = icon_button(
+        "+5 sn",
+        lambda: w.transport.seek_relative(5),
+        "ahead",
+        tip="5 saniye ileri (→)",
+        caption="5",
     )
     row.addWidget(w.seek_forward_button)
-    w.stop_button = button("■", w.stop_playback, "transport", "Durdur")
+    w.stop_button = icon_button("■", w.stop_playback, tip="Durdur", size=18)
     row.addWidget(w.stop_button)
-    w.rate_button = button("1×", w.transport.normal_play, "transport", "Normal oynatmaya dön (K)")
-    w.rate_button.setMinimumWidth(54)
-    row.addWidget(w.rate_button)
-    w.time_label = text_label("00:00", "muted")
-    w.time_label.setFont(
-        QFont("Hurmit Nerd Font Mono", 9)
-        if "Hurmit Nerd Font Mono" in QFontDatabase.families()
-        else QFontDatabase.systemFont(QFontDatabase.FixedFont)
-    )
+    row.addSpacing(6)
+    w.time_label = text_label("00:00", "clock")
+    w.time_label.setMinimumWidth(90)
     w.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     row.addWidget(w.time_label, 1)
     ctrl.addLayout(row)
     row = QHBoxLayout()
-    row.setSpacing(6)
-    w.buffer_label = text_label("", "badge")
-    w.buffer_label.setAccessibleName("Arabellek durumu")
-    w.buffer_label.hide()
-    row.addWidget(w.buffer_label)
-    row.addStretch()
-    w.mute_button = button(
+    row.setSpacing(2)
+    w.mute_button = icon_button(
         "Ses", lambda: w.player.command(["cycle", "mute"]), tip="Sesi aç / kapat (M)"
     )
     row.addWidget(w.mute_button)
     w.volume = QSlider(Qt.Horizontal)
     w.volume.setRange(0, 100)
     w.volume.setValue(70)
-    w.volume.setFixedWidth(82)
+    w.volume.setMinimumWidth(48)
+    w.volume.setMaximumWidth(110)
     w.volume.setAccessibleName("Ses seviyesi")
     w.volume.valueChanged.connect(lambda v: w.player.set_property("volume", v))
-    row.addWidget(w.volume)
-    w.info_button = button("Bilgi", w.toggle_info_panel, tip="Yayın bilgisini göster / gizle")
+    row.addWidget(w.volume, 1)
+    row.addSpacing(6)
+    w.rate_button = button("1×", w.transport.normal_play, "rate", "Normal oynatmaya dön (K)")
+    w.rate_button.setMinimumWidth(48)
+    w.rate_button.setFixedHeight(26)
+    row.addWidget(w.rate_button)
+    w.buffer_label = text_label("", "badge")
+    w.buffer_label.setAccessibleName("Arabellek durumu")
+    w.buffer_label.hide()
+    row.addWidget(w.buffer_label)
+    row.addStretch()
+    w.info_button = icon_button(
+        "Bilgi", w.toggle_info_panel, "info", tip="Yayın bilgisini göster / gizle"
+    )
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
-    w.playback_menu_button = button(
-        "Oynatma", w.track_menu, tip="Ses, altyazı ve oynatma seçenekleri"
+    w.playback_menu_button = icon_button(
+        "Oynatma", w.track_menu, "tracks", tip="Ses, altyazı ve oynatma seçenekleri"
     )
     w.playback_menu_button.setProperty("mini_hidden", True)
     row.addWidget(w.playback_menu_button)
-    w.mini_button = button("Mini", w.toggle_mini_player, tip="Mini oynatıcıya geç")
+    w.mini_button = icon_button("Mini", w.toggle_mini_player, tip="Mini oynatıcıya geç")
     row.addWidget(w.mini_button)
-    w.fullscreen_button = button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
+    w.fullscreen_button = icon_button("⛶", w.toggle_fullscreen, tip="Tam ekran (F)")
     row.addWidget(w.fullscreen_button)
     ctrl.addLayout(row)
     for widget in (
         w.rewind_button,
         w.forward_button,
         w.stop_button,
+        w.rate_button,
         w.info_button,
         w.playback_menu_button,
     ):
@@ -333,31 +413,40 @@ def build_window(w):
     w.guide = QFrame()
     w.guide.setObjectName("guide")
     guide = QVBoxLayout(w.guide)
-    guide.setContentsMargins(0, 14, 0, 0)
-    guide.setSpacing(6)
+    guide.setContentsMargins(16, 12, 12, 14)
+    guide.setSpacing(4)
     row = QHBoxLayout()
+    row.setSpacing(8)
+    mark = QLabel()
+    mark.setPixmap(icons.pixmap("guide", theme.ACCENT, 16, w.devicePixelRatioF()))
+    row.addWidget(mark)
     row.addWidget(text_label("PROGRAM REHBERİ", "eyebrow"))
     row.addStretch()
-    row.addWidget(button("Rehber ekle", w.configure_guide))
+    row.addWidget(
+        icon_button("Rehber ekle", w.configure_guide, "plus", "ghost", label=True, size=15)
+    )
     guide.addLayout(row)
     w.now_title = text_label("Yayınını seç, akış burada görünsün.")
     w.now_title.setWordWrap(True)
+    w.now_title.setStyleSheet("font-weight: 600;")
     guide.addWidget(w.now_title)
     w.next_title = text_label("XMLTV ile şimdi ve sıradaki program.", "muted")
     w.next_title.setWordWrap(True)
     guide.addWidget(w.next_title)
-    view.addWidget(w.guide)
+    guide.addStretch()
+    view.addWidget(w.guide, 1)
     w.splitter.addWidget(w.watch)
-    w.splitter.setStretchFactor(0, 0)
-    w.splitter.setStretchFactor(1, 1)
-    w.splitter.setSizes([310, 780])
+    w.splitter.setStretchFactor(0, 1)
+    w.splitter.setStretchFactor(1, 0)
+    w.splitter.setSizes([900, 480])
     w.message_bar = QFrame()
+    w.message_bar.setObjectName("messageBar")
     bar = QHBoxLayout(w.message_bar)
-    bar.setContentsMargins(18, 8, 18, 8)
+    bar.setContentsMargins(20, 7, 14, 7)
     w.message = text_label("Hazır. Kaynakların bu bilgisayarda kalır.", "muted")
     w.message.setWordWrap(True)
     bar.addWidget(w.message, 1)
-    w.retry_button = button("Yeniden dene", w.retry)
+    w.retry_button = icon_button("Yeniden dene", w.retry, "retry", "ghost", label=True, size=16)
     w.retry_button.hide()
     bar.addWidget(w.retry_button)
     w.recovery_cancel_button = button("İptal", w.cancel_recovery)

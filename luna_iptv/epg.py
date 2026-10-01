@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from datetime import datetime, timezone
 from xml.etree import ElementTree
 from xml.parsers import expat
@@ -100,3 +101,34 @@ def now_next(
         (item for item in matching if item is not current and item.start >= when), None
     )
     return current, following
+
+
+class GuideIndex:
+    """Programmes grouped per channel and sorted by start, for lookups while painting."""
+
+    def __init__(self, programmes=()):
+        self._items = {}
+        for programme in programmes:
+            self._items.setdefault(programme.channel_id, []).append(programme)
+        for items in self._items.values():
+            items.sort(key=lambda programme: programme.start)
+        self._starts = {key: [item.start for item in items] for key, items in self._items.items()}
+
+    def now(self, channel_id: str, when: datetime | None = None) -> Programme | None:
+        items = self._items.get(channel_id)
+        if not items:
+            return None
+        when = (when or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        position = bisect_right(self._starts[channel_id], when) - 1
+        if position >= 0 and when < items[position].end:
+            return items[position]
+        return None
+
+    def upcoming(
+        self, channel_id: str, count: int, when: datetime | None = None
+    ) -> list[Programme]:
+        """Programmes starting after ``when``, earliest first."""
+        items = self._items.get(channel_id, [])
+        when = (when or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        position = bisect_right(self._starts.get(channel_id, []), when)
+        return items[position : position + count]

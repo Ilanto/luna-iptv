@@ -376,7 +376,7 @@ def test_delegate_reads_prepared_pixmap_without_starting_io(qt_app):
     from PySide6.QtGui import QPainter, QPixmap
     from PySide6.QtWidgets import QStyleOptionViewItem
 
-    from luna_iptv.library import ChannelDelegate, ChannelModel
+    from luna_iptv.library import CARD_GAP, CARD_HEIGHT, LOGO_HEIGHT, ChannelDelegate, ChannelModel
     from luna_iptv.models import Channel
 
     class Prepared:
@@ -390,17 +390,19 @@ def test_delegate_reads_prepared_pixmap_without_starting_io(qt_app):
     model = ChannelModel()
     model.reset([Channel("id", "Logo", "http://test/stream", logo="http://test/icon")], set())
     delegate = ChannelDelegate(logos=prepared)
-    canvas = QImage(300, 69, QImage.Format_ARGB32)
+    width, height = 300, CARD_HEIGHT + CARD_GAP
+    canvas = QImage(width, height, QImage.Format_ARGB32)
     canvas.fill(Qt.transparent)
     painter = QPainter(canvas)
     option = QStyleOptionViewItem()
-    option.rect = QRect(0, 0, 300, 69)
+    option.rect = QRect(0, 0, width, height)
     try:
         delegate.paint(painter, option, model.index(0, 0))
     finally:
         painter.end()
     assert prepared.calls == ["http://test/icon"]
-    assert canvas.pixelColor(30, 34) == Qt.red
+    # The logo sits centred on the card's wide logo stage.
+    assert canvas.pixelColor(width // 2, CARD_GAP // 2 + LOGO_HEIGHT // 2) == Qt.red
 
 
 def test_local_playlist_logo_is_relative_and_loaded_with_same_bounds(

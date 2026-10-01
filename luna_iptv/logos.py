@@ -392,9 +392,9 @@ class LogoCache(QObject):
 class LogoViewportController(QObject):
     """Coalesce viewport/model changes and fetch only the rows currently on screen."""
 
-    def __init__(self, view, cache):
+    def __init__(self, view, cache, posters=None):
         super().__init__(view)
-        self._view, self._cache = view, cache
+        self._view, self._cache, self._posters = view, cache, posters
         self._closed = False
         self._visible = set()
         self._timer = QTimer(self)
@@ -414,6 +414,8 @@ class LogoViewportController(QObject):
         ):
             signal.connect(self._changed)
         cache.ready.connect(self._ready)
+        if posters is not None:
+            posters.ready.connect(self._ready)
         self._changed()
 
     def eventFilter(self, watched, event):
@@ -430,12 +432,22 @@ class LogoViewportController(QObject):
         if self._closed:
             return
         view = self._view
-        urls = []
+        urls, poster_urls = [], []
         if view.isVisible():
-            # Uniform list rows: indexAt gives the first row in O(1), then visit only
-            # visible rectangles rather than traversing a potentially huge catalogue.
-            index = view.indexAt(QPoint(4, 0))
-            row = index.row() if index.isValid() else 0
+            # Uniform rows or grid cells: indexAt finds the first visible item in O(1),
+            # then visit only visible rectangles rather than a potentially huge catalogue.
+            # Probe inside a card, not the gap between cards, so a scrolled grid never
+            # falls back to scanning from the first row.
+            cell = view.gridSize()
+            probes = (
+                [QPoint(cell.width() // 2, y) for y in (0, cell.height() // 2, cell.height() - 1)]
+                if cell.isValid()
+                else [QPoint(4, 0)]
+            )
+            index = next(
+                (found for point in probes if (found := view.indexAt(point)).isValid()), None
+            )
+            row = index.row() if index is not None else 0
             model = view.model()
             while row < model.rowCount():
                 index = model.index(row, 0)
@@ -445,10 +457,13 @@ class LogoViewportController(QObject):
                 if rect.bottom() >= 0:
                     channel = index.data(Qt.UserRole)
                     if channel and channel.logo:
-                        urls.append(channel.logo)
+                        poster = self._posters is not None and channel.kind in ("movie", "series")
+                        (poster_urls if poster else urls).append(channel.logo)
                 row += 1
-        self._visible = set(urls)
+        self._visible = set(urls) | set(poster_urls)
         self._cache.request_visible(urls)
+        if self._posters is not None:
+            self._posters.request_visible(poster_urls)
 
     def _ready(self, url):
         if not self._closed and url in self._visible and self._view.isVisible():

@@ -8,9 +8,11 @@ import sqlite3
 import time
 from collections import OrderedDict
 
-from PySide6.QtCore import QObject, QSize
+from PySide6.QtCore import QObject, QSize, QUrl
+from PySide6.QtGui import QDesktopServices
 from shiboken6 import isValid
 
+from . import imdb
 from .logos import LogoCache
 from .media_details import MediaDetails
 from .media_dialog import MediaDetailDialog
@@ -75,7 +77,7 @@ class MediaDetailController(QObject):
             else None
         )
         if self.posters is None:
-            self.posters = LogoCache(
+            self.posters = getattr(self.window, "posters", None) or LogoCache(
                 self.window.store.path, self, size=QSize(240, 360), cache_suffix=".posters"
             )
         dialog = MediaDetailDialog(channel, self.posters, self.window)
@@ -87,6 +89,7 @@ class MediaDetailController(QObject):
         dialog.set_series_channel(self._series_channel)
         dialog.set_playback_preferences(self.window.track_preferences.preview(source["id"]))
         dialog.retry_requested.connect(lambda: self._request(channel, source, force=True))
+        dialog.imdb_lookup_requested.connect(self._find_imdb)
 
         def finished(_result):
             if self.dialog is dialog:
@@ -237,6 +240,14 @@ class MediaDetailController(QObject):
     def invalidate(self):
         if self.dialog is not None and not self._valid(self._channel, self._fingerprint):
             self.dismiss()
+
+    def _find_imdb(self, title, year, kind):
+        self.window.run_task(
+            lambda: imdb.find(title, year, kind),
+            lambda url: QDesktopServices.openUrl(QUrl(url)),
+            "IMDb'de aranıyor…",
+            busy=False,
+        )
 
     def close(self):
         self._closed = True

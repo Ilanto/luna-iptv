@@ -494,7 +494,12 @@ class VideoWidget(QOpenGLWidget):
             return
         self.makeCurrent()
         render, self._render = self._render, None
+        # python-mpv drops its ctypes wrapper for the old update callback before
+        # libmpv is told to stop calling it, while mpv's "vo" thread may be inside
+        # that callback. Keep the wrapper alive until free() has joined that thread.
+        previous_callback = getattr(render, "_update_fn_wrapper", None)
         render.update_cb = None
         render.free()
+        del previous_callback
         self.doneCurrent()
         self.player._render_ready = False
