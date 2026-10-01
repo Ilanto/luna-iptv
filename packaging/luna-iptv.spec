@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.12.0
+Version:        0.12.1
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,10 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Thu Oct 01 2026 Luna IPTV contributors - 0.12.1-1
+- Keep the sidebar logo still while video is on screen.
+- Crop posters in wide favorite and history cards instead of stretching them.
+
 * Thu Oct 01 2026 Luna IPTV contributors - 0.12.0-1
 - New eclipse logo: desktop icons from 16 to 512 px and a moving in-app logo.
 
