@@ -476,7 +476,7 @@ class MainWindow(QMainWindow):
         if self._closed or self.current is not None:
             return
         live = {c.id for c in self.model.channels if c.kind == "live"}
-        last = next((cid for cid in self.store.recent_ids(20) if cid in live), None)
+        last = next((cid for cid in self.store.recent_ids(10_000) if cid in live), None)
         row = self._proxy_row(last) if last else None
         if row is None:
             return
@@ -541,6 +541,7 @@ class MainWindow(QMainWindow):
         channel = self.current if self._playback_active else None
         if channel is None:
             self.mpris.update(status="Stopped")
+            self.mpris.set_position(0)
             return
         programme = self.programme_now(channel)
         source = self.source_for(channel)
@@ -793,6 +794,9 @@ class MainWindow(QMainWindow):
             self._seekable = bool(value)
             self.seek.setEnabled(self._seekable and self._duration > 0)
             self._sync_mpris()
+        elif name == "seeking" and not value and self._playback_active:
+            # A seek has landed: media controls learn the new position.
+            self.mpris.seeked(round(self._position * 1e6))
         elif name == "pause":
             self.play_button.setText("▶" if value else "Ⅱ")
             if self._playback_active and self._untracked_playback_token == self._playback_token:
@@ -858,6 +862,7 @@ class MainWindow(QMainWindow):
                 self._record_progress = False
         if reset_progress:
             self.dismiss_resume()
+            self.model.replace_progress(self.store.progress_map())
         self.proxy.set_recent_ids(self.store.recent_ids())
         self.filter_changed()
         self.status(

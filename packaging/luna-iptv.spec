@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.13.0
+Version:        0.13.1
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,11 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Wed Oct 07 2026 Luna IPTV contributors - 0.13.1-1
+- Media controls hear about finished seeks and see position 0 when stopped.
+- Resetting watch positions removes progress bars at once.
+- The last live channel is found however many films came after it.
+
 * Wed Oct 07 2026 Luna IPTV contributors - 0.13.0-1
 - Page Up / Page Down switch to the previous or next live channel while watching.
 - Gold progress bars on partly watched films and episodes.

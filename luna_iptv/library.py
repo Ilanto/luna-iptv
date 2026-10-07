@@ -69,6 +69,14 @@ class ChannelModel(QAbstractListModel):
         self.search_keys = [search_key(c.name + " " + c.group) for c in channels]
         self.endResetModel()
 
+    def replace_progress(self, progress):
+        """Swap in freshly loaded positions (after history is reset) and repaint every card."""
+        self.progress = dict(progress)
+        if self.channels:
+            self.dataChanged.emit(
+                self.index(0, 0), self.index(len(self.channels) - 1, 0), [PROGRESS_ROLE]
+            )
+
     def set_progress(self, channel_id, position, duration):
         """Keep a card's progress bar current while it plays, without a full reset."""
         self.progress[channel_id] = (float(position), float(duration))

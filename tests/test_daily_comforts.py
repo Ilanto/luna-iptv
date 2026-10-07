@@ -132,3 +132,29 @@ def test_media_controls_follow_playback_and_drive_the_window(make_window):
     assert window.mpris.updates[-1]["title"] == "Kanal 1"
     window.mpris.controller.stop()
     assert window.mpris.updates[-1] == {"status": "Stopped"}
+
+
+def test_media_controls_hear_about_seeks_and_stops(make_window):
+    window = make_window()
+    window.play(channel(window, "home:film"))
+    window.player_property("time-pos", 42.0)
+    window.player_property("seeking", True)
+    window.player_property("seeking", False)
+    assert window.mpris.seeks == [42_000_000]
+    window.stop_playback()
+    assert window.mpris.position == 0
+
+
+def test_history_reset_removes_progress_bars(make_window):
+    window = make_window(recent=[("home:film", 30, 120)])
+    index = window.model.index(window.model._rows["home:film"], 0)
+    assert index.data(PROGRESS_ROLE) == pytest.approx(0.25)
+    window.clear_history(reset_progress=True)
+    assert index.data(PROGRESS_ROLE) is None
+
+
+def test_last_live_channel_is_found_behind_many_films(make_window, qt_app):
+    recent = [("home:l2", 10, 0)] + [("home:film", 30 + i, 120) for i in range(25)]
+    window = make_window(recent=recent)
+    qt_app.processEvents()
+    assert window.channel_list.currentIndex().data(Qt.UserRole).id == "home:l2"

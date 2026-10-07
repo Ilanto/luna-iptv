@@ -48,6 +48,7 @@ class RecordingMpris:
         self.controller = controller
         self.updates = []
         self.position = 0
+        self.seeks = []
 
     active = False
 
@@ -59,6 +60,7 @@ class RecordingMpris:
 
     def seeked(self, position_us):
         self.position = position_us
+        self.seeks.append(position_us)
 
     def close(self):
         pass
