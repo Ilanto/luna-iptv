@@ -176,6 +176,7 @@ def build_window(w):
     w.source_combo = QComboBox()
     w.source_combo.setAccessibleName("Kaynak seç")
     w.source_combo.setMinimumWidth(160)
+    w.source_combo.setMaximumWidth(260)
     w.source_combo.currentIndexChanged.connect(w.source_changed)
     row.addWidget(w.source_combo)
     # The combo keeps the chosen category; the chips are how people pick it.
