@@ -467,6 +467,8 @@ def build_window(w):
         ("J", lambda: w.transport.cycle(-1)),
         ("L", lambda: w.transport.cycle(1)),
         ("K", w.transport.normal_play),
+        ("PgDown", lambda: w.zap(1)),
+        ("PgUp", lambda: w.zap(-1)),
     ]:
         shortcut = QShortcut(QKeySequence(key), w)
         shortcut.activated.connect(lambda cb=callback, k=key: w.shortcut_action(k, cb))

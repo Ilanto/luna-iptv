@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.12.2-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.13.1-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,20 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.13.1 · inceleme düzeltmeleri
+
+- Sarma bittiğinde (klavyeden ya da medya kontrolünden) GNOME'a yeni konum bildirilir; durunca konum sıfırlanır.
+- Geçmiş konumları sıfırlanarak temizlenince altın ilerleme çizgileri hemen kaybolur.
+- Son canlı kanal, ardından kaç film izlenmiş olursa olsun açılışta bulunur.
+
+### 0.13.0 · günlük kolaylıklar
+
+- **Page Up / Page Down:** canlı yayın izlerken ızgaradaki sıraya göre önceki/sonraki canlı kanala geçer (başa/sona sarar). Canlı yayın yokken ızgarayı sayfa sayfa kaydırır.
+- **İzleme ilerlemesi:** yarım kalan film ve bölümlerin afişinde altın çizgi. Konumlar açılışta tek sorguyla okunur, oynatırken güncellenir.
+- **Son kanal:** açılışta son izlenen canlı kanal seçili ve görünür gelir; Enter ile oynar. Kendiliğinden oynatılmaz.
+- **Medya tuşları ve GNOME medya kontrolü (MPRIS):** oynat/duraklat, durdur, sonraki/önceki kanal, sarma ve pencereyi öne getirme. GNOME'da kanal adı, o anki program ve logo görünür. Ek bağımlılık yoktur (Qt D-Bus).
+- Geliştirme: `scripts/test-quiet.sh` ekran gerektirmeyen tüm testleri Qt offscreen platformunda en düşük öncelikle çalıştırır; hiçbir pencere açılmaz.
 
 ### 0.12.2 · inceleme düzeltmeleri
 

@@ -39,3 +39,35 @@ def flush_gui_deferred_deletes():
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         _qt_application.processEvents()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+class RecordingMpris:
+    """Stand-in for MprisService: window tests never appear in the desktop's media controls."""
+
+    def __init__(self, controller, parent=None, **_):
+        self.controller = controller
+        self.updates = []
+        self.position = 0
+        self.seeks = []
+
+    active = False
+
+    def update(self, **state):
+        self.updates.append(state)
+
+    def set_position(self, position_us):
+        self.position = position_us
+
+    def seeked(self, position_us):
+        self.position = position_us
+        self.seeks.append(position_us)
+
+    def close(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def private_media_controls(monkeypatch):
+    import luna_iptv.window
+
+    monkeypatch.setattr(luna_iptv.window, "MprisService", RecordingMpris)

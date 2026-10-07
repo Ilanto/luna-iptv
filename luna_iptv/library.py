@@ -1,3 +1,4 @@
+import math
 import unicodedata
 from datetime import datetime, timezone
 
@@ -16,12 +17,27 @@ def search_key(text):
     )
 
 
+PROGRESS_ROLE = Qt.UserRole + 2
+
+
+def resumable(position, duration):
+    """A saved position worth resuming: past the first seconds and not at the end."""
+    return (
+        math.isfinite(position)
+        and math.isfinite(duration)
+        and duration > 0
+        and 5 < position < duration - 10
+    )
+
+
 class ChannelModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.channels = []
         self.favorites = set()
         self.search_keys = []
+        self.progress = {}
+        self._rows = {}
 
     def rowCount(self, parent=None):
         return 0 if parent is not None and parent.isValid() else len(self.channels)
@@ -36,15 +52,38 @@ class ChannelModel(QAbstractListModel):
             return channel
         if role == Qt.UserRole + 1:
             return channel.id in self.favorites
+        if role == PROGRESS_ROLE:
+            if channel.kind == "live" or channel.id not in self.progress:
+                return None
+            position, duration = self.progress[channel.id]
+            return position / duration if resumable(position, duration) else None
         if role == Qt.AccessibleTextRole:
             return channel.name + ", " + channel.group
 
-    def reset(self, channels, favorites):
+    def reset(self, channels, favorites, progress=None):
         self.beginResetModel()
         self.channels = channels
         self.favorites = favorites
+        self.progress = dict(progress or {})
+        self._rows = {channel.id: row for row, channel in enumerate(channels)}
         self.search_keys = [search_key(c.name + " " + c.group) for c in channels]
         self.endResetModel()
+
+    def replace_progress(self, progress):
+        """Swap in freshly loaded positions (after history is reset) and repaint every card."""
+        self.progress = dict(progress)
+        if self.channels:
+            self.dataChanged.emit(
+                self.index(0, 0), self.index(len(self.channels) - 1, 0), [PROGRESS_ROLE]
+            )
+
+    def set_progress(self, channel_id, position, duration):
+        """Keep a card's progress bar current while it plays, without a full reset."""
+        self.progress[channel_id] = (float(position), float(duration))
+        row = self._rows.get(channel_id)
+        if row is not None:
+            index = self.index(row, 0)
+            self.dataChanged.emit(index, index, [PROGRESS_ROLE])
 
 
 class ChannelFilter(QSortFilterProxyModel):
@@ -251,6 +290,23 @@ class ChannelDelegate(QStyledItemDelegate):
                 QRectF(rect.right() - 28, rect.top() + 11, 16, 16), star, QRectF(star.rect())
             )
 
+    def _watched(self, painter, index, art):
+        """How much of a film or episode has been watched, along the artwork's foot."""
+        fraction = index.data(PROGRESS_ROLE)
+        if fraction is None:
+            return
+        inset = min(10.0, art.width() * 0.06)
+        track = QRectF(art.left() + inset, art.bottom() - inset - 4, art.width() - inset * 2, 4)
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(11, 16, 32, 190))
+        painter.drawRoundedRect(track.adjusted(-1, -1, 1, 1), 2.5, 2.5)
+        painter.setBrush(QColor(theme.GOLD))
+        painter.drawRoundedRect(
+            QRectF(track.left(), track.top(), track.width() * fraction, 4), 2, 2
+        )
+        painter.restore()
+
     def _caption(self, painter, option, card, top, heading, detail_text):
         left, right = card.left() + 14, card.right() - 14
         font = QFont(option.font)
@@ -289,6 +345,7 @@ class ChannelDelegate(QStyledItemDelegate):
         else:
             self._stage(painter, channel, art, shape, hovered)
             self._wordmark(painter, option, channel.name, art.adjusted(14, 14, -14, -14), 12, True)
+        self._watched(painter, index, art)
         self._star(painter, index, art)
         painter.restore()
         self._caption(
@@ -311,6 +368,7 @@ class ChannelDelegate(QStyledItemDelegate):
             height = stage.height() - 16
             poster = QRectF(stage.left() + 12, stage.top() + 8, height * 2 / 3, height)
             painter.drawPixmap(poster, logo, cover_source(logo, poster))
+            self._watched(painter, index, poster)
             area = QRectF(
                 poster.right() + 12,
                 stage.top(),

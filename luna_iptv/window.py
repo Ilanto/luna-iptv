@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import math
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,8 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QAbstractSlider,
     QApplication,
     QDialog,
     QInputDialog,
@@ -25,11 +28,12 @@ from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
 from .layout import build_window
-from .library import ChannelFilter, ChannelModel
+from .library import ChannelFilter, ChannelModel, resumable
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
+from .mpris import MprisService
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
@@ -45,6 +49,50 @@ def clock_text(seconds):
     hours, rest = divmod(seconds, 3600)
     minutes, seconds = divmod(rest, 60)
     return f"{hours}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
+
+
+def track_path(channel_id):
+    """A stable MPRIS track object path for a channel id (ids may hold any character)."""
+    return "/org/mpris/MediaPlayer2/luna/" + hashlib.sha1(channel_id.encode()).hexdigest()[:16]
+
+
+class RemoteControl:
+    """What desktop media controls (MPRIS) may do with the window."""
+
+    def __init__(self, window):
+        self._window = window
+
+    def play(self):
+        if self._window._playback_paused or self._window._idle:
+            self._window.toggle_play()
+
+    def pause(self):
+        if self._window._playback_active and not self._window._playback_paused:
+            self._window.toggle_play()
+
+    def play_pause(self):
+        self._window.toggle_play()
+
+    def stop(self):
+        self._window.stop_playback()
+
+    def next(self):
+        self._window.zap(1)
+
+    def previous(self):
+        self._window.zap(-1)
+
+    def seek(self, offset_us):
+        self._window.transport.seek_relative(offset_us / 1e6)
+
+    def set_position(self, position_us):
+        self._window.transport.seek_relative(position_us / 1e6 - self._window._position)
+
+    def raise_window(self):
+        if self._window.isMinimized():
+            self._window.showNormal()
+        self._window.raise_()
+        self._window.activateWindow()
 
 
 class MainWindow(QMainWindow):
@@ -99,6 +147,7 @@ class MainWindow(QMainWindow):
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.mini_player = MiniPlayerController(self)
         self.idle_inhibit = IdleInhibit()
+        self.mpris = MprisService(RemoteControl(self), self)
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
         self.recovery.changed.connect(self.refresh_recovery)
@@ -122,6 +171,7 @@ class MainWindow(QMainWindow):
         self._guide_timer.timeout.connect(self._refresh_live_cards)
         self._guide_timer.start()
         QTimer.singleShot(0, self.load_cached_guides)
+        QTimer.singleShot(0, self.restore_last_channel)
 
     def status(self, message, retry=None):
         self.mini_status.setText(message)
@@ -268,7 +318,7 @@ class MainWindow(QMainWindow):
         if self.current and self.current.id.startswith(source_id + ":"):
             if self.current.id not in incoming:
                 self._playback_active = False
-                self._sync_idle_inhibit()
+                self._sync_playback_state()
                 self.player.stop()
                 self.current = None
                 self._loading = False
@@ -296,7 +346,7 @@ class MainWindow(QMainWindow):
         self.source_combo.setCurrentIndex(max(index, 0))
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
-        self.model.reset(self.store.channels(), self.store.favorites())
+        self.model.reset(self.store.channels(), self.store.favorites(), self.store.progress_map())
         self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
             stored_current = next((c for c in self.model.channels if c.id == self.current.id), None)
@@ -384,22 +434,67 @@ class MainWindow(QMainWindow):
         else:
             self.details.open(channel)
 
+    def _proxy_row(self, channel_id):
+        for row in range(self.proxy.rowCount()):
+            if self.proxy.index(row, 0).data(Qt.UserRole).id == channel_id:
+                return row
+        return None
+
+    def can_zap(self):
+        return (
+            self.current is not None and self.current.kind == "live" and self.proxy.rowCount() > 1
+        )
+
+    def zap(self, step):
+        """Play the next (1) or previous (-1) live channel in the order the grid shows.
+
+        Without a live channel playing, Page Up / Page Down keep scrolling the grid.
+        """
+        if not self.can_zap():
+            bar = self.channel_list.verticalScrollBar()
+            action = QAbstractSlider.SliderAction
+            bar.triggerAction(action.SliderPageStepAdd if step > 0 else action.SliderPageStepSub)
+            return False
+        row = self._proxy_row(self.current.id)
+        if row is None:
+            self.status("Bu kanal şu anki listede yok; önce listeden bir kanal seç.")
+            return False
+        rows = self.proxy.rowCount()
+        for _ in range(rows - 1):
+            row = (row + step) % rows
+            channel = self.proxy.index(row, 0).data(Qt.UserRole)
+            if channel.kind == "live":
+                index = self.proxy.index(row, 0)
+                self.channel_list.setCurrentIndex(index)
+                self.channel_list.scrollTo(index)
+                self.request_play(channel)
+                return True
+        return False
+
+    def restore_last_channel(self):
+        """Have the last watched live channel selected and in view; Enter plays it."""
+        if self._closed or self.current is not None:
+            return
+        live = {c.id for c in self.model.channels if c.kind == "live"}
+        last = next((cid for cid in self.store.recent_ids(10_000) if cid in live), None)
+        row = self._proxy_row(last) if last else None
+        if row is None:
+            return
+        index = self.proxy.index(row, 0)
+        self.channel_list.setCurrentIndex(index)
+        self.channel_list.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.channel_list.setFocus()
+        self.welcome_subtitle.setText(
+            f"Son izlediğin: {index.data(Qt.UserRole).name}\nOynatmak için Enter'a bas."
+        )
+
     def source_for(self, channel):
         prefix = channel.id.split(":", 1)[0]
         return next((s for s in self.store.sources() if s["id"] == prefix), None)
 
     def resume_position(self, channel):
         position, duration = self.store.progress(channel.id)
-        if (
-            channel.kind != "live"
-            and math.isfinite(position)
-            and math.isfinite(duration)
-            and position > 5
-            and duration > 0
-            and position < duration - 10
-        ):
-            return position
-        return 0
+        return position if channel.kind != "live" and resumable(position, duration) else 0
 
     def dismiss_resume(self):
         dialog, self._resume_dialog = self._resume_dialog, None
@@ -437,9 +532,32 @@ class MainWindow(QMainWindow):
         if self.current and self._current_persistent and self.current.kind != "live":
             self.play(self.current, start_override=0)
 
-    def _sync_idle_inhibit(self):
-        """Keep the screen awake exactly while a playback session is running."""
+    def _sync_playback_state(self):
+        """Tell the desktop what is playing: the idle inhibit and media controls."""
         self.idle_inhibit.set_active(self._playback_active and not self._playback_paused)
+        self._sync_mpris()
+
+    def _sync_mpris(self):
+        channel = self.current if self._playback_active else None
+        if channel is None:
+            self.mpris.update(status="Stopped")
+            self.mpris.set_position(0)
+            return
+        programme = self.programme_now(channel)
+        source = self.source_for(channel)
+        artist = channel.name if programme else (source["name"] if source else "")
+        live = channel.kind == "live"
+        self.mpris.update(
+            status="Paused" if self._playback_paused else "Playing",
+            title=programme.title if programme else channel.name,
+            artist=artist,
+            art_url=channel.logo if channel.logo.startswith(("http://", "https://")) else "",
+            length_us=None if live or self._duration <= 0 else round(self._duration * 1e6),
+            can_seek=self._seekable,
+            can_go_next=self.can_zap(),
+            can_go_previous=self.can_zap(),
+            track_id=track_path(channel.id),
+        )
 
     def play(self, channel, *, start_override=None, recovering=False, preferences=None):
         if not channel.url:
@@ -506,7 +624,7 @@ class MainWindow(QMainWindow):
         self._untracked_playback_token = None
         self._playback_active = self._playback_token is not None
         self._playback_paused = False
-        self._sync_idle_inhibit()
+        self._sync_playback_state()
         self.recovery.watch(self._playback_token)
         self.status(
             "Yayın açılıyor…",
@@ -571,7 +689,7 @@ class MainWindow(QMainWindow):
         elif name == "pause":
             self._playback_paused = bool(value)
             self.recovery.paused(token, bool(value))
-            self._sync_idle_inhibit()
+            self._sync_playback_state()
         elif name == "paused-for-cache":
             self.recovery.buffering(token, bool(value))
         elif name == "track-list" and self._playback_active:
@@ -626,7 +744,7 @@ class MainWindow(QMainWindow):
         if end_session:
             self._playback_active = False
             self._playback_paused = False
-            self._sync_idle_inhibit()
+            self._sync_playback_state()
             self.track_preferences.finish()
         self._idle = True
         self._loading = False
@@ -658,6 +776,7 @@ class MainWindow(QMainWindow):
             self.info_button.setEnabled(False)
         if name == "time-pos" and value is not None:
             self._position = float(value)
+            self.mpris.set_position(round(self._position * 1e6))
             if not self.seek.isSliderDown() and self._duration > 0:
                 self.seek.setValue(round(1000 * self._position / self._duration))
             self.time_label.setText(
@@ -670,15 +789,20 @@ class MainWindow(QMainWindow):
         elif name == "duration" and value is not None and float(value) > 0:
             self._duration = float(value)
             self.seek.setEnabled(self._seekable and self._duration > 0)
+            self._sync_mpris()
         elif name == "seekable":
             self._seekable = bool(value)
             self.seek.setEnabled(self._seekable and self._duration > 0)
+            self._sync_mpris()
+        elif name == "seeking" and not value and self._playback_active:
+            # A seek has landed: media controls learn the new position.
+            self.mpris.seeked(round(self._position * 1e6))
         elif name == "pause":
             self.play_button.setText("▶" if value else "Ⅱ")
             if self._playback_active and self._untracked_playback_token == self._playback_token:
                 # Players without playlist entry ids report pause only here.
                 self._playback_paused = bool(value)
-                self._sync_idle_inhibit()
+                self._sync_playback_state()
         elif name == "mute":
             self.mute_button.setText("Sessiz" if value else "Ses")
         elif name == "volume" and value is not None:
@@ -706,6 +830,7 @@ class MainWindow(QMainWindow):
             self.store.save_progress(
                 self.current.id, self._position, self._duration, mark_recent=self._record_recent
             )
+            self.model.set_progress(self.current.id, self._position, self._duration)
 
     def confirm_clear_history(self):
         if self._history_dialog is not None and isValid(self._history_dialog):
@@ -737,6 +862,7 @@ class MainWindow(QMainWindow):
                 self._record_progress = False
         if reset_progress:
             self.dismiss_resume()
+            self.model.replace_progress(self.store.progress_map())
         self.proxy.set_recent_ids(self.store.recent_ids())
         self.filter_changed()
         self.status(
@@ -785,7 +911,7 @@ class MainWindow(QMainWindow):
         self._untracked_playback_token = None
         self._playback_active = False
         self._playback_paused = False
-        self._sync_idle_inhibit()
+        self._sync_playback_state()
         self.track_preferences.finish()
         self._language_notice_timer.stop()
         self.language_notice.hide()
@@ -1297,6 +1423,7 @@ class MainWindow(QMainWindow):
     def update_guide(self):
         if self._closed:
             return
+        self._sync_mpris()
         if not self.current:
             return
         if self.current.kind != "live":
@@ -1404,7 +1531,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Luna IPTV",
-            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
+            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
         )
 
     def dragEnterEvent(self, event):
@@ -1423,6 +1550,7 @@ class MainWindow(QMainWindow):
         self.save_progress()
         self._closed = True
         self.idle_inhibit.close()
+        self.mpris.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()

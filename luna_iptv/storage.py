@@ -553,6 +553,15 @@ class Store:
         ).fetchone()
         return (0.0, 0.0) if row is None else (float(row[0]), float(row[1]))
 
+    def progress_map(self) -> dict[str, tuple[float, float]]:
+        """Every saved position with a known duration, for painting without a query per card."""
+        return {
+            row[0]: (float(row[1]), float(row[2]))
+            for row in self._db.execute(
+                "SELECT channel_id,position,duration FROM progress WHERE duration > 0"
+            )
+        }
+
     def recent_ids(self, limit: int = 50) -> list[str]:
         if limit <= 0:
             return []
