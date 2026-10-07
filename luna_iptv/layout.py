@@ -119,6 +119,11 @@ def build_window(w):
     w.add_button = icon_button("Kaynak ekle", w.add_source, "plus", "primary", tip="Kaynak ekle")
     w.add_button.setFixedSize(52, 52)
     side.addWidget(w.add_button, 0, Qt.AlignHCenter)
+    w.settings_button = icon_button(
+        "Ayarlar", w.open_settings, "gear", "ghost", tip="Ayarlar", size=21
+    )
+    w.settings_button.setFixedSize(52, 52)
+    side.addWidget(w.settings_button, 0, Qt.AlignHCenter)
     w.source_menu_button = icon_button(
         "Kaynak menüsü", w.source_menu, "sliders", "ghost", tip="Kaynak menüsü", size=21
     )

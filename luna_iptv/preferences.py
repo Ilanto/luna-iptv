@@ -124,16 +124,19 @@ class TrackPreferences:
         return self._preferences.get("remember", True)
 
     def preview(self, source_id):
+        from .settings import playback_defaults
+
         saved = normalize_preferences(
             self.store.playback_preferences(source_id) if source_id else {}
         )
         remember = saved.get("remember", True)
+        defaults = playback_defaults(self.store)
         return {
-            mode: dict(saved.get(mode, {"mode": "auto"})) if remember else {"mode": "auto"}
+            mode: dict(saved.get(mode, defaults[mode]) if remember else defaults[mode])
             for mode in _MODES
         } | {"remember": remember}
 
-    def begin(self, source_id, preferences=None):
+    def begin(self, source_id, preferences=None, *, persist=True):
         self.generation += 1
         self.source_id = source_id
         self._preferences = normalize_preferences(
@@ -147,14 +150,15 @@ class TrackPreferences:
                 mode: dict(supplied.get(mode, {"mode": "auto"})) for mode in _MODES
             } | {"remember": supplied.get("remember", True)}
             self._preferences["remember"] = self._choices["remember"]
-            if self.remember:
+            if self.remember and persist:
                 for mode in _MODES:
                     choice = self._choices[mode]
                     if choice["mode"] == "auto":
                         self._preferences.pop(mode, None)
                     else:
                         self._preferences[mode] = dict(choice)
-            self._save()
+            if persist:
+                self._save()
         self._tracks = []
         self._tracks_known = False
         self._loaded = False
@@ -285,8 +289,7 @@ class TrackPreferences:
         self._choices["remember"] = bool(enabled)
         self._save()
         if enabled:
-            for mode in _MODES:
-                self._choices[mode] = dict(self._preferences.get(mode, {"mode": "auto"}))
+            self._choices = self.preview(self.source_id)
             self._applied.clear()
             self._manual_modes.clear()
             self._apply(manual=True)

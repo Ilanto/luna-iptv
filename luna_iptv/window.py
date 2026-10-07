@@ -34,12 +34,15 @@ from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
+from .motion import set_motion_level
 from .mpris import MprisService
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
 from .preferences import TrackPreferences, normalize_preferences
 from .recovery import RecoveryController
+from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings_dialog import SettingsDialog
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
 from .transport import TransportController
@@ -101,6 +104,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
+        set_motion_level(selected_setting(store, "motion_level", MOTION_CHOICES))
+        self._settings_dialog = None
         self.current = None
         self._current_persistent = True
         self._position = 0.0
@@ -508,8 +513,11 @@ class MainWindow(QMainWindow):
         return False
 
     def restore_last_channel(self):
-        """Have the last watched live channel selected and in view; Enter plays it."""
+        """Select or play the last live channel according to the startup preference."""
         if self._closed or self.current is not None:
+            return
+        action = selected_setting(self.store, "startup_action", STARTUP_CHOICES)
+        if action == "none":
             return
         live = {c.id for c in self.model.channels if c.kind == "live"}
         last = next((cid for cid in self.store.recent_ids(10_000) if cid in live), None)
@@ -520,9 +528,19 @@ class MainWindow(QMainWindow):
         self.channel_list.setCurrentIndex(index)
         self.channel_list.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
         self.channel_list.setFocus()
+        if action == "play":
+            self.request_play(index.data(Qt.UserRole))
+            return
         self.welcome_subtitle.setText(
             f"Son izlediğin: {index.data(Qt.UserRole).name}\nOynatmak için Enter'a bas."
         )
+
+    def open_settings(self):
+        if self._settings_dialog is None or not isValid(self._settings_dialog):
+            self._settings_dialog = SettingsDialog(self.store, self)
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
 
     def source_for(self, channel):
         prefix = channel.id.split(":", 1)[0]
@@ -619,6 +637,7 @@ class MainWindow(QMainWindow):
             self._record_recent = True
             self._record_progress = True
         start = self.resume_position(channel) if start_override is None else start_override
+        persist_preferences = preferences is not None
         if preferences is None and self.current is not None and self.current.id == channel.id:
             preferences = self.track_preferences.current_choices()
         self.current = channel
@@ -638,7 +657,9 @@ class MainWindow(QMainWindow):
         self._tracks = []
         source = self.source_for(channel)
         track_options = self.track_preferences.begin(
-            source["id"] if source else None, preferences=preferences
+            source["id"] if source else None,
+            preferences=preferences,
+            persist=persist_preferences,
         )
         self._language_notice_timer.stop()
         self.language_notice.hide()
