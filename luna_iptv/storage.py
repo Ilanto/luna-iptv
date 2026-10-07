@@ -67,6 +67,20 @@ class Store:
             CREATE TABLE IF NOT EXISTS favorites (
                 channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS favorite_folders (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS favorite_folder_items (
+                folder_id INTEGER REFERENCES favorite_folders(id) ON DELETE CASCADE,
+                channel_id TEXT NOT NULL,
+                PRIMARY KEY(folder_id, channel_id)
+            );
+            CREATE TRIGGER IF NOT EXISTS favorite_folder_cleanup
+            AFTER DELETE ON favorites BEGIN
+                DELETE FROM favorite_folder_items WHERE channel_id = OLD.channel_id;
+            END;
             CREATE TABLE IF NOT EXISTS progress (
                 channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
                 position REAL NOT NULL,
@@ -98,6 +112,10 @@ class Store:
                 source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
                 data TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
         progress_columns = {
@@ -126,6 +144,24 @@ class Store:
             """
         )
         self._db.commit()
+
+    def setting(self, key: str, default: Any = None) -> Any:
+        row = self._db.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+        if row is None:
+            return default
+        try:
+            return json.loads(row[0])
+        except (ValueError, TypeError, RecursionError):
+            return default
+
+    def set_setting(self, key: str, value: Any) -> None:
+        data = json.dumps(value, ensure_ascii=False)
+        with self._db:
+            self._db.execute(
+                """INSERT INTO app_settings(key,value) VALUES(?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (key, data),
+            )
 
     def rename_source(self, source_id: str, name: str) -> bool:
         name = name.strip()
@@ -525,9 +561,83 @@ class Store:
                 )
             else:
                 self._db.execute("DELETE FROM favorites WHERE channel_id = ?", (channel_id,))
+                self._db.execute(
+                    "DELETE FROM favorite_folder_items WHERE channel_id = ?", (channel_id,)
+                )
 
     def favorites(self) -> set[str]:
         return {row[0] for row in self._db.execute("SELECT channel_id FROM favorites")}
+
+    def folders(self) -> list[tuple[int, str]]:
+        return self._db.execute(
+            "SELECT id,name FROM favorite_folders ORDER BY position,id"
+        ).fetchall()
+
+    def _folder_name(self, name: str, folder_id: int | None = None) -> str:
+        if not name.strip() or any(unicodedata.category(c) == "Cc" for c in name):
+            raise ValueError("Klasör adı boş olamaz veya kontrol karakteri içeremez.")
+        name = name.strip()
+        if any(
+            other_id != folder_id and other_name.casefold() == name.casefold()
+            for other_id, other_name in self.folders()
+        ):
+            raise ValueError("Bu adda bir klasör zaten var.")
+        return name
+
+    def create_folder(self, name: str) -> int:
+        with self._db:
+            name = self._folder_name(name)
+            return self._db.execute(
+                """INSERT INTO favorite_folders(name,position)
+                SELECT ?,COALESCE(MAX(position), -1) + 1 FROM favorite_folders""",
+                (name,),
+            ).lastrowid
+
+    def rename_folder(self, folder_id: int, name: str) -> bool:
+        with self._db:
+            name = self._folder_name(name, folder_id)
+            return (
+                self._db.execute(
+                    "UPDATE favorite_folders SET name=? WHERE id=?", (name, folder_id)
+                ).rowcount
+                > 0
+            )
+
+    def delete_folder(self, folder_id: int) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM favorite_folders WHERE id=?", (folder_id,))
+
+    def folder_items(self, folder_id: int) -> set[str]:
+        return {
+            row[0]
+            for row in self._db.execute(
+                "SELECT channel_id FROM favorite_folder_items WHERE folder_id=?", (folder_id,)
+            )
+        }
+
+    def folders_of(self, channel_id: str) -> set[int]:
+        return {
+            row[0]
+            for row in self._db.execute(
+                "SELECT folder_id FROM favorite_folder_items WHERE channel_id=?", (channel_id,)
+            )
+        }
+
+    def set_in_folder(self, folder_id: int, channel_id: str, member: bool) -> None:
+        with self._db:
+            if member:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO favorites(channel_id) VALUES(?)", (channel_id,)
+                )
+                self._db.execute(
+                    "INSERT OR IGNORE INTO favorite_folder_items(folder_id,channel_id) VALUES(?,?)",
+                    (folder_id, channel_id),
+                )
+            else:
+                self._db.execute(
+                    "DELETE FROM favorite_folder_items WHERE folder_id=? AND channel_id=?",
+                    (folder_id, channel_id),
+                )
 
     def save_progress(
         self, channel_id: str, position: float, duration: float, *, mark_recent: bool = True

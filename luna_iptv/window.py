@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import math
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -33,12 +34,15 @@ from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
+from .motion import set_motion_level
 from .mpris import MprisService
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
 from .preferences import TrackPreferences, normalize_preferences
 from .recovery import RecoveryController
+from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings_dialog import SettingsDialog
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
 from .transport import TransportController
@@ -100,6 +104,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
+        set_motion_level(selected_setting(store, "motion_level", MOTION_CHOICES))
+        self._settings_dialog = None
         self.current = None
         self._current_persistent = True
         self._position = 0.0
@@ -133,6 +139,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self.model = ChannelModel(self)
         self.proxy = ChannelFilter(self)
+        self._folder_id = None
         self.proxy.setSourceModel(self.model)
         self.player = Player(self)
         self.transport = TransportController(self.player, self)
@@ -371,8 +378,10 @@ class MainWindow(QMainWindow):
         self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
 
     def set_section(self, section):
+        if section != "favorites":
+            self._folder_id = None
+            self.proxy.folder_ids = None
         self.proxy.section = section
-        self.channel_list.set_poster_mode(section in ("movie", "series"))
         self.history_clear_button.setVisible(section == "recent")
         for key, b in self.nav_buttons.items():
             b.setChecked(key == section)
@@ -396,26 +405,194 @@ class MainWindow(QMainWindow):
         self.filter_changed()
 
     def refresh_categories(self):
+        current = self.category.currentData() or ""
         self.category.blockSignals(True)
         self.category.clear()
         self.category.addItem("Tüm kategoriler", "")
-        groups = {
+        counts = Counter(
             c.group
             for c in self.model.channels
             if c.group
             and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
             and (self.proxy.section in ("favorites", "recent") or c.kind == self.proxy.section)
-        }
-        for group in sorted(groups, key=str.casefold):
+            and not (c.series_id and c.kind == "movie")
+        )
+        for group in sorted(counts, key=str.casefold):
             self.category.addItem(group, group)
+        index = self.category.findData(current)
+        self.category.setCurrentIndex(index if index >= 0 else 0)
         self.category.blockSignals(False)
+        self.category_bar.set_items(
+            [(group, group, count) for group, count in counts.items()],
+            self.category.currentData() or "",
+        )
+        self.refresh_folders()
+
+    def refresh_folders(self):
+        folders = self.store.folders()
+        if self._folder_id not in {folder_id for folder_id, _ in folders}:
+            self._folder_id = None
+        self.proxy.folder_ids = (
+            self.store.folder_items(self._folder_id) if self._folder_id is not None else None
+        )
+        favorites = {
+            c.id
+            for c in self.model.channels
+            if c.id in self.model.favorites
+            and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
+        }
+        self.folder_bar.set_items(
+            [
+                (str(folder_id), name, len(self.store.folder_items(folder_id) & favorites))
+                for folder_id, name in folders
+            ],
+            str(self._folder_id) if self._folder_id is not None else "",
+            total=len(favorites),
+        )
+        for value, button in self.folder_bar.buttons().items():
+            if value:
+                button.setContextMenuPolicy(Qt.CustomContextMenu)
+                button.customContextMenuRequested.connect(
+                    lambda pos, folder_id=int(value), anchor=button: self.folder_context_menu(
+                        folder_id, anchor.mapToGlobal(pos)
+                    )
+                )
+
+    def choose_folder(self, value):
+        self._folder_id = int(value) if value else None
+        self.refresh_folders()
+        self.filter_changed()
+
+    def create_folder(self, channel=None):
+        name, accepted = QInputDialog.getText(self, "Yeni klasör", "Klasör adı:")
+        if not accepted:
+            return
+        try:
+            folder_id = self.store.create_folder(name)
+        except ValueError as error:
+            QMessageBox.warning(self, "Klasör oluşturulamadı", str(error))
+            return
+        if channel is not None:
+            self.set_folder_membership(folder_id, channel, True)
+        else:
+            self.refresh_folders()
+            self.filter_changed()
+        return folder_id
+
+    def rename_folder(self, folder_id):
+        name = dict(self.store.folders()).get(folder_id)
+        if name is None:
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Klasörü yeniden adlandır", "Klasör adı:", QLineEdit.Normal, name
+        )
+        if not accepted:
+            return
+        try:
+            self.store.rename_folder(folder_id, name)
+        except ValueError as error:
+            QMessageBox.warning(self, "Klasör yeniden adlandırılamadı", str(error))
+            return
+        self.refresh_folders()
+
+    def delete_folder(self, folder_id):
+        name = dict(self.store.folders()).get(folder_id)
+        if name is None:
+            return
+        if (
+            QMessageBox.question(
+                self,
+                "Klasörü sil",
+                f"“{name}” klasörü silinsin mi?\nFavorilerin korunacak.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
+            return
+        self.store.delete_folder(folder_id)
+        self.refresh_folders()
+        self.filter_changed()
+
+    def build_folder_menu(self, folder_id):
+        menu = QMenu(self)
+        menu.addAction("Yeniden adlandır…", lambda: self.rename_folder(folder_id))
+        menu.addAction("Sil", lambda: self.delete_folder(folder_id))
+        return menu
+
+    def folder_context_menu(self, folder_id, position):
+        menu = self.build_folder_menu(folder_id)
+        menu.exec(position)
+        menu.deleteLater()
+
+    def build_channel_menu(self, channel):
+        menu = QMenu(self)
+        favorite = channel.id in self.store.favorites()
+        menu.addAction(
+            "Favorilerden çıkar" if favorite else "Favorilere ekle",
+            lambda: self.toggle_channel_favorite(channel),
+        )
+        folders = menu.addMenu("Klasöre ekle")
+        memberships = self.store.folders_of(channel.id)
+        for folder_id, name in self.store.folders():
+            action = folders.addAction(name)
+            action.setCheckable(True)
+            action.setChecked(folder_id in memberships)
+            action.triggered.connect(
+                lambda checked, fid=folder_id: self.set_folder_membership(fid, channel, checked)
+            )
+        folders.addSeparator()
+        folders.addAction("Yeni klasör…", lambda: self.create_folder(channel))
+        return menu
+
+    def channel_context_menu(self, position):
+        channel = self.channel_list.indexAt(position).data(Qt.UserRole)
+        if channel is None:
+            return
+        menu = self.build_channel_menu(channel)
+        menu.exec(self.channel_list.viewport().mapToGlobal(position))
+        menu.deleteLater()
+
+    def set_folder_membership(self, folder_id, channel, member):
+        self.store.set_in_folder(folder_id, channel.id, member)
+        self.refresh_favorites()
+
+    def choose_category(self, group):
+        index = self.category.findData(group)
+        self.category.setCurrentIndex(index if index >= 0 else 0)
+        self.category_bar.set_current(self.category.currentData() or "")
+
+    def choose_search_kind(self, kind):
+        self.proxy.kind = kind
+        self.filter_changed()
 
     def filter_changed(self, *_):
         self.proxy.query = self.search.text().casefold().strip()
-        self.proxy.group = self.category.currentData() or ""
+        favorites = self.proxy.section == "favorites"
+        self.proxy.group = "" if favorites else self.category.currentData() or ""
+        searching = bool(self.proxy.query)
+        if not searching:
+            self.proxy.kind = ""
         self.proxy.refresh()
         count = self.proxy.rowCount()
-        self.count_label.setText(f"{count:,} yayın".replace(",", "."))
+        if searching:
+            counts = self.proxy.search_counts()
+            self.kind_bar.set_items(
+                [
+                    ("live", "Canlı", counts["live"]),
+                    ("movie", "Film", counts["movie"]),
+                    ("series", "Dizi", counts["series"]),
+                ],
+                self.proxy.kind,
+            )
+            self.count_label.setText(f"{count:,} sonuç".replace(",", "."))
+        else:
+            self.count_label.setText(f"{count:,} yayın".replace(",", "."))
+        self.category_bar.setVisible(not searching and not favorites)
+        self.folder_row.setVisible(favorites)
+        self.kind_bar.setVisible(searching)
+        kind = self.proxy.kind if searching else self.proxy.section
+        self.channel_list.set_poster_mode(kind in ("movie", "series"))
         self.no_results.setVisible(count == 0)
         self.channel_list.setVisible(count > 0)
         self.no_results.setText(
@@ -472,8 +649,11 @@ class MainWindow(QMainWindow):
         return False
 
     def restore_last_channel(self):
-        """Have the last watched live channel selected and in view; Enter plays it."""
+        """Select or play the last live channel according to the startup preference."""
         if self._closed or self.current is not None:
+            return
+        action = selected_setting(self.store, "startup_action", STARTUP_CHOICES)
+        if action == "none":
             return
         live = {c.id for c in self.model.channels if c.kind == "live"}
         last = next((cid for cid in self.store.recent_ids(10_000) if cid in live), None)
@@ -484,9 +664,19 @@ class MainWindow(QMainWindow):
         self.channel_list.setCurrentIndex(index)
         self.channel_list.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
         self.channel_list.setFocus()
+        if action == "play":
+            self.request_play(index.data(Qt.UserRole))
+            return
         self.welcome_subtitle.setText(
             f"Son izlediğin: {index.data(Qt.UserRole).name}\nOynatmak için Enter'a bas."
         )
+
+    def open_settings(self):
+        if self._settings_dialog is None or not isValid(self._settings_dialog):
+            self._settings_dialog = SettingsDialog(self.store, self)
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
 
     def source_for(self, channel):
         prefix = channel.id.split(":", 1)[0]
@@ -583,6 +773,7 @@ class MainWindow(QMainWindow):
             self._record_recent = True
             self._record_progress = True
         start = self.resume_position(channel) if start_override is None else start_override
+        persist_preferences = preferences is not None
         if preferences is None and self.current is not None and self.current.id == channel.id:
             preferences = self.track_preferences.current_choices()
         self.current = channel
@@ -602,7 +793,9 @@ class MainWindow(QMainWindow):
         self._tracks = []
         source = self.source_for(channel)
         track_options = self.track_preferences.begin(
-            source["id"] if source else None, preferences=preferences
+            source["id"] if source else None,
+            preferences=preferences,
+            persist=persist_preferences,
         )
         self._language_notice_timer.stop()
         self.language_notice.hide()
@@ -1003,14 +1196,19 @@ class MainWindow(QMainWindow):
     def toggle_channel_favorite(self, channel):
         favorite = channel.id not in self.store.favorites()
         self.store.set_favorite(channel.id, favorite)
+        self.refresh_favorites()
+
+    def refresh_favorites(self):
         self.model.favorites = self.store.favorites()
         if self.model.rowCount():
             self.model.dataChanged.emit(
                 self.model.index(0), self.model.index(self.model.rowCount() - 1)
             )
-        if self.current and self.current.id == channel.id:
+        if self.current:
+            favorite = self.current.id in self.model.favorites
             self.favorite_button.setText("★" if favorite else "☆")
         self.details.refresh_favorite()
+        self.refresh_folders()
         self.filter_changed()
 
     def track_menu(self):

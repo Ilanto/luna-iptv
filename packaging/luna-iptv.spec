@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.13.1
+Version:        0.14.0
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,12 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Wed Oct 07 2026 Luna IPTV contributors - 0.14.0-1
+- Category chips with a searchable list, and one search across live TV, films and series.
+- Season tabs and a visual episode list with watched marks.
+- Favorite folders with a channel context menu.
+- Settings: motion level, default audio/subtitle language, start-up action.
+
 * Wed Oct 07 2026 Luna IPTV contributors - 0.13.1-1
 - Media controls hear about finished seeks and see position 0 when stopped.
 - Resetting watch positions removes progress bars at once.

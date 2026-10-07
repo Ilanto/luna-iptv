@@ -44,3 +44,11 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - Int64 için Qt'nin `QDBusArgument::operator<<(qlonglong)` sembolü ctypes ile çağrılır; sembol bulunamazsa `mpris:length` atlanır, diğer alanlar yayımlanır.
 - Pencere testlerinde gerçek MPRIS yerine kayıt tutan bir sahte servis kullanılır (`tests/conftest.py`); testler masaüstü medya kontrollerinde görünmez.
 - `scripts/test-quiet.sh` (offscreen, nice/ionice): **487 geçti, 5 atlandı**, 3 yerel video bağımlı hesap testi hariç; gerçek video/pencere yöneticisi testleri `scripts/test.sh` ile ayrıca çalıştırılır.
+
+# Luna IPTV 0.14.0 · gezinme ve düzen
+
+- Paralel çalışma: bölüm listesi, ayarlar ve favori klasörleri Codex'e (gpt-6-astra) ayrı worktree'lerde yazdırıldı. Codex'in korumalı ortamı git'e yazamadığı ve yerel HTTP sunucusu açan 33 testi çalıştıramadığı için her kopyada tam sessiz paket burada çalıştırıldı (509, 514, 554 geçti), kod satır satır incelendi, commit ve birleştirme burada yapıldı. Tek çakışma `icons.py` sonundaki iki ikon eklemesiydi; ikonlar sözlüğe taşındı.
+- Kategori/arama: Favoriler ve Geçmiş'te arama kendi listesinde kalır (`test_recent_filters_preserve_newest_first`, `test_search_composes_with_source_group_favorite_and_recent` bu tasarımı korudu).
+- Codex'in bölüm listesi işi, dizi detayları yüklenince katalog sıfırlamasının izleme ilerlemesini sildiği bir 0.13 hatasını da düzeltti.
+- `scripts/test-quiet.sh`: **554 geçti**, 5 atlandı. Ayarlar, tercih kaydetme mantığına (`TrackPreferences.begin(persist=...)`) dokunduğu için `tests/test_preferences_native.py` ve `tests/test_preplay_native.py` gerçek ekranda ayrıca çalıştırılmalı.
+- Görsel kontrol (offscreen ekran görüntüsü): kategori düğmeleri, favori klasörleri, bölüm listesi, ayarlar. Favorilerde kaynak seçici satırı kaplıyordu; genişliği sınırlandı.

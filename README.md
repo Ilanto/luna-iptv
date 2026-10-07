@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.13.1-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.14.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,15 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.14.0 · gezinme ve düzen
+
+- **Kategori düğmeleri:** "Tümü", en kalabalık yedi kategori ve geri kalanlar için arama kutulu "Tüm kategoriler" listesi.
+- **Tek arama:** Canlı TV, Filmler ve Diziler'de yazınca hepsinde aranır (bölümler diziler üzerinden); "Canlı / Film / Dizi" düğmeleri sonuç sayısıyla daraltır. Favoriler ve Geçmiş'te arama kendi listesinde ve sırasında kalır.
+- **Dizi bölüm listesi:** sezon sekmeleri; her bölümde numara, süre, yarım kalanlarda altın çizgi, bitenlerde "İzlendi". Çift tıklama oynatır, Enter yalnız seçer.
+- **Favori klasörleri:** Favoriler'de klasör düğmeleri, "+ Yeni klasör", klasöre sağ tıkla yeniden adlandır/sil. Herhangi bir karta sağ tıklayınca favori ve klasör üyeliği. Klasörler favorilerin alt kümesidir; favoriden çıkan kanal tüm klasörlerden de çıkar.
+- **Ayarlar** (menüde dişli): hareket Tam/Az/Kapalı (anında uygulanır), varsayılan ses ve altyazı dili (kaynağın kendi kaydı önceliklidir), açılışta son kanalı seç/oynat/hiçbir şey.
+- Bölüm listesi, ayarlar ve favori klasörleri Codex'e ayrı git kopyalarında paralel yazdırıldı; inceleme, birleştirme ve testler burada yapıldı.
 
 ### 0.13.1 · inceleme düzeltmeleri
 

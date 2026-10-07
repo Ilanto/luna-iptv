@@ -11,6 +11,7 @@ import random
 from PySide6.QtCore import (
     QEasingCurve,
     QElapsedTimer,
+    QObject,
     QPointF,
     QPropertyAnimation,
     QRect,
@@ -19,6 +20,7 @@ from PySide6.QtCore import (
     Qt,
     QTimer,
     QVariantAnimation,
+    Signal,
 )
 from PySide6.QtGui import (
     QColor,
@@ -36,6 +38,24 @@ from PySide6.QtWidgets import (
 )
 
 from . import brand, icons, theme
+
+
+class _MotionSignals(QObject):
+    changed = Signal()
+
+
+_motion_signals = _MotionSignals()
+_motion_level = "full"
+
+
+def set_motion_level(level):
+    """Apply the shared motion policy to new and existing widgets immediately."""
+    global _motion_level
+    if level not in ("full", "reduced", "off"):
+        raise ValueError("Unknown motion level")
+    if level != _motion_level:
+        _motion_level = level
+        _motion_signals.changed.emit()
 
 
 def blend(a, b, t):
@@ -77,10 +97,12 @@ class IconButton(QPushButton):
         self.icon_px = size
         self.colors = (color, hover_color, checked_color)
         self._hover = 0.0
+        self._hover_target = 0.0
         self._animation = QVariantAnimation(self, duration=160)
         self._animation.setEasingCurve(QEasingCurve.OutCubic)
         self._animation.valueChanged.connect(self._set_hover)
         self.setCursor(Qt.PointingHandCursor)
+        _motion_signals.changed.connect(self._motion_changed)
 
     def icon_name(self):
         return icons.GLYPHS.get(self.text(), self._icon)
@@ -94,10 +116,20 @@ class IconButton(QPushButton):
         self.update()
 
     def _animate(self, target):
+        self._hover_target = target
         self._animation.stop()
+        if _motion_level != "full":
+            self._set_hover(target)
+            return
         self._animation.setStartValue(self._hover)
         self._animation.setEndValue(target)
         self._animation.start()
+
+    def _motion_changed(self):
+        if _motion_level != "full":
+            self._animation.stop()
+            self._set_hover(self._hover_target)
+        self.update()
 
     def enterEvent(self, event):
         if self.isEnabled():
@@ -139,7 +171,9 @@ class IconButton(QPushButton):
         name = self.icon_name()
         color = self.icon_color()
         rect = self.rect()
-        scale = 1.0 + 0.08 * self._hover - (0.07 if self.isDown() else 0.0)
+        scale = 1.0
+        if _motion_level == "full":
+            scale += 0.08 * self._hover - (0.07 if self.isDown() else 0.0)
         side = self.icon_px * scale
         if self.stacked:
             icon_rect = QRectF(
@@ -193,11 +227,22 @@ class NavIndicator(QFrame):
         self._animation = QPropertyAnimation(self, b"geometry", self, duration=260)
         self._animation.setEasingCurve(QEasingCurve.OutCubic)
         self.lower()
+        _motion_signals.changed.connect(self._motion_changed)
+
+    def _motion_changed(self):
+        if _motion_level == "off":
+            self._animation.stop()
+            self.resync()
 
     def follow(self, button, *, animate=True):
         self._target = button
         geometry = button.geometry()
-        if not animate or not self.isVisible() or self.geometry().isEmpty():
+        if (
+            _motion_level == "off"
+            or not animate
+            or not self.isVisible()
+            or self.geometry().isEmpty()
+        ):
             self._animation.stop()
             self.setGeometry(geometry)
             self.show()
@@ -221,11 +266,17 @@ class NavFrame(QFrame):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        QTimer.singleShot(0, self.indicator.resync)
+        self._resync_indicator()
 
     def showEvent(self, event):
         super().showEvent(event)
-        QTimer.singleShot(0, self.indicator.resync)
+        self._resync_indicator()
+
+    def _resync_indicator(self):
+        if _motion_level == "off":
+            self.indicator.resync()
+        else:
+            QTimer.singleShot(0, self.indicator.resync)
 
 
 class LogoMark(QWidget):
@@ -247,6 +298,7 @@ class LogoMark(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(self.FRAME_MS)
         self._timer.timeout.connect(self._tick)
+        _motion_signals.changed.connect(self._motion_changed)
 
     @property
     def animating(self):
@@ -260,9 +312,15 @@ class LogoMark(QWidget):
             self._start()
 
     def _start(self):
-        if not self._quiet:
+        if not self._quiet and _motion_level == "full":
             self._clock.start()
             self._timer.start()
+
+    def _motion_changed(self):
+        self._timer.stop()
+        if _motion_level == "full" and self.underMouse() and self.isVisible():
+            self._start()
+        self.update()
 
     def _tick(self):
         self._seconds += self._clock.restart() / 1000.0
@@ -282,7 +340,7 @@ class LogoMark(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        brand.paint(painter, QRectF(self.rect()), self._seconds)
+        brand.paint(painter, QRectF(self.rect()), self._seconds if _motion_level == "full" else 0)
 
 
 class MoonSky(QFrame):
@@ -316,6 +374,7 @@ class MoonSky(QFrame):
         self._timer = QTimer(self)
         self._timer.setInterval(self.FRAME_MS)
         self._timer.timeout.connect(self.update)
+        _motion_signals.changed.connect(self._motion_changed)
 
     @property
     def animating(self):
@@ -323,7 +382,14 @@ class MoonSky(QFrame):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._timer.start()
+        self._motion_changed()
+
+    def _motion_changed(self):
+        if _motion_level == "full" and self.isVisible():
+            self._timer.start()
+        else:
+            self._timer.stop()
+        self.update()
 
     def hideEvent(self, event):
         self._timer.stop()
@@ -336,7 +402,7 @@ class MoonSky(QFrame):
         return QPointF(self.width() / 2, self.height() * 0.32)
 
     def paintEvent(self, event):
-        seconds = self._clock.elapsed() / 1000.0
+        seconds = self._clock.elapsed() / 1000.0 if _motion_level == "full" else 0
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)

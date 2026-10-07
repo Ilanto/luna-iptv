@@ -2,13 +2,14 @@
 
 import re
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QPointF, QRectF, QSignalBlocker, QSize, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
     QLinearGradient,
     QPainter,
     QPainterPath,
+    QPen,
     QPixmap,
     QRadialGradient,
 )
@@ -19,15 +20,20 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QListView,
     QScrollArea,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
-from . import theme
+from . import icons, theme
 from .dialogs import text_label
 from .imdb import clean_title
+from .library import resumable
 from .media_details import MediaDetails
 from .models import Channel
 from .motion import IconButton
@@ -48,6 +54,83 @@ _LANGUAGE_PREFERENCES = (
 
 
 POSTER_SIZE = QSize(220, 330)
+EPISODE_DURATION_ROLE = Qt.UserRole + 1
+EPISODE_PROGRESS_ROLE = Qt.UserRole + 2
+EPISODE_WATCHED_ROLE = Qt.UserRole + 3
+EPISODE_ROW_HEIGHT = 64
+
+
+class EpisodeDelegate(QStyledItemDelegate):
+    """Paint compact episode rows without creating widgets per episode."""
+
+    def sizeHint(self, option, index):
+        return QSize(240, EPISODE_ROW_HEIGHT)
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setClipRect(option.rect)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(option.rect)
+        selected = bool(option.state & QStyle.State_Selected)
+        background = (
+            theme.ACCENT_TINT
+            if selected
+            else theme.RAISED
+            if option.state & QStyle.State_MouseOver
+            else theme.SURFACE
+        )
+        painter.fillRect(rect, QColor(background))
+        if selected:
+            painter.fillRect(QRectF(rect.x(), rect.y(), 3, rect.height()), QColor(theme.ACCENT))
+
+        badge = QRectF(rect.x() + 14, rect.y() + 14, 36, 36)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(theme.DUSK))
+        painter.drawRoundedRect(badge, 9, 9)
+        painter.setFont(option.font)
+        painter.setPen(QColor(theme.ACCENT))
+        # Channel metadata retains provider order, but has no episode-number field.
+        painter.drawText(badge, Qt.AlignCenter, str(index.row() + 1))
+
+        text_rect = rect.adjusted(64, 8, -14, -8)
+        metrics = painter.fontMetrics()
+        duration = index.data(EPISODE_DURATION_ROLE) or ""
+        watched = bool(index.data(EPISODE_WATCHED_ROLE))
+        title_rect = QRectF(text_rect)
+        if duration or watched:
+            title_rect.setHeight(24)
+        painter.setPen(QColor(theme.TEXT))
+        title = metrics.elidedText(
+            index.data(Qt.DisplayRole) or "", Qt.ElideRight, max(0, int(title_rect.width()))
+        )
+        painter.drawText(title_rect, Qt.AlignLeft | Qt.AlignVCenter, title)
+        if duration or watched:
+            meta = QRectF(text_rect.x(), rect.y() + 34, text_rect.width(), 22)
+            if watched:
+                painter.drawPixmap(
+                    QPointF(meta.x(), meta.y() + 3),
+                    icons.pixmap("check", theme.GOLD, 16, painter.device().devicePixelRatioF()),
+                )
+                painter.setPen(QColor(theme.GOLD))
+                painter.drawText(meta.adjusted(22, 0, 0, 0), Qt.AlignVCenter, "İzlendi")
+                meta.setLeft(meta.left() + 22 + metrics.horizontalAdvance("İzlendi") + 16)
+            painter.setPen(QColor(theme.TEXT_SOFT))
+            painter.drawText(
+                meta,
+                Qt.AlignVCenter,
+                metrics.elidedText(duration, Qt.ElideRight, max(0, int(meta.width()))),
+            )
+        progress = index.data(EPISODE_PROGRESS_ROLE)
+        if progress is not None:
+            painter.fillRect(
+                QRectF(rect.x() + 3, rect.bottom() - 3, (rect.width() - 3) * progress, 3),
+                QColor(theme.GOLD),
+            )
+        if option.state & QStyle.State_HasFocus:
+            painter.setPen(QPen(QColor(theme.ACCENT), 1, Qt.DotLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(rect.adjusted(5.5, 2.5, -2.5, -5.5))
+        painter.restore()
 
 
 def rounded(pixmap, radius):
@@ -136,6 +219,7 @@ class MediaDetailDialog(QDialog):
         self._episodes = []
         self._series = channel.kind == "series" or bool(channel.series_id)
         self._details = None
+        self._progress_lookup = None
         self._selection_identity = None
         self._series_channel = channel if channel.kind == "series" else None
         self._series_imdb_url = ""
@@ -223,23 +307,49 @@ class MediaDetailDialog(QDialog):
 
         self.selectors = QFrame()
         self.selectors.setObjectName("panel")
-        selector_layout = QHBoxLayout(self.selectors)
+        selector_layout = QVBoxLayout(self.selectors)
         selector_layout.setContentsMargins(16, 12, 16, 12)
         selector_layout.setSpacing(10)
-        self.season_combo = QComboBox()
+        self.season_combo = QComboBox(self.selectors)
         self.season_combo.setAccessibleName("Sezon")
-        self.episode_combo = QComboBox()
+        self.episode_combo = QComboBox(self.selectors)
         self.episode_combo.setAccessibleName("Bölüm")
-        for text, combo, stretch in (
-            ("&Sezon", self.season_combo, 1),
-            ("&Bölüm", self.episode_combo, 2),
+        self.season_combo.hide()
+        self.episode_combo.hide()
+        self.season_tabs = QTabBar()
+        self.season_tabs.setObjectName("seasonTabs")
+        self.season_tabs.setAccessibleName("Sezon")
+        self.season_tabs.setExpanding(False)
+        self.season_tabs.setUsesScrollButtons(True)
+        self.season_tabs.setElideMode(Qt.ElideNone)
+        self.season_tabs.setDrawBase(False)
+        self.season_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.season_tabs.setFocusPolicy(Qt.StrongFocus)
+        selector_layout.addWidget(self.season_tabs)
+        self.episode_list = QListView()
+        self.episode_list.setObjectName("episodeList")
+        self.episode_list.setAccessibleName("Bölümler")
+        self.episode_list.setModel(self.episode_combo.model())
+        self.episode_list.setItemDelegate(EpisodeDelegate(self.episode_list))
+        self.episode_list.setUniformItemSizes(True)
+        self.episode_list.setEditTriggers(QListView.NoEditTriggers)
+        self.episode_list.setSelectionMode(QListView.SingleSelection)
+        self.episode_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.episode_list.setVerticalScrollMode(QListView.ScrollPerPixel)
+        self.episode_list.setMouseTracking(True)
+        self.episode_list.setFixedHeight(EPISODE_ROW_HEIGHT)
+        selector_layout.addWidget(self.episode_list)
+        self.season_tabs.currentChanged.connect(self.season_combo.setCurrentIndex)
+        self.episode_list.selectionModel().currentChanged.connect(self._select_episode)
+        self.episode_list.doubleClicked.connect(self._play_episode)
+        season_model = self.season_combo.model()
+        for signal in (
+            season_model.rowsInserted,
+            season_model.rowsRemoved,
+            season_model.modelReset,
+            season_model.dataChanged,
         ):
-            label = text_label(text, "muted")
-            label.setBuddy(combo)
-            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(12)
-            selector_layout.addWidget(label)
-            selector_layout.addWidget(combo, stretch)
+            signal.connect(self._sync_seasons)
         self.season_combo.currentIndexChanged.connect(self._populate_episodes)
         self.episode_combo.currentIndexChanged.connect(self._refresh_selection)
         self.selectors.setVisible(self._series)
@@ -380,9 +490,9 @@ class MediaDetailDialog(QDialog):
         self.setTabOrder(self.series_favorite_button, self.audio_combo)
         self.setTabOrder(self.audio_combo, self.subtitle_combo)
         self.setTabOrder(self.subtitle_combo, self.remember_checkbox)
-        self.setTabOrder(self.remember_checkbox, self.season_combo)
-        self.setTabOrder(self.season_combo, self.episode_combo)
-        self.setTabOrder(self.episode_combo, self.retry_button)
+        self.setTabOrder(self.remember_checkbox, self.season_tabs)
+        self.setTabOrder(self.season_tabs, self.episode_list)
+        self.setTabOrder(self.episode_list, self.retry_button)
         self.setTabOrder(self.retry_button, self.play_button)
         self.setTabOrder(self.play_button, self.favorite_button)
         self.setTabOrder(self.favorite_button, self.close_button)
@@ -521,7 +631,67 @@ class MediaDetailDialog(QDialog):
                 break
         self.episode_combo.blockSignals(False)
         self.episode_combo.setEnabled(self.episode_combo.count() > 0)
+        self._sync_seasons()
+        self._refresh_episode_rows()
         self._refresh_selection()
+
+    def _sync_seasons(self, *_):
+        if self.season_combo.signalsBlocked():
+            return
+        with QSignalBlocker(self.season_tabs):
+            labels = [self.season_combo.itemText(i) for i in range(self.season_combo.count())]
+            if labels != [self.season_tabs.tabText(i) for i in range(self.season_tabs.count())]:
+                while self.season_tabs.count():
+                    self.season_tabs.removeTab(0)
+                for label in labels:
+                    self.season_tabs.addTab(label)
+            self.season_tabs.setCurrentIndex(self.season_combo.currentIndex())
+        self.season_tabs.setEnabled(self.season_combo.count() > 0)
+
+    def set_progress_lookup(self, fn):
+        """Use the owner's saved positions; None clears watched indicators."""
+        self._progress_lookup = fn
+        self._refresh_episode_rows()
+
+    def _refresh_episode_rows(self):
+        count = self.episode_combo.count()
+        for row in range(count):
+            episode = self.episode_combo.itemData(row)
+            info = self._details.episode_info.get(episode.provider_key, {}) if self._details else {}
+            duration = info.get("duration") or ""
+            saved = self._progress_lookup(episode.id) if self._progress_lookup else None
+            progress, watched = None, False
+            if saved is not None:
+                position, total = saved
+                watched = total > 0 and position >= total - 10
+                if resumable(position, total):
+                    progress = position / total
+            description = f"Bölüm {row + 1}, {episode.name}"
+            if duration:
+                description += f", {duration}"
+            if watched:
+                description += ", İzlendi"
+            for role, value in (
+                (EPISODE_DURATION_ROLE, duration),
+                (EPISODE_PROGRESS_ROLE, progress),
+                (EPISODE_WATCHED_ROLE, watched),
+                (Qt.AccessibleTextRole, description),
+                (Qt.ToolTipRole, description),
+            ):
+                self.episode_combo.setItemData(row, value, role)
+        self.episode_list.setFixedHeight(max(1, min(count, 5)) * EPISODE_ROW_HEIGHT)
+        self.episode_list.setEnabled(count > 0)
+        self.episode_list.viewport().update()
+
+    def _select_episode(self, current, _previous=None):
+        # The shared model also emits while the combo is being repopulated.
+        if not self.episode_combo.signalsBlocked():
+            self.episode_combo.setCurrentIndex(current.row())
+
+    def _play_episode(self, index):
+        if index.isValid():
+            self.episode_combo.setCurrentIndex(index.row())
+            self._request_play()
 
     def _current_channel(self) -> Channel | None:
         if self._series and self._details is not None:
@@ -536,6 +706,9 @@ class MediaDetailDialog(QDialog):
         return self._current_channel()
 
     def _refresh_selection(self, _index=None):
+        index = self.episode_combo.model().index(self.episode_combo.currentIndex(), 0)
+        with QSignalBlocker(self.episode_list.selectionModel()):
+            self.episode_list.setCurrentIndex(index)
         channel = self._current_channel()
         identity = self._identity(channel)
         changed = identity != self._selection_identity

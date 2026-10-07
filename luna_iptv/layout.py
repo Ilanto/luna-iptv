@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSplitter,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, icons, theme
+from .chips import ChipBar
 from .dialogs import text_label
 from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
@@ -118,6 +120,11 @@ def build_window(w):
     w.add_button = icon_button("Kaynak ekle", w.add_source, "plus", "primary", tip="Kaynak ekle")
     w.add_button.setFixedSize(52, 52)
     side.addWidget(w.add_button, 0, Qt.AlignHCenter)
+    w.settings_button = icon_button(
+        "Ayarlar", w.open_settings, "gear", "ghost", tip="Ayarlar", size=21
+    )
+    w.settings_button.setFixedSize(52, 52)
+    side.addWidget(w.settings_button, 0, Qt.AlignHCenter)
     w.source_menu_button = icon_button(
         "Kaynak menüsü", w.source_menu, "sliders", "ghost", tip="Kaynak menüsü", size=21
     )
@@ -169,21 +176,53 @@ def build_window(w):
     w.source_combo = QComboBox()
     w.source_combo.setAccessibleName("Kaynak seç")
     w.source_combo.setMinimumWidth(160)
+    w.source_combo.setMaximumWidth(260)
     w.source_combo.currentIndexChanged.connect(w.source_changed)
     row.addWidget(w.source_combo)
+    # The combo keeps the chosen category; the chips are how people pick it.
     w.category = QComboBox()
     w.category.setAccessibleName("Kategori")
-    w.category.setMinimumWidth(180)
     w.category.addItem("Tüm kategoriler", "")
+    w.category.hide()
     row.addWidget(w.category)
     w.category.currentIndexChanged.connect(w.filter_changed)
-    row.addStretch()
+    w.category_bar = ChipBar(more_label="Tüm kategoriler")
+    w.category_bar.chosen.connect(w.choose_category)
+    row.addWidget(w.category_bar, 1)
+    w.kind_bar = ChipBar(limit=3, show_counts=True)
+    w.kind_bar.chosen.connect(w.choose_search_kind)
+    w.kind_bar.hide()
+    row.addWidget(w.kind_bar, 1)
     lib.addLayout(row)
+    w.folder_row = QWidget()
+    folders = QHBoxLayout(w.folder_row)
+    folders.setContentsMargins(0, 0, 0, 0)
+    folders.setSpacing(10)
+    scroll = QScrollArea()
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setWidgetResizable(True)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setFixedHeight(48)
+    w.folder_bar = ChipBar(limit=None, show_counts=True, sort_by_count=False)
+    w.folder_bar.setAccessibleName("Favori klasörleri")
+    w.folder_bar.chosen.connect(w.choose_folder)
+    scroll.setWidget(w.folder_bar)
+    folders.addWidget(scroll, 1)
+    w.new_folder_button = QPushButton("+ Yeni klasör")
+    w.new_folder_button.setObjectName("chipMore")
+    w.new_folder_button.setCursor(Qt.PointingHandCursor)
+    w.new_folder_button.setFixedHeight(30)
+    w.new_folder_button.clicked.connect(lambda: w.create_folder())
+    folders.addWidget(w.new_folder_button)
+    w.folder_row.hide()
+    lib.addWidget(w.folder_row)
     w.channel_list = CardGrid()
     w.channel_list.setObjectName("channels")
     w.channel_list.setAccessibleName("Yayınlar")
     w.channel_list.setMouseTracking(True)
     w.channel_list.setModel(w.proxy)
+    w.channel_list.setContextMenuPolicy(Qt.CustomContextMenu)
+    w.channel_list.customContextMenuRequested.connect(w.channel_context_menu)
     w.logos = LogoCache(w.store.path, w, size=QSize(240, 96))
     # Shared with the detail card, so a poster decoded for the grid is reused there.
     w.posters = LogoCache(w.store.path, w, size=QSize(240, 360), cache_suffix=".posters")

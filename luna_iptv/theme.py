@@ -156,6 +156,17 @@ QPushButton#transport:disabled {{ background: transparent; border-color: transpa
 QPushButton#hero {{ background: {ACCENT}; border: none; border-radius: 23px; padding: 0; }}
 QPushButton#hero:hover {{ background: {ACCENT_STRONG}; }}
 QPushButton#hero:pressed {{ background: #93a4f5; }}
+QPushButton#chip, QPushButton#chipMore {{ background: transparent; border: 1px solid {LINE};
+    border-radius: 15px; padding: 0 14px; color: {TEXT_SOFT}; }}
+QPushButton#chip:hover, QPushButton#chipMore:hover {{ border-color: #3a4785; color: {TEXT};
+    background: transparent; }}
+QPushButton#chip:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ACCENT_INK};
+    font-weight: 600; }}
+QFrame#chipPopup {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: 14px; }}
+QListWidget#chipList {{ background: transparent; border: none; outline: none; }}
+QListWidget#chipList::item {{ padding: 7px 10px; border-radius: 8px; }}
+QListWidget#chipList::item:selected, QListWidget#chipList::item:hover {{
+    background: {ACCENT_TINT}; color: {TEXT}; }}
 QPushButton#rate {{ background: transparent; border: 1px solid {LINE}; border-radius: 12px;
     padding: 4px 10px; color: {TEXT_SOFT}; font-size: 9px; font-weight: 600; }}
 QPushButton#rate:hover {{ border-color: {ACCENT}; color: {TEXT}; }}
@@ -200,4 +211,12 @@ QLabel#poster {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {RAI
     border: 1px solid {LINE_SOFT}; border-radius: 16px; color: {TEXT_MUTED}; }}
 QToolTip {{ color: {TEXT}; background: {RAISED}; padding: 6px 9px; border: 1px solid {LINE};
     border-radius: 8px; }}
+"""
+
+STYLE += f"""
+QTabBar#seasonTabs::tab {{ border-radius: 8px; margin-right: 4px; }}
+QTabBar#seasonTabs::tab:selected {{ background: {ACCENT_TINT}; color: {ACCENT_STRONG}; }}
+QTabBar#seasonTabs::tab:hover {{ background: {RAISED}; }}
+QTabBar#seasonTabs::tab:focus {{ border-color: {ACCENT}; }}
+QListView#episodeList {{ background: {SURFACE}; padding: 0; }}
 """
