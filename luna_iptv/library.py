@@ -98,6 +98,7 @@ class ChannelFilter(QSortFilterProxyModel):
         # (favorites and history stay scoped to their own list); kind narrows results.
         self.kind = ""
         self.recent = {}
+        self.folder_ids = None
 
     def set_recent_ids(self, channel_ids):
         self.recent = {channel_id: rank for rank, channel_id in enumerate(channel_ids)}
@@ -113,7 +114,9 @@ class ChannelFilter(QSortFilterProxyModel):
 
     def _in_personal_list(self, channel):
         if self.section == "favorites":
-            return channel.id in self.sourceModel().favorites
+            return channel.id in self.sourceModel().favorites and (
+                self.folder_ids is None or channel.id in self.folder_ids
+            )
         if self.section == "recent":
             return channel.id in self.recent
         return True
@@ -143,7 +146,7 @@ class ChannelFilter(QSortFilterProxyModel):
                 return False
             return self._query_key in self.sourceModel().search_keys[row]
         if self.section == "favorites":
-            if channel.id not in self.sourceModel().favorites:
+            if not self._in_personal_list(channel):
                 return False
         elif self.section == "recent":
             if channel.id not in self.recent:

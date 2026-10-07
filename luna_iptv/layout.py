@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSplitter,
@@ -192,11 +193,35 @@ def build_window(w):
     w.kind_bar.hide()
     row.addWidget(w.kind_bar, 1)
     lib.addLayout(row)
+    w.folder_row = QWidget()
+    folders = QHBoxLayout(w.folder_row)
+    folders.setContentsMargins(0, 0, 0, 0)
+    folders.setSpacing(10)
+    scroll = QScrollArea()
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setWidgetResizable(True)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setFixedHeight(48)
+    w.folder_bar = ChipBar(limit=None, show_counts=True, sort_by_count=False)
+    w.folder_bar.setAccessibleName("Favori klasörleri")
+    w.folder_bar.chosen.connect(w.choose_folder)
+    scroll.setWidget(w.folder_bar)
+    folders.addWidget(scroll, 1)
+    w.new_folder_button = QPushButton("+ Yeni klasör")
+    w.new_folder_button.setObjectName("chipMore")
+    w.new_folder_button.setCursor(Qt.PointingHandCursor)
+    w.new_folder_button.setFixedHeight(30)
+    w.new_folder_button.clicked.connect(lambda: w.create_folder())
+    folders.addWidget(w.new_folder_button)
+    w.folder_row.hide()
+    lib.addWidget(w.folder_row)
     w.channel_list = CardGrid()
     w.channel_list.setObjectName("channels")
     w.channel_list.setAccessibleName("Yayınlar")
     w.channel_list.setMouseTracking(True)
     w.channel_list.setModel(w.proxy)
+    w.channel_list.setContextMenuPolicy(Qt.CustomContextMenu)
+    w.channel_list.customContextMenuRequested.connect(w.channel_context_menu)
     w.logos = LogoCache(w.store.path, w, size=QSize(240, 96))
     # Shared with the detail card, so a poster decoded for the grid is reused there.
     w.posters = LogoCache(w.store.path, w, size=QSize(240, 360), cache_suffix=".posters")

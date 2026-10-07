@@ -87,12 +87,23 @@ class ChipBar(QWidget):
 
     chosen = Signal(str)
 
-    def __init__(self, all_label="Tümü", more_label="", limit=7, show_counts=False, parent=None):
+    def __init__(
+        self,
+        all_label="Tümü",
+        more_label="",
+        limit=7,
+        show_counts=False,
+        parent=None,
+        *,
+        sort_by_count=True,
+    ):
         super().__init__(parent)
         self.all_label = all_label
         self.more_label = more_label
         self.limit = limit
         self.show_counts = show_counts
+        self.sort_by_count = sort_by_count
+        self._total = None
         self._items = []
         self._current = ""
         self._buttons = {}
@@ -125,9 +136,10 @@ class ChipBar(QWidget):
     def _label(self, label, count):
         return f"{label}  {count:,}".replace(",", ".") if self.show_counts else label
 
-    def set_items(self, items, current=""):
+    def set_items(self, items, current="", *, total=None):
         self._items = list(items)
         self._current = current
+        self._total = total
         for button in self._group.buttons():
             self._group.removeButton(button)
             button.deleteLater()
@@ -136,9 +148,14 @@ class ChipBar(QWidget):
             item = self._layout.takeAt(0)
             if item.widget() is not None and item.widget() is not self.more_button:
                 item.widget().deleteLater()
-        total = sum(count for _, _, count in self._items)
+        if total is None:
+            total = sum(count for _, _, count in self._items)
         self._chip("", self._label(self.all_label, total))
-        busiest = sorted(self._items, key=lambda item: (-item[2], item[1].casefold()))
+        busiest = (
+            sorted(self._items, key=lambda item: (-item[2], item[1].casefold()))
+            if self.sort_by_count
+            else self._items
+        )
         shown = busiest[: self.limit]
         if current and all(value != current for value, _, _ in shown):
             shown += [item for item in self._items if item[0] == current]
@@ -162,7 +179,7 @@ class ChipBar(QWidget):
 
     def set_current(self, value):
         """Mark ``value`` chosen, bringing it into the row if it was in the list only."""
-        self.set_items(self._items, value)
+        self.set_items(self._items, value, total=self._total)
 
     def open_popup(self):
         popup = ChoicePopup(sorted(self._items, key=lambda i: i[1].casefold()), self._current, self)
