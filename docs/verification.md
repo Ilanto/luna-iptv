@@ -37,3 +37,10 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - `untracked` oynatma yolunda pause yalnız `player_property` ile gelir; uyku engeli orada da güncellenir (`test_untracked_pause_also_releases_inhibit`).
 - Paylaşılan afiş önbelleğinde `request_visible` kuyruğu temizlerken detay kartının bekleyen isteğini siliyordu; açık istekler (`request_logo`) tamamlanana kadar kuyruğun başında tutulur (`test_explicit_request_survives_visible_queue_replacement`).
 - Hücreler görünüm genişliğini tam doldurunca Qt son hücreyi alt satıra taşıyordu (600 px'te 2 yerine 1 sütun); hücre genişliği bir piksel kısaltıldı, test gerçek `visualRect` satırlarını doğrular.
+
+# Luna IPTV 0.13.0 · günlük kolaylıklar
+
+- MPRIS modülü (`mpris.py`) Codex'e (gpt-6-astra) yazdırıldı; Codex'in korumalı ortamı D-Bus'a erişemediği için canlı testleri atlanmıştı. Gerçek oturum veri yolunda `busctl` ile dışarıdan doğrulandı: PlaybackStatus `s`, Position `x`, Metadata `a{sv}` (trackid `o`, artist `as`, length `x`), Seek `x`, SetPosition `ox`, Seeked `x`; Next/Seek komutları denetleyiciye ulaşır. PySide6'nın `a{sv}` okuyamaması yüzünden düşen 5 test, okumayı `busctl` ile yapacak şekilde düzeltildi (24 geçti).
+- Int64 için Qt'nin `QDBusArgument::operator<<(qlonglong)` sembolü ctypes ile çağrılır; sembol bulunamazsa `mpris:length` atlanır, diğer alanlar yayımlanır.
+- Pencere testlerinde gerçek MPRIS yerine kayıt tutan bir sahte servis kullanılır (`tests/conftest.py`); testler masaüstü medya kontrollerinde görünmez.
+- `scripts/test-quiet.sh` (offscreen, nice/ionice): **487 geçti, 5 atlandı**, 3 yerel video bağımlı hesap testi hariç; gerçek video/pencere yöneticisi testleri `scripts/test.sh` ile ayrıca çalıştırılır.
