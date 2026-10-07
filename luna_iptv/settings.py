@@ -15,14 +15,18 @@ def selected_setting(store, key, choices):
 
 
 def playback_defaults(store):
+    from .media_dialog import _LANGUAGE_PREFERENCES
     from .preferences import normalize_preferences
 
+    # Only languages the settings window offers: a stale value plays as Otomatik,
+    # exactly as the window shows it.
+    supported = {code for _, code in _LANGUAGE_PREFERENCES}
     result = {}
     for mode, key in (("audio", "audio_language"), ("sub", "subtitle_language")):
         value = store.setting(key, "auto")
         if value == "off" and mode == "sub":
             choice = {"mode": "off"}
-        elif isinstance(value, str) and value not in ("auto", "off"):
+        elif isinstance(value, str) and value in supported:
             choice = {"mode": "track", "lang": value}
         else:
             choice = {"mode": "auto"}

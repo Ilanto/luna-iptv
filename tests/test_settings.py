@@ -369,3 +369,18 @@ def test_settings_dialog_renders_controls_within_its_panels(store, motion_policy
             assert widget.width() >= widget.fontMetrics().horizontalAdvance(widget.text())
     assert dialog.grab().save(str(store.path.parent / "settings.png"))
     dialog.close()
+
+
+def test_unsupported_stored_language_plays_as_automatic(tmp_path):
+    from luna_iptv.settings import playback_defaults
+    from luna_iptv.storage import Store
+
+    store = Store(tmp_path / "library.sqlite3")
+    store.set_setting("audio_language", "xx-damaged")
+    store.set_setting("subtitle_language", 42)
+    assert playback_defaults(store) == {"audio": {"mode": "auto"}, "sub": {"mode": "auto"}}
+    store.set_setting("subtitle_language", {"mode": "track"})
+    assert playback_defaults(store)["sub"] == {"mode": "auto"}
+    store.set_setting("audio_language", "tr")
+    audio = playback_defaults(store)["audio"]
+    assert (audio["mode"], audio["lang"]) == ("track", "tr")
