@@ -99,3 +99,10 @@ def pixmap(name, color, size, ratio=1.0):
     painter.end()
     image.setDevicePixelRatio(ratio)
     return image
+
+
+ICONS["gear"] = (
+    '<path d="M9.5 3h5l.6 2.5 1.4.8 2.5-.7 2.5 4.3-1.9 1.8v1.6l1.9 1.8-2.5 4.3'
+    "-2.5-.7-1.4.8-.6 2.5h-5l-.6-2.5-1.4-.8-2.5.7-2.5-4.3 1.9-1.8v-1.6L2.5 9.9"
+    ' 5 5.6l2.5.7 1.4-.8z"/><circle cx="12" cy="12.5" r="3"/>'
+)

@@ -98,6 +98,10 @@ class Store:
                 source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
                 data TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
         progress_columns = {
@@ -126,6 +130,24 @@ class Store:
             """
         )
         self._db.commit()
+
+    def setting(self, key: str, default: Any = None) -> Any:
+        row = self._db.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+        if row is None:
+            return default
+        try:
+            return json.loads(row[0])
+        except (ValueError, TypeError, RecursionError):
+            return default
+
+    def set_setting(self, key: str, value: Any) -> None:
+        data = json.dumps(value, ensure_ascii=False)
+        with self._db:
+            self._db.execute(
+                """INSERT INTO app_settings(key,value) VALUES(?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (key, data),
+            )
 
     def rename_source(self, source_id: str, name: str) -> bool:
         name = name.strip()
