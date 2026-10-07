@@ -81,6 +81,7 @@ class MediaDetailController(QObject):
                 self.window.store.path, self, size=QSize(240, 360), cache_suffix=".posters"
             )
         dialog = MediaDetailDialog(channel, self.posters, self.window)
+        dialog.set_progress_lookup(lambda cid: self.window.model.progress.get(cid))
         self.dialog = dialog
         dialog.play_requested.connect(self._play)
         dialog.favorite_requested.connect(self._favorite)
@@ -137,7 +138,11 @@ class MediaDetailController(QObject):
         episodes = details.episodes
         if episodes:
             episodes = self.window.store.upsert_channels(source["id"], episodes)
-            self.window.model.reset(self.window.store.channels(), self.window.store.favorites())
+            self.window.model.reset(
+                self.window.store.channels(),
+                self.window.store.favorites(),
+                self.window.model.progress,
+            )
             self.window.filter_changed()
         self.dialog.set_details(
             MediaDetails(

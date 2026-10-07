@@ -201,3 +201,11 @@ QLabel#poster {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {RAI
 QToolTip {{ color: {TEXT}; background: {RAISED}; padding: 6px 9px; border: 1px solid {LINE};
     border-radius: 8px; }}
 """
+
+STYLE += f"""
+QTabBar#seasonTabs::tab {{ border-radius: 8px; margin-right: 4px; }}
+QTabBar#seasonTabs::tab:selected {{ background: {ACCENT_TINT}; color: {ACCENT_STRONG}; }}
+QTabBar#seasonTabs::tab:hover {{ background: {RAISED}; }}
+QTabBar#seasonTabs::tab:focus {{ border-color: {ACCENT}; }}
+QListView#episodeList {{ background: {SURFACE}; padding: 0; }}
+"""

@@ -99,3 +99,6 @@ def pixmap(name, color, size, ratio=1.0):
     painter.end()
     image.setDevicePixelRatio(ratio)
     return image
+
+
+ICONS["check"] = '<path d="m5 12 4.5 4.5L19 7"/>'
