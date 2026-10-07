@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import math
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -372,7 +373,6 @@ class MainWindow(QMainWindow):
 
     def set_section(self, section):
         self.proxy.section = section
-        self.channel_list.set_poster_mode(section in ("movie", "series"))
         self.history_clear_button.setVisible(section == "recent")
         for key, b in self.nav_buttons.items():
             b.setChecked(key == section)
@@ -396,26 +396,62 @@ class MainWindow(QMainWindow):
         self.filter_changed()
 
     def refresh_categories(self):
+        current = self.category.currentData() or ""
         self.category.blockSignals(True)
         self.category.clear()
         self.category.addItem("Tüm kategoriler", "")
-        groups = {
+        counts = Counter(
             c.group
             for c in self.model.channels
             if c.group
             and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
             and (self.proxy.section in ("favorites", "recent") or c.kind == self.proxy.section)
-        }
-        for group in sorted(groups, key=str.casefold):
+            and not (c.series_id and c.kind == "movie")
+        )
+        for group in sorted(counts, key=str.casefold):
             self.category.addItem(group, group)
+        index = self.category.findData(current)
+        self.category.setCurrentIndex(index if index >= 0 else 0)
         self.category.blockSignals(False)
+        self.category_bar.set_items(
+            [(group, group, count) for group, count in counts.items()],
+            self.category.currentData() or "",
+        )
+
+    def choose_category(self, group):
+        index = self.category.findData(group)
+        self.category.setCurrentIndex(index if index >= 0 else 0)
+        self.category_bar.set_current(self.category.currentData() or "")
+
+    def choose_search_kind(self, kind):
+        self.proxy.kind = kind
+        self.filter_changed()
 
     def filter_changed(self, *_):
         self.proxy.query = self.search.text().casefold().strip()
         self.proxy.group = self.category.currentData() or ""
+        searching = bool(self.proxy.query)
+        if not searching:
+            self.proxy.kind = ""
         self.proxy.refresh()
         count = self.proxy.rowCount()
-        self.count_label.setText(f"{count:,} yayın".replace(",", "."))
+        if searching:
+            counts = self.proxy.search_counts()
+            self.kind_bar.set_items(
+                [
+                    ("live", "Canlı", counts["live"]),
+                    ("movie", "Film", counts["movie"]),
+                    ("series", "Dizi", counts["series"]),
+                ],
+                self.proxy.kind,
+            )
+            self.count_label.setText(f"{count:,} sonuç".replace(",", "."))
+        else:
+            self.count_label.setText(f"{count:,} yayın".replace(",", "."))
+        self.category_bar.setVisible(not searching)
+        self.kind_bar.setVisible(searching)
+        kind = self.proxy.kind if searching else self.proxy.section
+        self.channel_list.set_poster_mode(kind in ("movie", "series"))
         self.no_results.setVisible(count == 0)
         self.channel_list.setVisible(count > 0)
         self.no_results.setText(

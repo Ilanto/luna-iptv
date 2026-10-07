@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, icons, theme
+from .chips import ChipBar
 from .dialogs import text_label
 from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
@@ -171,13 +172,20 @@ def build_window(w):
     w.source_combo.setMinimumWidth(160)
     w.source_combo.currentIndexChanged.connect(w.source_changed)
     row.addWidget(w.source_combo)
+    # The combo keeps the chosen category; the chips are how people pick it.
     w.category = QComboBox()
     w.category.setAccessibleName("Kategori")
-    w.category.setMinimumWidth(180)
     w.category.addItem("Tüm kategoriler", "")
+    w.category.hide()
     row.addWidget(w.category)
     w.category.currentIndexChanged.connect(w.filter_changed)
-    row.addStretch()
+    w.category_bar = ChipBar(more_label="Tüm kategoriler")
+    w.category_bar.chosen.connect(w.choose_category)
+    row.addWidget(w.category_bar, 1)
+    w.kind_bar = ChipBar(limit=3, show_counts=True)
+    w.kind_bar.chosen.connect(w.choose_search_kind)
+    w.kind_bar.hide()
+    row.addWidget(w.kind_bar, 1)
     lib.addLayout(row)
     w.channel_list = CardGrid()
     w.channel_list.setObjectName("channels")

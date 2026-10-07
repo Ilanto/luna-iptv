@@ -94,6 +94,9 @@ class ChannelFilter(QSortFilterProxyModel):
         self._query_key = ""
         self.group = ""
         self.source = ""
+        # While a query is typed the live, film and series sections are all searched
+        # (favorites and history stay scoped to their own list); kind narrows results.
+        self.kind = ""
         self.recent = {}
 
     def set_recent_ids(self, channel_ids):
@@ -108,10 +111,37 @@ class ChannelFilter(QSortFilterProxyModel):
             )
         return left.row() < right.row()
 
+    def _in_personal_list(self, channel):
+        if self.section == "favorites":
+            return channel.id in self.sourceModel().favorites
+        if self.section == "recent":
+            return channel.id in self.recent
+        return True
+
+    @property
+    def searching(self):
+        return bool(self._query_key)
+
     def filterAcceptsRow(self, row, parent):
         channel = self.sourceModel().channels[row]
         if self.source and not channel.id.startswith(self.source + ":"):
             return False
+        if self._query_key:
+            if not self._in_personal_list(channel):
+                return False
+            if (
+                channel.series_id
+                and channel.kind == "movie"
+                and self.section
+                not in (
+                    "favorites",
+                    "recent",
+                )
+            ):
+                return False  # episodes are reached through their series
+            if self.kind and channel.kind != self.kind:
+                return False
+            return self._query_key in self.sourceModel().search_keys[row]
         if self.section == "favorites":
             if channel.id not in self.sourceModel().favorites:
                 return False
@@ -123,6 +153,24 @@ class ChannelFilter(QSortFilterProxyModel):
         if self.group and channel.group != self.group:
             return False
         return not self._query_key or self._query_key in self.sourceModel().search_keys[row]
+
+    def search_counts(self):
+        """How many search results each kind has, ignoring the kind filter."""
+        counts = {"live": 0, "movie": 0, "series": 0}
+        model = self.sourceModel()
+        if not self._query_key:
+            return counts
+        for row, channel in enumerate(model.channels):
+            personal = self.section in ("favorites", "recent")
+            if (
+                channel.kind in counts
+                and (personal or not (channel.series_id and channel.kind == "movie"))
+                and (not self.source or channel.id.startswith(self.source + ":"))
+                and self._in_personal_list(channel)
+                and self._query_key in model.search_keys[row]
+            ):
+                counts[channel.kind] += 1
+        return counts
 
     def refresh(self):
         self._query_key = search_key(self.query)
