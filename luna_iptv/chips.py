@@ -20,8 +20,9 @@ class ChoicePopup(QFrame):
     """A searchable list of every choice; picking one closes it."""
 
     chosen = Signal(str)
+    edit_requested = Signal()
 
-    def __init__(self, items, current, parent=None):
+    def __init__(self, items, current, parent=None, *, editable=False):
         super().__init__(parent, Qt.Popup)
         self.setObjectName("chipPopup")
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -48,7 +49,16 @@ class ChoicePopup(QFrame):
         self.search.returnPressed.connect(self._pick_first_visible)
         self.list.itemActivated.connect(self._pick)
         self.list.itemClicked.connect(self._pick)
+        if editable:
+            self.edit_button = QPushButton("Kategorileri düzenle…")
+            self.edit_button.setObjectName("ghost")
+            self.edit_button.clicked.connect(self._edit)
+            layout.addWidget(self.edit_button)
         self.resize(320, 380)
+
+    def _edit(self):
+        self.close()
+        self.edit_requested.emit()
 
     def _filter(self, text):
         key = search_key(text)
@@ -86,6 +96,7 @@ class ChipBar(QWidget):
     """
 
     chosen = Signal(str)
+    edit_requested = Signal()
 
     def __init__(
         self,
@@ -96,6 +107,7 @@ class ChipBar(QWidget):
         parent=None,
         *,
         sort_by_count=True,
+        editable=False,
     ):
         super().__init__(parent)
         self.all_label = all_label
@@ -113,6 +125,15 @@ class ChipBar(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(6)
         self.more_button = None
+        self.edit_button = None
+        if editable:
+            self.edit_button = QPushButton("Düzenle", self)
+            self.edit_button.setObjectName("chipMore")
+            self.edit_button.setAccessibleName("Kategorileri düzenle")
+            self.edit_button.setCursor(Qt.PointingHandCursor)
+            self.edit_button.setFixedHeight(30)
+            self.edit_button.setMinimumWidth(self.edit_button.sizeHint().width())
+            self.edit_button.clicked.connect(self.edit_requested)
         self._overflow = False
         # Chips never shrink below their text; what does not fit goes behind "more".
         self.setMinimumWidth(1)
@@ -150,7 +171,10 @@ class ChipBar(QWidget):
         self._buttons = {}
         while self._layout.count():
             item = self._layout.takeAt(0)
-            if item.widget() is not None and item.widget() is not self.more_button:
+            if item.widget() is not None and item.widget() not in (
+                self.more_button,
+                self.edit_button,
+            ):
                 item.widget().deleteLater()
         if total is None:
             total = sum(count for _, _, count in self._items)
@@ -177,6 +201,8 @@ class ChipBar(QWidget):
                 self.more_button.setMinimumWidth(self.more_button.sizeHint().width())
             self._layout.addWidget(self.more_button)
         self._layout.addStretch()
+        if self.edit_button is not None:
+            self._layout.addWidget(self.edit_button)
         button = self._buttons.get(current) or self._buttons[""]
         button.setChecked(True)
         self._fit()
@@ -190,6 +216,8 @@ class ChipBar(QWidget):
         chosen = self._buttons.get(self._current) if self._current else None
         room = self.width() - self._buttons[""].minimumWidth()
         room -= self.more_button.minimumWidth() + spacing * 2
+        if self.edit_button is not None and not self.edit_button.isHidden():
+            room -= self.edit_button.minimumWidth() + spacing
         if chosen is not None:
             room -= chosen.minimumWidth() + spacing
         hidden = False
@@ -212,8 +240,15 @@ class ChipBar(QWidget):
         self.set_items(self._items, value, total=self._total)
 
     def open_popup(self):
-        popup = ChoicePopup(sorted(self._items, key=lambda i: i[1].casefold()), self._current, self)
+        items = (
+            sorted(self._items, key=lambda i: i[1].casefold())
+            if self.sort_by_count
+            else self._items
+        )
+        editable = self.edit_button is not None and not self.edit_button.isHidden()
+        popup = ChoicePopup(items, self._current, self, editable=editable)
         popup.chosen.connect(self.chosen)
+        popup.edit_requested.connect(self.edit_requested)
         anchor = self.more_button or self
         popup.move(anchor.mapToGlobal(anchor.rect().bottomLeft()))
         popup.show()

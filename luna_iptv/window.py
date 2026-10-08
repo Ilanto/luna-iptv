@@ -23,14 +23,15 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from . import __version__
+from . import __version__, theme
 from .accounts import sanitize_profile
+from .category_editor import CategoryEditor
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
 from .layout import build_window
-from .library import ChannelFilter, ChannelModel, resumable
+from .library import ChannelFilter, ChannelModel, ordered_channels, resumable
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
@@ -381,7 +382,11 @@ class MainWindow(QMainWindow):
         self.source_combo.setCurrentIndex(max(index, 0))
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
-        self.model.reset(self.store.channels(), self.store.favorites(), self.store.progress_map())
+        self.model.reset(
+            ordered_channels(self.store.channels(), self.store.category_prefs()),
+            self.store.favorites(),
+            self.store.progress_map(),
+        )
         if self.store.pin_hash():
             self.store.lock_adult_groups()  # new adult categories from this catalogue
         self.apply_locks(filter_now=False)
@@ -452,30 +457,65 @@ class MainWindow(QMainWindow):
         self.filter_changed()
 
     def refresh_categories(self):
+        self.proxy.set_category_prefs(self.store.category_prefs())
         current = self.category.currentData() or ""
         self.category.blockSignals(True)
         self.category.clear()
         self.category.addItem("Tüm kategoriler", "")
         hidden = self.model.locked if self.proxy.hide_locked else frozenset()
-        counts = Counter(
-            c.group
-            for c in self.model.channels
-            if c.group
-            and c.id not in hidden
-            and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
-            and (self.proxy.section in ("favorites", "recent") or c.kind == self.proxy.section)
-            and not (c.series_id and c.kind == "movie")
+        counts = Counter()
+        positions = {}
+        hidden_groups = set()
+        personal = self.proxy.section in ("favorites", "recent")
+        for c in self.model.channels:
+            if (
+                c.id in hidden
+                or (self.proxy.source and not c.id.startswith(self.proxy.source + ":"))
+                or (not personal and c.kind != self.proxy.section)
+                or (c.series_id and c.kind == "movie")
+            ):
+                continue
+            key = self.proxy.category_key(c)
+            if not personal and self.proxy.category_hidden(c):
+                hidden_groups.add(key)
+                continue
+            if not c.group:
+                continue
+            counts[c.group] += 1
+            position = self.proxy.category_positions.get(key) if not personal else None
+            if position is not None:
+                positions[c.group] = min(positions.get(c.group, position), position)
+        groups = sorted(
+            counts,
+            key=lambda g: (g not in positions, positions.get(g, 0), -counts[g], g.casefold()),
         )
-        for group in sorted(counts, key=str.casefold):
+        for group in groups:
             self.category.addItem(group, group)
         index = self.category.findData(current)
         self.category.setCurrentIndex(index if index >= 0 else 0)
         self.category.blockSignals(False)
+        self.category_bar.edit_button.setVisible(not personal)
         self.category_bar.set_items(
-            [(group, group, count) for group, count in counts.items()],
+            [(group, group, counts[group]) for group in groups],
             self.category.currentData() or "",
         )
+        self.category_bar.edit_button.setEnabled(bool(self.store.sources()))
+        self._hidden_category_count = len(hidden_groups)
+        self.hidden_categories_label.setText(
+            f'{len(hidden_groups)} kategori gizli · <a href="edit" style="color: {theme.ACCENT};'
+            f' text-decoration: none;">Düzenle</a>'
+        )
         self.refresh_folders()
+
+    def edit_categories(self, *_):
+        if self.proxy.section not in ("live", "movie", "series"):
+            return
+        if not self.guard("Kategori düzenini değiştirmek için PIN gir."):
+            return
+        dialog = CategoryEditor(self.store, self.proxy.source, self.proxy.section, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.refresh_library()  # reorders from the catalogue, so a reset restores it
+        dialog.deleteLater()
 
     def refresh_folders(self):
         folders = self.store.folders()
@@ -669,6 +709,11 @@ class MainWindow(QMainWindow):
         else:
             self.count_label.setText(f"{count:,} yayın".replace(",", "."))
         self.category_bar.setVisible(not searching and not favorites)
+        self.hidden_categories_label.setVisible(
+            bool(self._hidden_category_count)
+            and not searching
+            and self.proxy.section in ("live", "movie", "series")
+        )
         self.folder_row.setVisible(favorites)
         self.kind_bar.setVisible(searching)
         kind = self.proxy.kind if searching else self.proxy.section
@@ -1317,6 +1362,7 @@ class MainWindow(QMainWindow):
             c
             for c in self.model.channels
             if c.kind == "live"
+            and not self.proxy.category_hidden(c)
             and (not source or c.id.startswith(source + ":"))
             and not (self.proxy.hide_locked and c.id in self.model.locked)
         ]

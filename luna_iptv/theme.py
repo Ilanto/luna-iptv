@@ -107,6 +107,15 @@ QPushButton#danger:hover {{ border-color: {DANGER}; }}
 QTreeWidget#lockTree {{ background: {DUSK}; border: 1px solid {LINE_SOFT}; border-radius: 12px;
     padding: 6px; }}
 QTreeWidget#lockTree::item {{ padding: 4px 2px; }}
+QListWidget#categoryList {{ background: {DUSK}; border: 1px solid {LINE_SOFT};
+    border-radius: 12px; padding: 6px; }}
+QListWidget#categoryList::item {{ padding: 5px 4px; border-radius: 8px; }}
+QListWidget#categoryList::item:selected {{ background: {ACCENT_TINT}; color: {TEXT}; }}
+QListWidget#categoryList::indicator {{ width: 16px; height: 16px; }}
+QListWidget#categoryList::indicator:unchecked {{ border: 1px solid {LINE}; border-radius: 5px;
+    background: {RAISED}; }}
+QListWidget#categoryList::indicator:checked {{ border: 1px solid {ACCENT}; border-radius: 5px;
+    background: {ACCENT}; }}
 QTreeWidget#lockTree::indicator {{ width: 16px; height: 16px; }}
 QTreeWidget#lockTree::indicator:unchecked {{ border: 1px solid {LINE}; border-radius: 5px;
     background: {RAISED}; }}
