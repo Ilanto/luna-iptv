@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .card_motion import CardView
 from .dialogs import text_label
 from .home_hero import HomeHero
 from .library import (
@@ -67,7 +68,7 @@ class IdListModel(QSortFilterProxyModel):
         return self.order[channels[left.row()].id] < self.order[channels[right.row()].id]
 
 
-class CardStrip(QListView):
+class CardStrip(CardView):
     """One unwrapped row; the wheel moves horizontally and Tab leaves the row."""
 
     def __init__(self, poster_mode, parent=None):

@@ -293,7 +293,23 @@ class MainWindow(QMainWindow):
         if source_incomplete(source):
             self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
             return
+        if self._busy:
+            return
         source = dict(source)
+        self.channel_list.set_loading(True)
+        self.filter_changed()
+
+        def done(result):
+            try:
+                self.accept_import(source, result)
+            finally:
+                self.channel_list.set_loading(False)
+                self.filter_changed()
+
+        def failed(error):
+            self.channel_list.set_loading(False)
+            self.filter_changed()
+            self.status(error, lambda: self.import_source(source))
 
         def load():
             if source["type"] == "xtream":
@@ -335,9 +351,10 @@ class MainWindow(QMainWindow):
 
         self.run_task(
             load,
-            lambda result: self.accept_import(source, result),
+            done,
             "Kaynak okunuyor…",
             lambda: self.import_source(source),
+            failure=failed,
         )
 
     def accept_import(self, source, playlist):
@@ -749,8 +766,9 @@ class MainWindow(QMainWindow):
         self.kind_bar.setVisible(searching)
         kind = self.proxy.kind if searching else self.proxy.section
         self.channel_list.set_poster_mode(kind in ("movie", "series"))
-        self.no_results.setVisible(count == 0)
-        self.channel_list.setVisible(count > 0)
+        loading = self.channel_list.loading
+        self.no_results.setVisible(count == 0 and not loading)
+        self.channel_list.setVisible(count > 0 or loading)
         self.no_results.setText(
             "Aramana uygun yayın yok.\nFiltreleri değiştirebilirsin."
             if self.model.channels
@@ -2337,6 +2355,7 @@ class MainWindow(QMainWindow):
         self.watch_panel.animation.stop()
         self.page_transition.finish()
         self.toast.dismiss(immediate=True)
+        self.channel_list.set_loading(False)
         self.idle_inhibit.close()
         self.mpris.close()
         self.reminder_service.close()
