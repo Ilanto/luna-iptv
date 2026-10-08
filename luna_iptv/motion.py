@@ -58,6 +58,20 @@ def set_motion_level(level):
         _motion_signals.changed.emit()
 
 
+def motion_level():
+    """The shared motion policy: "full", "reduced" or "off"."""
+    return _motion_level
+
+
+def animation_ms(full, reduced=0):
+    """How long an interface animation lasts under the motion policy (0 = jump)."""
+    return {"full": full, "reduced": reduced}.get(_motion_level, 0)
+
+
+def on_motion_changed(callback):
+    _motion_signals.changed.connect(callback)
+
+
 def blend(a, b, t):
     a, b = QColor(a), QColor(b)
     return QColor(
