@@ -12,6 +12,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
+from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import (
     QBuffer,
@@ -28,6 +29,9 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QImageReader, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+from PySide6.QtWidgets import QListView
+
+from .library import LOCKED_ROLE
 
 
 class _DiskCache:
@@ -176,6 +180,7 @@ class LogoCache(QObject):
         self._success_ttl, self._negative_ttl = success_ttl, negative_ttl
         self._memory = OrderedDict()
         self._queue = OrderedDict()
+        self._view_urls = WeakKeyDictionary()
         # Explicit requests (a detail card's poster) outlive visible-row churn.
         self._pinned = OrderedDict()
         self._jobs = {}
@@ -226,11 +231,20 @@ class LogoCache(QObject):
         if self._pinned.pop(url, None) is not None or url in self._queue:
             self._queue.pop(url, None)
 
-    def request_visible(self, urls):
+    def request_visible(self, urls, *, owner=None):
         """Replace obsolete queued rows; running work remains bounded to four jobs.
 
-        Explicitly requested URLs that are still pending keep their place first.
+        Explicit requests stay first; independent strips retain their visible requests.
         """
+        if self._closed:
+            return
+        if owner is not None:
+            if urls:
+                self._view_urls[owner] = tuple(urls)
+            else:
+                self._view_urls.pop(owner, None)
+            urls = []
+        urls = list(urls) + [url for visible in self._view_urls.values() for url in visible]
         self._queue.clear()
         for url in list(self._pinned):
             if self._cached(url):
@@ -398,6 +412,7 @@ class LogoCache(QObject):
         self._closed = True
         self._poll.stop()
         self._queue.clear()
+        self._view_urls.clear()
         self._pinned.clear()
         for job in self._jobs.values():
             if job["timer"] is not None:
@@ -453,17 +468,21 @@ class LogoViewportController(QObject):
             return
         view = self._view
         urls, poster_urls = [], []
-        if view.isVisible():
+        visible = view.viewport().visibleRegion().boundingRect()
+        if view.isVisible() and not visible.isEmpty():
             # Uniform rows or grid cells: indexAt finds the first visible item in O(1),
             # then visit only visible rectangles rather than a potentially huge catalogue.
             # Probe inside a card, not the gap between cards, so a scrolled grid never
             # falls back to scanning from the first row.
             cell = view.gridSize()
+            horizontal = not view.isWrapping() and view.flow() == QListView.LeftToRight
             probes = (
                 [QPoint(cell.width() // 2, y) for y in (0, cell.height() // 2, cell.height() - 1)]
                 if cell.isValid()
                 else [QPoint(4, 0)]
             )
+            if horizontal:
+                probes.insert(0, QPoint(visible.left(), visible.center().y()))
             index = next(
                 (found for point in probes if (found := view.indexAt(point)).isValid()), None
             )
@@ -472,18 +491,18 @@ class LogoViewportController(QObject):
             while row < model.rowCount():
                 index = model.index(row, 0)
                 rect = view.visualRect(index)
-                if rect.top() >= view.viewport().height():
+                if rect.top() > visible.bottom() or (horizontal and rect.left() > visible.right()):
                     break
-                if rect.bottom() >= 0:
+                if rect.intersects(visible) and not index.data(LOCKED_ROLE):
                     channel = index.data(Qt.UserRole)
                     if channel and channel.logo:
                         poster = self._posters is not None and channel.kind in ("movie", "series")
                         (poster_urls if poster else urls).append(channel.logo)
                 row += 1
         self._visible = set(urls) | set(poster_urls)
-        self._cache.request_visible(urls)
+        self._cache.request_visible(urls, owner=self)
         if self._posters is not None:
-            self._posters.request_visible(poster_urls)
+            self._posters.request_visible(poster_urls, owner=self)
 
     def _ready(self, url):
         if not self._closed and url in self._visible and self._view.isVisible():
@@ -493,3 +512,6 @@ class LogoViewportController(QObject):
         self._closed = True
         self._visible.clear()
         self._timer.stop()
+        self._cache.request_visible([], owner=self)
+        if self._posters is not None:
+            self._posters.request_visible([], owner=self)

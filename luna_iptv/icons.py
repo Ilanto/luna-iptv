@@ -10,6 +10,7 @@ from PySide6.QtSvg import QSvgRenderer
 FILL = 'fill="{c}" stroke="none"'
 
 ICONS = {
+    "home": '<path d="m3 10 9-7 9 7M5 9v11h5v-6h4v6h5V9"/>',
     "live": '<rect x="2.5" y="7" width="19" height="13.5" rx="3"/><path d="M8 2.5 12 7l4-4.5"/>'
     '<circle cx="17.5" cy="11" r="1.2" ' + FILL + "/>",
     "movie": '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7.5 3v18M16.5 3v18'

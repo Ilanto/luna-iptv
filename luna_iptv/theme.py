@@ -185,6 +185,8 @@ QPushButton#rate {{ background: transparent; border: 1px solid {LINE}; border-ra
     padding: 4px 10px; color: {TEXT_SOFT}; font-size: 9px; font-weight: 600; }}
 QPushButton#rate:hover {{ border-color: {ACCENT}; color: {TEXT}; }}
 
+QPushButton#homeScroll {{ border-radius: 15px; padding: 0; font-size: 22px; }}
+
 QListView {{ background: transparent; border: none; outline: none; }}
 QListView::item {{ border-radius: 12px; }}
 QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}

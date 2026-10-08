@@ -62,6 +62,7 @@ def test_rare_category_is_picked_from_the_list_and_joins_the_chips(window, qt_ap
 
 
 def test_search_reaches_every_section_and_kind_chips_narrow_it(window):
+    window.set_section("live")  # Browse is no longer the startup page.
     window.category_bar.buttons()["Spor"].click()
     window.search.setText("ay")
     assert visible_ids(window) == {"home:rare", "home:film", "home:show"}  # no episodes
