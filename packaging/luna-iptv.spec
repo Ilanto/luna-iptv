@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.16.0
+Version:        0.17.0
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,10 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Thu Oct 08 2026 Luna IPTV contributors - 0.17.0-1
+- Ana sayfa: continue watching, favourite channels on air, recent channels.
+- Sleep timer, next-episode countdown and channel numbers from the keyboard.
+
 * Thu Oct 08 2026 Luna IPTV contributors - 0.16.0-1
 - Profiles with their own favorites, folders, history and reminders.
 - Parental PIN for locked categories and channels, settings, sources and backups.

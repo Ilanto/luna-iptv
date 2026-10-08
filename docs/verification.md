@@ -68,3 +68,10 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - Çocuk profilinde kilitli içerik listede, aramada ve rehberde görünmez; kanal değiştirme kilitlileri atlar; bölümler dizi kartı PIN'le açıldıktan sonra yeniden sormaz.
 - Kategori düğmelerinin `main`'de de sıkışıp kırpıldığı (ör. "3elgese") offscreen görüntüde fark edildi; sığmayan düğmeler artık listeye geçer.
 - `scripts/test-quiet.sh`: **760 geçti**, 5 atlandı (Codex incelemesi düzeltmeleriyle). Görsel kontrol (offscreen): ana pencere (kilit rozetleri, profil simgesi), "Kim izliyor?", PIN, ebeveyn denetimi, profil düzenleyici.
+
+# Luna IPTV 0.17.0 · ana sayfa ve izleme kolaylıkları
+
+- Ana sayfa Codex'e (gpt-6-astra) ayrı worktree'de, uyku zamanlayıcısı / sonraki bölüm / kanal numarası ile aynı anda yazdırıldı; birleştirme çakışmasızdı. İncelemede: şeritler kimlik listesi değişmedikçe yenilenmez (oynatma sırasında ilerleme kaydı kaydırmayı sıfırlamaz), kapak resimleri her şerit için ayrı görünür alanla istenir.
+- Testler: ana sayfa şeritleri ve sıraları, selam saatleri, çocuk profili, kart açma yolları; bölüm sonu geri sayımı, durdurma/iptalde başlamaması, otomatik oynatma kapalıyken öneri, "bitince dur" zamanlayıcısının sonraki bölümü de engellemesi, uyku sonunda durma, rakamla kanal açma.
+- GitHub Actions bu sürümle başladı: sessiz testler Ubuntu'da; pencere/video testleri ilk denemede ffmpeg yokluğundan atlandı, sonra Ubuntu'nun libmpv 0.37'sinde `loadfile` dizin argümanı olmadığından oynatma başlamadı; openSUSE Tumbleweed konteynerine taşındı.
+- `scripts/test-quiet.sh`: **795 geçti**, 5 atlandı. Görsel kontrol (offscreen): ana sayfa, sonraki bölüm bandı ve uyku düğmesi.

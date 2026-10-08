@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.16.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.17.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,13 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.17.0 · ana sayfa ve izleme kolaylıkları
+
+- **Ana sayfa** (menünün başında, açılışta gelir): saate göre selam ve profil adı; "Kaldığın yerden devam et" (yarım kalan film ve bölümler, altın ilerleme çizgisiyle), "Favorilerinde şu an" (favori kanallarda o an yayındaki program), "Son izlenen kanallar" ve "Favori filmler ve diziler" şeritleri. Boş şeritler görünmez; çocuk profilinde kilitli içerik yer almaz.
+- **Uyku zamanlayıcısı** (oynatıcıdaki ay düğmesi): 15–120 dakika ya da "bu program / film / bölüm bitince"; uzatılabilir, kalan süre düğmenin yanında.
+- **Sonraki bölüm:** bölüm bitince 10 saniyelik geri sayımla sonraki bölüm başlar ("Şimdi oynat" / "İptal"). Ayarlar'dan kapatılırsa yalnız önerilir.
+- **Kanal numarası:** klavyeden rakam yazınca seçili kaynağın canlı listesindeki o sıradaki kanal açılır ("12 · Kanal adı").
 
 ### 0.16.0 · profiller ve ebeveyn denetimi
 
