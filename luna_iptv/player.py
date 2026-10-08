@@ -145,6 +145,15 @@ class Player(QObject):
                 # playlist-entry ID has not arrived yet.
                 snapshot = [dict(track) for track in tracks if isinstance(track, dict)]
                 self._dispatch_entry_event(entry_id, "property", "track-list", snapshot)
+            # mpv reports only changes: replaying the same file may never resend these,
+            # and the transport forgot them when the load began.
+            for name in ("duration", "seekable", "partially-seekable"):
+                try:
+                    value = getattr(self._mpv, name.replace("-", "_"))
+                except (AttributeError, ValueError, RuntimeError, OSError):
+                    continue
+                if value is not None:
+                    self.property_changed.emit(name, value)
             self._dispatch_entry_event(entry_id, "loaded")
 
     def _on_end(self, event):
