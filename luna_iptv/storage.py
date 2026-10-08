@@ -116,6 +116,16 @@ class Store:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY,
+                channel_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                start INTEGER NOT NULL,
+                end INTEGER NOT NULL,
+                notified INTEGER NOT NULL DEFAULT 0,
+                lead_minutes REAL NOT NULL DEFAULT 5,
+                UNIQUE(channel_id, start)
+            );
             """
         )
         progress_columns = {
@@ -800,3 +810,37 @@ class Store:
 
     def close(self) -> None:
         self._db.close()
+
+    def add_reminder(
+        self, channel_id: str, title: str, start: int, end: int, lead_minutes: float = 5
+    ) -> int:
+        """Keep duplicate programmes idempotent, including their notification state."""
+        with self._db:
+            self._db.execute(
+                """INSERT INTO reminders(channel_id,title,start,end,lead_minutes)
+                VALUES(?,?,?,?,?) ON CONFLICT(channel_id,start) DO NOTHING""",
+                (channel_id, title, start, end, float(lead_minutes)),
+            )
+            return self._db.execute(
+                "SELECT id FROM reminders WHERE channel_id=? AND start=?", (channel_id, start)
+            ).fetchone()[0]
+
+    def remove_reminder(self, reminder_id: int) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
+
+    def reminders(self) -> list[dict[str, Any]]:
+        columns = ("id", "channel_id", "title", "start", "end", "notified", "lead_minutes")
+        rows = self._db.execute(
+            "SELECT id,channel_id,title,start,end,notified,lead_minutes FROM reminders "
+            "ORDER BY start,id"
+        )
+        return [dict(zip(columns, row, strict=True)) for row in rows]
+
+    def mark_reminder_notified(self, reminder_id: int) -> None:
+        with self._db:
+            self._db.execute("UPDATE reminders SET notified=1 WHERE id=?", (reminder_id,))
+
+    def drop_expired_reminders(self, now: float) -> int:
+        with self._db:
+            return self._db.execute("DELETE FROM reminders WHERE end<=?", (now,)).rowcount
