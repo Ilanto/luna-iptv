@@ -168,7 +168,9 @@ class PageTransition(QObject):
 
     def finish(self):
         self.animation.stop()
-        self.animation.clear()
+        # clear() makes Qt index animations it is deleting; take them out one by one.
+        while self.animation.animationCount():
+            self.animation.takeAnimation(0).deleteLater()
         for widget in (self.overlay, self.incoming):
             if widget is not None:
                 widget.hide()

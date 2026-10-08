@@ -135,7 +135,8 @@ class Toast(QWidget):
         padding = 52 + (30 if not self.icon.isHidden() else 0)
         metrics = self.label.fontMetrics()
         plain = " ".join(self.text.split())
-        width = min(available, max(90, metrics.horizontalAdvance(plain) + padding))
+        # A little slack: style sheets can render a hair wider than the metrics say.
+        width = min(available, max(90, metrics.horizontalAdvance(plain) + padding + 12))
         text_width = max(1, width - padding)
         layout = QTextLayout(plain, self.label.font())
         option = QTextOption()
@@ -173,7 +174,9 @@ class Toast(QWidget):
 
     def _clear_animation(self):
         self.animation.stop()
-        self.animation.clear()
+        # clear() makes Qt index animations it is deleting; take them out one by one.
+        while self.animation.animationCount():
+            self.animation.takeAnimation(0).deleteLater()
         if self._replacement is not None:
             self._replacement.hide()
             self._replacement.deleteLater()
