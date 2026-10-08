@@ -115,3 +115,19 @@ def test_programme_card_offers_reminders_only_for_future_programmes(qt_app):
     live.watch.connect(watched.append)
     live.watch_button.click()
     assert watched == [channel]
+
+
+def test_reminder_set_from_the_guide_marks_the_programme(window):
+    later = programme("nova", "Gece Belgeseli", NOW + timedelta(hours=3))
+    window._guide_index["home"] = GuideIndex([later])
+    window.set_section("guide")
+    channel = window.guide_view.grid.rows[0][0]
+    card = window.guide_view.open_programme(channel, later)
+    assert card.remind_button is not None and card.remind_button.isEnabled()
+    card.remind_button.click()
+    assert window.reminder_service.reminders()[0]["title"] == "Gece Belgeseli"
+    assert (channel.id, int(later.start.timestamp())) in window.guide_view.grid.reminded
+    again = window.guide_view.open_programme(channel, later)
+    assert not again.remind_button.isEnabled()
+    assert again.remind_button.text() == "Hatırlatıcı kurulu"
+    again.close()

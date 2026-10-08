@@ -32,6 +32,11 @@ PX_PER_MINUTE = 5
 DAY_MINUTES = 24 * 60
 
 
+def reminded_key(channel, programme):
+    """How reminders identify a programme: the channel and its start in Unix seconds."""
+    return channel.id, int(programme.start.timestamp())
+
+
 def local_day(day):
     """UTC bounds of a local calendar day."""
     start = datetime.combine(day, time.min).astimezone()
@@ -51,7 +56,7 @@ class GuideGrid(QAbstractScrollArea):
         self.rows = []  # (channel, GuideIndex)
         self.day_start, self.day_end = local_day(datetime.now().date())
         self.matches = set()  # id(programme) of search hits
-        self.reminded = set()  # (channel_id, start) with a reminder
+        self.reminded = set()  # (channel_id, start timestamp) with a reminder
         self._hover = None
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -278,7 +283,7 @@ class GuideGrid(QAbstractScrollArea):
         if rect.width() < 28:
             return
         text = rect.adjusted(12, 6, -12, -10)
-        if (channel.id, programme.start) in self.reminded:
+        if reminded_key(channel, programme) in self.reminded:
             painter.setPen(QColor(theme.GOLD))
             font.setPointSize(9)
             painter.setFont(font)
@@ -566,7 +571,7 @@ class GuideView(QWidget):
             channel,
             programme,
             can_remind=self.can_remind,
-            reminded=(channel.id, programme.start) in self.grid.reminded,
+            reminded=reminded_key(channel, programme) in self.grid.reminded,
             parent=self,
         )
         card.watch.connect(self.watch_channel)

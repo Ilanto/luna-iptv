@@ -155,10 +155,10 @@ class MainWindow(QMainWindow):
         self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.mini_player = MiniPlayerController(self)
-        self.reminders = None  # ReminderService, when available
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
         self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
+        self.reminder_service.changed.connect(self._reminders_changed)
         self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
@@ -589,20 +589,9 @@ class MainWindow(QMainWindow):
             if index is not None and channel.tvg_id in index.channel_ids():
                 rows.append((channel, index))
                 seen.add(channel.id)
-        self.guide_view.can_remind = self.reminders is not None
-        reminded = (
-            {(r.channel_id, r.start) for r in self.reminders.reminders()} if self.reminders else ()
-        )
+        self.guide_view.can_remind = True
+        reminded = {(r["channel_id"], r["start"]) for r in self.reminder_service.reminders()}
         self.guide_view.set_rows(rows, reminded)
-
-    def remind_programme(self, channel, programme):
-        """Reminders arrive with the reminder service; until then the guide offers none."""
-        if self.reminders is not None:
-            self.reminders.add(channel, programme)
-            self.refresh_guide_view()
-
-    def open_reminders(self):
-        pass
 
     def choose_category(self, group):
         index = self.category.findData(group)
@@ -1696,6 +1685,10 @@ class MainWindow(QMainWindow):
                 f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}"
             )
         return reminder_id
+
+    def _reminders_changed(self):
+        if self.library_pages.currentWidget() is self.guide_view:
+            self.refresh_guide_view()
 
     def cancel_reminder(self, reminder_id):
         self.reminder_service.remove(reminder_id)
