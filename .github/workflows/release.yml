@@ -1,0 +1,50 @@
+name: Sürüm
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  rpm:
+    name: RPM paketi ve GitHub sürümü
+    runs-on: ubuntu-24.04
+    container: opensuse/tumbleweed
+    steps:
+      - name: Paketleme araçları
+        run: zypper --non-interactive install --no-recommends rpm-build python3 desktop-file-utils tar gzip git gh
+      - uses: actions/checkout@v4
+      - name: Etiket ve sürüm aynı mı
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v$version" = "$GITHUB_REF_NAME" || {
+            echo "Etiket $GITHUB_REF_NAME, pyproject.toml sürümü $version ile aynı değil." >&2
+            exit 1
+          }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: RPM oluştur
+        run: ./scripts/build-rpm.sh
+      - name: Sürüm notları
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          text = Path("README.md").read_text()
+          match = re.search(rf"^### {re.escape(version)} .*?$(.*?)(?=^### |\Z)", text, re.M | re.S)
+          notes = match.group(1).strip() if match else ""
+          install = f"sudo zypper install --allow-unsigned-rpm ./luna-iptv-{version}-1.noarch.rpm"
+          Path("notes.md").write_text(f"{notes}\n\n**Kurulum (openSUSE):**\n\n```\n{install}\n```\n")
+          PY
+      - name: GitHub sürümünü yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/luna-iptv-$VERSION-1.noarch.rpm" \
+            "dist/luna-iptv-$VERSION-1.src.rpm" \
+            "dist/luna-iptv-$VERSION.tar.gz" \
+            --title "Luna IPTV $VERSION" --notes-file notes.md
