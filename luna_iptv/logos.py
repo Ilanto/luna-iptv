@@ -20,6 +20,7 @@ from PySide6.QtCore import (
     QEvent,
     QIODevice,
     QObject,
+    QPersistentModelIndex,
     QPoint,
     QSize,
     Qt,
@@ -432,6 +433,7 @@ class LogoViewportController(QObject):
         self._view, self._cache, self._posters = view, cache, posters
         self._closed = False
         self._visible = set()
+        self._visible_indices = {}
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(35)
@@ -460,6 +462,7 @@ class LogoViewportController(QObject):
 
     def _changed(self, *_):
         self._visible.clear()
+        self._visible_indices.clear()
         if not self._closed:
             self._timer.start()
 
@@ -468,6 +471,7 @@ class LogoViewportController(QObject):
             return
         view = self._view
         urls, poster_urls = [], []
+        self._visible_indices.clear()
         visible = view.viewport().visibleRegion().boundingRect()
         if view.isVisible() and not visible.isEmpty():
             # Uniform rows or grid cells: indexAt finds the first visible item in O(1),
@@ -498,6 +502,9 @@ class LogoViewportController(QObject):
                     if channel and channel.logo:
                         poster = self._posters is not None and channel.kind in ("movie", "series")
                         (poster_urls if poster else urls).append(channel.logo)
+                        self._visible_indices.setdefault(channel.logo, []).append(
+                            QPersistentModelIndex(index)
+                        )
                 row += 1
         self._visible = set(urls) | set(poster_urls)
         self._cache.request_visible(urls, owner=self)
@@ -506,11 +513,14 @@ class LogoViewportController(QObject):
 
     def _ready(self, url):
         if not self._closed and url in self._visible and self._view.isVisible():
-            self._view.viewport().update()
+            for index in self._visible_indices.get(url, ()):
+                if index.isValid():
+                    self._view.viewport().update(self._view.visualRect(index))
 
     def close(self):
         self._closed = True
         self._visible.clear()
+        self._visible_indices.clear()
         self._timer.stop()
         self._cache.request_visible([], owner=self)
         if self._posters is not None:

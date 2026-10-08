@@ -95,6 +95,10 @@ QLabel#count {{ color: {ACCENT}; background: {ACCENT_TINT}; border-radius: 8px;
     padding: 2px 9px; font-size: 9px; font-weight: 600; }}
 QLabel#clock {{ color: {TEXT_SOFT}; }}
 QLabel#badge {{ color: {ACCENT}; font-size: 10px; }}
+QLabel#heroTitle {{ color: {TEXT}; font-size: 34px; font-weight: 700; }}
+QFrame#homeHero {{ background: transparent; border: none; }}
+QFrame#heroTrack {{ background: rgba(232, 236, 255, 0.16); border-radius: 3px; }}
+QFrame#heroFill {{ background: {GOLD}; border-radius: 3px; }}
 QFrame#watchNotice {{ background: {ACCENT_TINT}; border: 1px solid {LINE};
     border-radius: 12px; }}
 QFrame#watchNotice QLabel {{ color: {TEXT}; font-weight: 600; }}
@@ -132,6 +136,14 @@ QFrame#navIndicator {{ background: {ACCENT_TINT}; border: 1px solid #2f3b72; bor
 QFrame#library {{ background: {NIGHT}; }}
 QFrame#watchPanel {{ background: {DUSK}; border-left: 1px solid {LINE_SOFT}; }}
 QFrame#controls {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 16px; }}
+QFrame#controls[overlay="true"] {{ background: rgba(11, 16, 32, 0.80);
+    border: 1px solid rgba(169, 184, 255, 0.20); border-radius: 18px; }}
+QFrame#channelBanner {{ background: rgba(11, 16, 32, 0.80); border: 1px solid rgba(169, 184, 255, 0.22);
+    border-radius: 18px; }}
+QFrame#bannerDivider {{ background: rgba(232, 236, 255, 0.18); }}
+QLabel#bannerNumber {{ color: {TEXT}; font-size: 34px; font-weight: 700; }}
+QLabel#bannerName {{ color: {TEXT}; font-size: 16px; font-weight: 700; }}
+QLabel#bannerTitle {{ color: {TEXT}; font-size: 13px; font-weight: 600; }}
 QFrame#mediaInfo {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 14px; }}
 QFrame#guide {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 14px; }}
 QFrame#panel {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 16px; }}

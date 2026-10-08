@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .card_motion import CardView
 from .dialogs import text_label
+from .home_hero import HomeHero
 from .library import (
     CARD_GAP,
     CARD_HEIGHT,
@@ -66,7 +68,7 @@ class IdListModel(QSortFilterProxyModel):
         return self.order[channels[left.row()].id] < self.order[channels[right.row()].id]
 
 
-class CardStrip(QListView):
+class CardStrip(CardView):
     """One unwrapped row; the wheel moves horizontally and Tab leaves the row."""
 
     def __init__(self, poster_mode, parent=None):
@@ -213,6 +215,10 @@ class HomeView(QWidget):
         header.addWidget(self.heading)
         header.addWidget(self.summary)
         body.addLayout(header)
+        self.hero = HomeHero(window.posters, window.logos, window.programme_now)
+        self.hero.play.connect(lambda channel: window.request_play(channel))
+        self.hero.details.connect(lambda channel: window.open_channel(channel))
+        body.addWidget(self.hero)
         self.rows = {}
         for key, title, posters, resume in (
             ("continue", "Kaldığın yerden devam et", True, True),
@@ -295,6 +301,7 @@ class HomeView(QWidget):
                 for kind, label in (("live", "canlı kanal"), ("movie", "film"), ("series", "dizi"))
             )
         )
+        resume_ids, live_ids = [], []
         for key, row in self.rows.items():
             if key in ("continue", "recent_live"):
                 ids = nsmallest(20, candidates[key], key=ranks.__getitem__)
@@ -306,8 +313,35 @@ class HomeView(QWidget):
 
                 ids = [channel.id for channel in nsmallest(20, candidates[key], key=order)]
             row.set_ids(ids, hide_locked=window.proxy.hide_locked)
+            if key == "continue":
+                resume_ids = ids
+            elif key == "favorite_live":
+                live_ids = ids
+        self._feature(resume_ids, live_ids)
         self.empty.setVisible(all(row.isHidden() for row in self.rows.values()))
         self.live_button.setVisible(bool(sum(counts.values())))
+
+    def _feature(self, resume_ids, live_ids):
+        """The banner shows what to continue first, else a favourite with something on now."""
+        model = self.window_ref.model
+        # Locked content never reaches the banner: its cards hide artwork and programmes too.
+        resume_ids = [cid for cid in resume_ids if cid not in model.locked]
+        live_ids = [cid for cid in live_ids if cid not in model.locked]
+        by_id = {
+            cid: model.channels[row]
+            for cid in (*resume_ids[:1], *live_ids)
+            if (row := model.row_of(cid)) is not None
+        }
+        if resume_ids and resume_ids[0] in by_id:
+            channel = by_id[resume_ids[0]]
+            self.hero.show_resume(channel, *model.progress.get(channel.id, (0.0, 0.0)))
+            return
+        for cid in live_ids:
+            channel = by_id.get(cid)
+            if channel is not None and self.window_ref.programme_now(channel) is not None:
+                self.hero.show_live(channel)
+                return
+        self.hero.clear()
 
     def select_channel(self, channel_id):
         """Give startup's selected live channel a visible keyboard target."""
@@ -323,6 +357,7 @@ class HomeView(QWidget):
         return False
 
     def refresh_programmes(self):
+        self.hero.refresh_programme()
         for key in ("favorite_live", "recent_live"):
             view = self.rows[key].view
             if view.isVisible() and not view.viewport().visibleRegion().isEmpty():

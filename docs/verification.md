@@ -77,3 +77,10 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - `scripts/test-quiet.sh`: **796 geçti**, 5 atlandı. Ayrıca CI pencere testlerinde arada bir görülen hata gerçek bir hataya işaret etti: aynı dosya yeniden açılınca mpv değişmeyen `seekable`/`duration` değerlerini yeniden bildirmediği için sarma ve hız düğmeleri kapalı kalabiliyordu; dosya yüklenince bu değerler artık yeniden okunuyor. Görsel kontrol (offscreen): ana sayfa, sonraki bölüm bandı ve uyku düğmesi.
 - Kategori düzeni Codex'e ayrı worktree'de yazdırıldı. İncelemede ölçüldü: sıralama proxy karşılaştırmasıyla yapıldığında 50.000 kanalda pencere 3,4 sn donuyordu (Qt her karşılaştırmada Python çağırıyor). Liste artık yenilemede bir kez Python'da sıralanıyor; her kaynak ve bölüm listedeki yerini koruyor. Ayrıca gizli kategori satırı ham HTML gösteriyordu ve düzenleyici onay kutuları temasızdı; ikisi düzeltildi. Sessiz paket: **819 geçti**.
 - Codex incelemesi (0.17.0): sonraki bölüm aynı `series_id`'li başka kaynağa atlayabiliyordu (kaynakla sınırlandı); Durdur ve profil değişimi geri sayımı iptal etmiyordu; film/bölüm için "bitince" duvar saatine çevriliyordu, duraklatma ve geri sarmada erken duruyordu — artık oynatıcının dosya sonu bildirimini bekliyor.
+
+# Luna IPTV 0.18.0 · arayüz yenilemesi
+
+- Önce mevcut ekranlar offscreen yakalanıp incelendi, Codex'e (görsel üretimi) dört örnek tasarım çizdirildi; kullanıcı yönü onayladı.
+- İş üçe bölündü: Codex (gpt-6-astra) iki ayrı worktree'de panel/bildirim/sayfa geçişi ve kart hareketi/yükleme; vitrin ve kanal bandı burada. Birleştirmede tek çakışma (kapanış temizliği) elle çözüldü.
+- İncelemede: kanal bandındaki opaklık efekti OpenGL videosunun üstünde riskli (ve offscreen'de boş çiziliyordu) — bant artık efeksiz açılıp kapanıyor. Bildirim ve sayfa geçişindeki animasyon grupları `clear()` ile boşaltılırken Qt "animationAt: index is out of bounds" uyarısı veriyordu; Python yığınıyla kaynağı bulundu, animasyonlar tek tek çıkarılıyor.
+- `scripts/test-quiet.sh`: **868 geçti**, 5 atlandı. Görsel kontrol (offscreen): vitrinli ana sayfa (panel gizli), kart üzerine gelme, oynarken panel, kanal bandı, bildirim.

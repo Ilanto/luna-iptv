@@ -25,6 +25,7 @@ from shiboken6 import isValid
 from . import __version__, theme
 from .accounts import sanitize_profile
 from .category_editor import CategoryEditor
+from .channel_banner import BannerPlacer, ChannelBanner
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
@@ -48,8 +49,10 @@ from .reminders import ReminderService
 from .reminders_dialog import RemindersDialog
 from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selected_setting
 from .settings_dialog import SettingsDialog
+from .shell_motion import PageTransition, WatchPanelController
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
+from .toast import Toast
 from .transport import TransportController
 from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
@@ -158,7 +161,20 @@ class MainWindow(QMainWindow):
         self._language_notice_timer.timeout.connect(self.language_notice.hide)
         self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
+        self.channel_banner = ChannelBanner(self.watch)
+        self._banner_placer = BannerPlacer(
+            self.channel_banner,
+            self.video_stack,
+            self.controls,
+            lambda: self.fullscreen.active,
+            self.banner_suppressed,
+        )
+        self.fullscreen.controls_shown.connect(lambda: self.show_channel_banner(None))
+        self.fullscreen.controls_hidden.connect(self.channel_banner.hide_banner)
         self.mini_player = MiniPlayerController(self)
+        self.watch_panel = WatchPanelController(self)
+        self.page_transition = PageTransition(self.library_pages)
+        self.toast = Toast(self)
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
         self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
@@ -203,12 +219,21 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.load_cached_guides)
         QTimer.singleShot(0, self.start_session if ask_profile else self.restore_last_channel)
 
-    def status(self, message, retry=None):
+    def status(self, message, retry=None, *, icon=None):
         self.mini_status.setText(message)
         self.mini_status.setToolTip(message)
         self.message.setText(message)
         self._retry = retry
         self.retry_button.setVisible(retry is not None)
+        self._sync_message_bar()
+        if retry is not None or not self.recovery_cancel_button.isHidden():
+            self.toast.dismiss(immediate=True)
+        elif not message.startswith("Hazır"):
+            self.toast.show_message(message, icon=icon)
+
+    def _sync_message_bar(self):
+        actions = self._retry is not None or not self.recovery_cancel_button.isHidden()
+        self.message_bar.setVisible(actions and not self.fullscreen.active)
 
     def retry(self):
         if self._retry:
@@ -272,7 +297,23 @@ class MainWindow(QMainWindow):
         if source_incomplete(source):
             self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
             return
+        if self._busy:
+            return
         source = dict(source)
+        self.channel_list.set_loading(True)
+        self.filter_changed()
+
+        def done(result):
+            try:
+                self.accept_import(source, result)
+            finally:
+                self.channel_list.set_loading(False)
+                self.filter_changed()
+
+        def failed(error):
+            self.channel_list.set_loading(False)
+            self.filter_changed()
+            self.status(error, lambda: self.import_source(source))
 
         def load():
             if source["type"] == "xtream":
@@ -314,9 +355,10 @@ class MainWindow(QMainWindow):
 
         self.run_task(
             load,
-            lambda result: self.accept_import(source, result),
+            done,
             "Kaynak okunuyor…",
             lambda: self.import_source(source),
+            failure=failed,
         )
 
     def accept_import(self, source, playlist):
@@ -356,6 +398,7 @@ class MainWindow(QMainWindow):
                 self._sync_playback_state()
                 self.player.stop()
                 self.current = None
+                self.watch_panel.sync()
                 self._loading = False
                 self.favorite_button.setEnabled(False)
                 self.video_stack.setCurrentIndex(0)
@@ -419,14 +462,20 @@ class MainWindow(QMainWindow):
             self.home_view.refresh()
 
     def set_section(self, section):
+        if section == "guide":
+            self.show_guide()
+            return
+        target = self.home_view if section == "home" else self.browse
+        changed = self.library_pages.currentWidget() is not target or (
+            target is self.browse and self.proxy.section != section
+        )
+        self.page_transition.begin(changed)
         if section == "home":
             for key, button in self.nav_buttons.items():
                 button.setChecked(key == "home")
             self.library_pages.setCurrentWidget(self.home_view)
             self.refresh_home()
-            return
-        if section == "guide":
-            self.show_guide()
+            self.page_transition.end()
             return
         self.library_pages.setCurrentWidget(self.browse)
         if section != "favorites":
@@ -449,6 +498,7 @@ class MainWindow(QMainWindow):
         self.proxy.set_recent_ids(self.store.recent_ids())
         self.refresh_categories()
         self.filter_changed()
+        self.page_transition.end()
 
     def source_changed(self):
         self.proxy.source = self.source_combo.currentData() or ""
@@ -566,6 +616,7 @@ class MainWindow(QMainWindow):
         else:
             self.refresh_folders()
             self.filter_changed()
+        self.status(f"“{name.strip()}” klasörü oluşturuldu.", icon="check")
         return folder_id
 
     def rename_folder(self, folder_id):
@@ -655,11 +706,13 @@ class MainWindow(QMainWindow):
 
     def show_guide(self):
         """The Rehber page; the browse filters keep their state for when people return."""
+        self.page_transition.begin(self.library_pages.currentWidget() is not self.guide_view)
         for key, button in self.nav_buttons.items():
             button.setChecked(key == "guide")
         self.library_pages.setCurrentWidget(self.guide_view)
         self.refresh_guide_view()
         self.guide_view.go_now()
+        self.page_transition.end()
 
     def refresh_guide_view(self):
         rows, seen = [], set()
@@ -717,8 +770,9 @@ class MainWindow(QMainWindow):
         self.kind_bar.setVisible(searching)
         kind = self.proxy.kind if searching else self.proxy.section
         self.channel_list.set_poster_mode(kind in ("movie", "series"))
-        self.no_results.setVisible(count == 0)
-        self.channel_list.setVisible(count > 0)
+        loading = self.channel_list.loading
+        self.no_results.setVisible(count == 0 and not loading)
+        self.channel_list.setVisible(count > 0 or loading)
         self.no_results.setText(
             "Aramana uygun yayın yok.\nFiltreleri değiştirebilirsin."
             if self.model.channels
@@ -915,6 +969,7 @@ class MainWindow(QMainWindow):
         if preferences is None and self.current is not None and self.current.id == channel.id:
             preferences = self.track_preferences.current_choices()
         self.current = channel
+        self.watch_panel.sync()
         self._current_persistent = True
         self._position = float(start)
         # Retain known duration until mpv publishes metadata; an early close
@@ -984,9 +1039,37 @@ class MainWindow(QMainWindow):
         """Update the loaded UI; native callbacks validate their token first."""
         self._mark_loaded()
 
+    def banner_suppressed(self):
+        """The mini player (unless it went fullscreen) has no room for the banner."""
+        mini = getattr(self, "mini_player", None)
+        return bool(mini is not None and mini.active and not self.isFullScreen())
+
+    def show_channel_banner(self, seconds=4.5):
+        """The TV-style banner: number, channel, programme now and next."""
+        channel = self.current
+        if self._closed or channel is None or self.video_stack.currentIndex() != 1:
+            return
+        if self.banner_suppressed():
+            self.channel_banner.hide_banner()
+            return
+        programme = self.programme_now(channel)
+        following = None
+        if programme is not None:
+            index = self._guide_index.get(channel.id.split(":", 1)[0])
+            upcoming = index.upcoming(channel.tvg_id, 1) if index else []
+            following = upcoming[0] if upcoming else None
+        number = None
+        if channel.kind == "live":
+            ids = [c.id for c in self.numbered_channels()]
+            number = ids.index(channel.id) + 1 if channel.id in ids else None
+        self.channel_banner.set_content(channel, number, programme, following)
+        self._banner_placer.place()
+        self.channel_banner.show_for(seconds)
+
     def _mark_loaded(self):
         if self._closed:
             return
+        self.show_channel_banner()
         self._idle = False
         self._loading = False
         self.transport.loaded()
@@ -1383,8 +1466,10 @@ class MainWindow(QMainWindow):
 
     def close_current(self):
         """Stop and forget the current channel, back to the welcome screen."""
+        self.channel_banner.hide_banner()
         self.stop_playback()
         self.current = None
+        self.watch_panel.sync()
         self._current_persistent = False
         self.favorite_button.setEnabled(False)
         self.video_stack.setCurrentIndex(0)
@@ -1443,6 +1528,7 @@ class MainWindow(QMainWindow):
                 self.player.stop()
         self.recovery_cancel_button.setVisible(self.recovery.can_cancel)
         self.mini_cancel_button.setVisible(self.recovery.can_cancel)
+        self._sync_message_bar()
         if self.recovery.message:
             retry = (
                 (
@@ -1491,6 +1577,12 @@ class MainWindow(QMainWindow):
         favorite = channel.id not in self.store.favorites()
         self.store.set_favorite(channel.id, favorite)
         self.refresh_favorites()
+        self.status(
+            f"{channel.name} favorilere eklendi."
+            if favorite
+            else f"{channel.name} favorilerden çıkarıldı.",
+            icon="check",
+        )
 
     def refresh_favorites(self):
         self.model.favorites = self.store.favorites()
@@ -1942,7 +2034,8 @@ class MainWindow(QMainWindow):
             return None
         if reminder_id is not None:
             self.status(
-                f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}"
+                f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}",
+                icon="check",
             )
         return reminder_id
 
@@ -2047,7 +2140,7 @@ class MainWindow(QMainWindow):
         self.leave_profile()
         self.store.use_profile(profile_id)
         self.load_profile()
-        self.status(f"{target['name']} profili açık.")
+        self.status(f"{target['name']} profili açık.", icon="check")
         return True
 
     def leave_profile(self):
@@ -2097,7 +2190,7 @@ class MainWindow(QMainWindow):
             return None
         self.store.use_profile(fallback["id"])
         self.load_profile()
-        self.status(f"{fallback['name']} profili açık.")
+        self.status(f"{fallback['name']} profili açık.", icon="check")
         return fallback["id"]
 
     def _reminders_changed(self):
@@ -2213,6 +2306,7 @@ class MainWindow(QMainWindow):
             self.setGeometry(self._fullscreen_return_geometry)
             if self._fullscreen_return_maximized:
                 self.showMaximized()
+        self.watch_panel.sync(animate=False)
 
     def leave_fullscreen(self):
         if self._fullscreen:
@@ -2270,6 +2364,10 @@ class MainWindow(QMainWindow):
             return
         self.save_progress()
         self._closed = True
+        self.watch_panel.animation.stop()
+        self.page_transition.finish()
+        self.toast.dismiss(immediate=True)
+        self.channel_list.set_loading(False)
         self.idle_inhibit.close()
         self.mpris.close()
         self.reminder_service.close()

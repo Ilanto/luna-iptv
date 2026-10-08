@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.17.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.18.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,14 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.18.0 · arayüz yenilemesi
+
+- **Vitrin:** ana sayfanın üstünde kaldığın film/bölüm (yoksa o an yayındaki favori kanal) büyük bir afişle; arkada afişin renklerinden bulanık fon, ilerleme ve kalan süre, "Devam et" / "Ayrıntılar".
+- **Oynatıcı paneli** hiçbir şey oynamıyorken gizlenir, kütüphane tüm genişliği kullanır; bir yayın açılınca sağdan kayarak gelir ve sürüklediğin genişliği hatırlar.
+- **Kanal bandı:** yayın açılınca videonun altında birkaç saniye TV gibi kanal numarası, adı, şu anki program ve ilerlemesi, "Sonra: …". Tam ekranda kontrollerle birlikte görünür; kontroller koyu cam görünümünde.
+- **Bildirimler:** alttaki sabit durum satırı yerine kısa süre görünüp kaybolan bildirimler (yeniden deneme gibi eylemler için satır yerinde).
+- **Hareket:** kartlar fareyle üzerine gelince hafifçe büyüyüp parlar, afişler yumuşakça belirir, katalog yüklenirken parıldayan iskelet kartlar, bölümler arası kısa geçiş. Hepsi Ayarlar'daki "Hareket" seçimine uyar.
 
 ### 0.17.0 · ana sayfa, izleme kolaylıkları ve kategori düzeni
 
