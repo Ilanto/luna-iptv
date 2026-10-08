@@ -798,5 +798,202 @@ class Store:
         with self._db:
             self._db.execute("DELETE FROM sources WHERE id = ?", (source_id,))
 
+    def backup_records(self, *, include_history: bool = True) -> dict:
+        """Read personal rows, without catalogue URLs or account snapshots."""
+        history = None
+        if include_history:
+            history = [
+                dict(
+                    channel_id=row[0],
+                    position=row[1],
+                    duration=row[2],
+                    updated_at=row[3],
+                    history_hidden=bool(row[4]),
+                )
+                for row in self._db.execute(
+                    "SELECT channel_id,position,duration,updated_at,history_hidden FROM progress"
+                )
+            ]
+        favorites = self.favorites()
+        referenced = favorites | {item["channel_id"] for item in history or []}
+        channels = [
+            dict(
+                zip(
+                    ("id", "source_id", "name", "kind", "series_id", "provider_key"),
+                    row,
+                    strict=True,
+                )
+            )
+            for row in self._db.execute(
+                "SELECT id,source_id,name,kind,series_id,provider_key FROM channels ORDER BY rowid"
+            )
+            if row[0] in referenced
+        ]
+        return {
+            "sources": self.sources(),
+            "channels": channels,
+            "favorites": sorted(favorites),
+            "favorite_folders": [
+                dict(
+                    id=identity,
+                    name=name,
+                    position=position,
+                    members=sorted(self.folder_items(identity)),
+                )
+                for identity, name, position in self._db.execute(
+                    "SELECT id,name,position FROM favorite_folders ORDER BY position,id"
+                )
+            ],
+            "playback_preferences": {
+                identity: self.playback_preferences(identity)
+                for (identity,) in self._db.execute("SELECT source_id FROM playback_preferences")
+            },
+            "app_settings": {
+                key: self.setting(key)
+                for (key,) in self._db.execute("SELECT key FROM app_settings")
+            },
+            "history": history,
+        }
+
+    def apply_backup_records(self, data: dict) -> None:
+        """Merge validated personal rows in one transaction, preserving unrelated data."""
+        from .backup import source_incomplete
+
+        if self._db.in_transaction:
+            raise ValueError("Başka bir kayıt işlemi sürerken yedek geri yüklenemez.")
+        with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
+            existing_sources = {item["id"]: item for item in self.sources()}
+            for source in data["sources"]:
+                existing = existing_sources.get(source["id"])
+                if existing is not None and existing["type"] != source["type"]:
+                    raise ValueError(
+                        "Yedekteki bir kaynak kimliği farklı türde bir kaynakla çakışıyor."
+                    )
+                values = dict(source)
+                if existing is not None:
+                    preserved = (
+                        ("location", "username", "password", "epg_url")
+                        if source_incomplete(source)
+                        else source["credentials_omitted"]
+                    )
+                    for field in preserved:
+                        values[field] = existing[field]
+                self._db.execute(
+                    """INSERT INTO sources(id,name,type,location,username,password,epg_url)
+                    VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                      name=excluded.name, location=excluded.location,
+                      username=excluded.username, password=excluded.password,
+                      epg_url=excluded.epg_url""",
+                    tuple(values[field] for field in _SOURCE_FIELDS),
+                )
+
+            channel_ids = {}
+            source_types = {item["id"]: item["type"] for item in data["sources"]}
+            for channel in data["channels"]:
+                identity, source_id = channel["id"], channel["source_id"]
+                existing = self._db.execute(
+                    "SELECT source_id,provider_key FROM channels WHERE id=?", (identity,)
+                ).fetchone()
+                if existing is not None and (
+                    existing[0] != source_id
+                    or (
+                        existing[1]
+                        and channel["provider_key"]
+                        and existing[1] != channel["provider_key"]
+                    )
+                ):
+                    raise ValueError("Yedekteki bir kanal kimliği mevcut kanalla çakışıyor.")
+                by_provider = self._db.execute(
+                    "SELECT id FROM channels "
+                    "WHERE source_id=? AND provider_key=? AND provider_key<>''",
+                    (source_id, channel["provider_key"]),
+                ).fetchone()
+                if existing is None and by_provider is not None:
+                    channel_ids[identity] = by_provider[0]
+                    continue
+                if existing is None and source_types[source_id] == "direct":
+                    direct = self._db.execute(
+                        "SELECT id FROM channels WHERE source_id=?", (source_id,)
+                    ).fetchall()
+                    if len(direct) == 1:
+                        channel_ids[identity] = direct[0][0]
+                        continue
+                if existing is None:
+                    # Empty URLs leave restored references unplayable until catalogue refresh.
+                    self._db.execute(
+                        """INSERT INTO channels(
+                            id,source_id,name,url,group_name,tvg_id,logo,kind,
+                            series_id,headers,provider_key
+                        ) VALUES(?,?,?,'','','','',?,?, '{}',?)""",
+                        (
+                            identity,
+                            source_id,
+                            channel["name"],
+                            channel["kind"],
+                            channel["series_id"],
+                            channel["provider_key"],
+                        ),
+                    )
+                channel_ids[identity] = identity
+
+            self._db.executemany(
+                "INSERT OR IGNORE INTO favorites(channel_id) VALUES(?)",
+                [(channel_ids[identity],) for identity in data["favorites"]],
+            )
+            folders = dict(self.folders())
+            folder_names = {name.casefold(): identity for identity, name in folders.items()}
+            for folder in data["favorite_folders"]:
+                identity, name = folder["id"], folder["name"].strip()
+                matching = folder_names.get(name.casefold())
+                if identity not in folders and matching is not None:
+                    identity = matching
+                elif matching is not None and matching != identity:
+                    raise ValueError("Yedekteki klasör adı mevcut bir klasörle çakışıyor.")
+                if identity in folders:
+                    folder_names.pop(folders[identity].casefold(), None)
+                folders[identity] = name
+                folder_names[name.casefold()] = identity
+                self._db.execute(
+                    """INSERT INTO favorite_folders(id,name,position) VALUES(?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET name=excluded.name,position=excluded.position""",
+                    (identity, name, folder["position"]),
+                )
+                self._db.executemany(
+                    "INSERT OR IGNORE INTO favorite_folder_items(folder_id,channel_id) VALUES(?,?)",
+                    [(identity, channel_ids[item]) for item in folder["members"]],
+                )
+            for source_id, preferences in data["playback_preferences"].items():
+                merged = self.playback_preferences(source_id) | preferences
+                self._db.execute(
+                    """INSERT INTO playback_preferences(source_id,data) VALUES(?,?)
+                    ON CONFLICT(source_id) DO UPDATE SET data=excluded.data""",
+                    (source_id, json.dumps(merged, ensure_ascii=False)),
+                )
+            self._db.executemany(
+                """INSERT INTO app_settings(key,value) VALUES(?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                [
+                    (key, json.dumps(value, ensure_ascii=False))
+                    for key, value in data["app_settings"].items()
+                ],
+            )
+            self._db.executemany(
+                """INSERT INTO progress(channel_id,position,duration,updated_at,history_hidden)
+                VALUES(?,?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET
+                  position=excluded.position,duration=excluded.duration,
+                  updated_at=excluded.updated_at,history_hidden=excluded.history_hidden""",
+                [
+                    (
+                        channel_ids[item["channel_id"]],
+                        item["position"],
+                        item["duration"],
+                        item["updated_at"],
+                        int(item["history_hidden"]),
+                    )
+                    for item in data["history"] or []
+                ],
+            )
+
     def close(self) -> None:
         self._db.close()

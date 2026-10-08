@@ -244,6 +244,11 @@ class MainWindow(QMainWindow):
             self.import_source(dialog.source())
 
     def import_source(self, source):
+        from .backup import source_incomplete
+
+        if source_incomplete(source):
+            self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
+            return
         source = dict(source)
 
         def load():
@@ -1308,8 +1313,23 @@ class MainWindow(QMainWindow):
         remove.setEnabled(source is not None and not self._busy)
         remove.triggered.connect(lambda: self.remove_source(source))
         menu.addSeparator()
+        backup = menu.addAction("Yedekle…", self.export_backup)
+        backup.setEnabled(not self._busy)
+        restore = menu.addAction("Yedekten geri yükle…", self.restore_backup)
+        restore.setEnabled(not self._busy)
+        menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
         return menu
+
+    def export_backup(self):
+        from .backup_dialog import save_backup_dialog
+
+        save_backup_dialog(self)
+
+    def restore_backup(self):
+        from .backup_dialog import restore_backup_dialog
+
+        restore_backup_dialog(self)
 
     @staticmethod
     def _same_source(left, right):
