@@ -216,6 +216,7 @@ def test_channel_change_and_stop_cancel_scan_without_delayed_seeks(qt_app, playi
         qt_app.processEvents()
         time.sleep(0.005)
     assert window._position - started < 2
+    wait(qt_app, lambda: window.transport.can_scan)  # seekability is reported after loading
     window.transport.cycle(-1)
     assert window.transport.rate == -2
     window.stop_playback()
