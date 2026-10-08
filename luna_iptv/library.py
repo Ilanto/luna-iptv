@@ -99,6 +99,37 @@ class ChannelModel(QAbstractListModel):
             self.dataChanged.emit(index, index, [PROGRESS_ROLE])
 
 
+def ordered_channels(channels, prefs):
+    """Channels with each source's and section's chosen category order applied.
+
+    Every (source, kind) keeps its slots in the list, so other sources and sections do not
+    move; inside it, ordered categories come first in the chosen order (catalogue order
+    within each), then channels of categories without a position, in catalogue order.
+    One Python sort, so the views never sort row by row.
+    """
+    positions = {
+        key: pref["position"] for key, pref in prefs.items() if pref["position"] is not None
+    }
+    if not positions:
+        return channels
+    buckets = {}
+    ordered_kinds = {(source, kind) for source, kind, _ in positions}
+    for row, channel in enumerate(channels):
+        bucket = channel.id.split(":", 1)[0], channel.kind
+        if bucket in ordered_kinds:
+            buckets.setdefault(bucket, []).append(row)
+    result = list(channels)
+    for (source, kind), rows in buckets.items():
+
+        def key(row, source=source, kind=kind):
+            position = positions.get((source, kind, channels[row].group))
+            return (position is None, position or 0, row)
+
+        for slot, row in zip(rows, sorted(rows, key=key), strict=True):
+            result[slot] = channels[row]
+    return result
+
+
 class ChannelFilter(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -113,6 +144,30 @@ class ChannelFilter(QSortFilterProxyModel):
         self.recent = {}
         self.folder_ids = None
         self.hide_locked = False  # a kids profile never sees locked channels
+        self.hidden_categories = {}
+        self.category_positions = {}
+
+    def set_category_prefs(self, prefs):
+        self.hidden_categories = {kind: set() for kind in ("live", "movie", "series")}
+        self.category_positions = {}
+        for (source, kind, group), pref in prefs.items():
+            if pref["hidden"]:
+                self.hidden_categories.setdefault(kind, set()).add((source, group))
+            if pref["position"] is not None:
+                self.category_positions[source, kind, group] = pref["position"]
+        self.invalidate()
+
+    @staticmethod
+    def category_key(channel):
+        return channel.id.split(":", 1)[0], channel.kind, channel.group
+
+    def category_hidden(self, channel):
+        return (channel.id.split(":", 1)[0], channel.group) in self.hidden_categories.get(
+            channel.kind, ()
+        )
+
+    def _hidden_in_section(self, channel):
+        return self.section not in ("favorites", "recent") and self.category_hidden(channel)
 
     def set_recent_ids(self, channel_ids):
         self.recent = {channel_id: rank for rank, channel_id in enumerate(channel_ids)}
@@ -141,6 +196,8 @@ class ChannelFilter(QSortFilterProxyModel):
 
     def filterAcceptsRow(self, row, parent):
         channel = self.sourceModel().channels[row]
+        if self._hidden_in_section(channel):
+            return False
         if self.hide_locked and channel.id in self.sourceModel().locked:
             return False
         if self.source and not channel.id.startswith(self.source + ":"):
@@ -183,6 +240,7 @@ class ChannelFilter(QSortFilterProxyModel):
             personal = self.section in ("favorites", "recent")
             if (
                 channel.kind in counts
+                and not self._hidden_in_section(channel)
                 and not (self.hide_locked and channel.id in model.locked)
                 and (personal or not (channel.series_id and channel.kind == "movie"))
                 and (not self.source or channel.id.startswith(self.source + ":"))

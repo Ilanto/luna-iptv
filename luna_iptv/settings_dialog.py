@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QHBoxLayout, QVBoxLayo
 from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
 from .motion import IconButton, set_motion_level
-from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selected_setting
 
 
 class SettingsDialog(QDialog):
@@ -36,6 +36,9 @@ class SettingsDialog(QDialog):
         )
         self.subtitle_combo = self._choice(
             playback, "Varsayılan altyazı dili", "subtitle_language", subtitles
+        )
+        self.autoplay_combo = self._choice(
+            playback, "Sonraki bölümü otomatik oynat", "autoplay_next", AUTOPLAY_CHOICES
         )
         note = text_label(
             "Kaynağa özel kayıtlı tercihler önceliklidir. "

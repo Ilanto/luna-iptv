@@ -22,14 +22,15 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from . import __version__
+from . import __version__, theme
 from .accounts import sanitize_profile
+from .category_editor import CategoryEditor
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
 from .layout import build_window
-from .library import ChannelFilter, ChannelModel, resumable
+from .library import ChannelFilter, ChannelModel, ordered_channels, resumable
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
@@ -45,11 +46,12 @@ from .profiles_ui import ProfilePicker, ProfilesDialog
 from .recovery import RecoveryController
 from .reminders import ReminderService
 from .reminders_dialog import RemindersDialog
-from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selected_setting
 from .settings_dialog import SettingsDialog
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
 from .transport import TransportController
+from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
 
 def clock_text(seconds):
@@ -161,6 +163,19 @@ class MainWindow(QMainWindow):
         self.mpris = MprisService(RemoteControl(self), self)
         self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
         self.reminder_service.changed.connect(self._reminders_changed)
+        self.sleep_timer = SleepTimer(self)
+        self.sleep_timer.changed.connect(self.refresh_sleep_button)
+        self.sleep_timer.expired.connect(self.sleep_expired)
+        self._sleep_label_timer = QTimer(self)
+        self._sleep_label_timer.setInterval(20000)
+        self._sleep_label_timer.timeout.connect(self.refresh_sleep_button)
+        self.next_countdown = Countdown(self)
+        self.next_countdown.tick.connect(self._next_episode_tick)
+        self.next_countdown.due.connect(self.play_next_episode)
+        self.number_entry = NumberEntry(self)
+        self.number_entry.typing.connect(self._number_typing)
+        self.number_entry.chosen.connect(self.jump_to_number)
+        self._notice_kind = None
         self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
@@ -366,7 +381,11 @@ class MainWindow(QMainWindow):
         self.source_combo.setCurrentIndex(max(index, 0))
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
-        self.model.reset(self.store.channels(), self.store.favorites(), self.store.progress_map())
+        self.model.reset(
+            ordered_channels(self.store.channels(), self.store.category_prefs()),
+            self.store.favorites(),
+            self.store.progress_map(),
+        )
         if self.store.pin_hash():
             self.store.lock_adult_groups()  # new adult categories from this catalogue
         self.apply_locks(filter_now=False)
@@ -392,9 +411,20 @@ class MainWindow(QMainWindow):
             else "Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak."
         )
         self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
+        self.refresh_home()
         self._reminders_changed()  # the visible guide must not keep removed channels
 
+    def refresh_home(self):
+        if not self._closed and self.library_pages.currentWidget() is self.home_view:
+            self.home_view.refresh()
+
     def set_section(self, section):
+        if section == "home":
+            for key, button in self.nav_buttons.items():
+                button.setChecked(key == "home")
+            self.library_pages.setCurrentWidget(self.home_view)
+            self.refresh_home()
+            return
         if section == "guide":
             self.show_guide()
             return
@@ -426,30 +456,65 @@ class MainWindow(QMainWindow):
         self.filter_changed()
 
     def refresh_categories(self):
+        self.proxy.set_category_prefs(self.store.category_prefs())
         current = self.category.currentData() or ""
         self.category.blockSignals(True)
         self.category.clear()
         self.category.addItem("Tüm kategoriler", "")
         hidden = self.model.locked if self.proxy.hide_locked else frozenset()
-        counts = Counter(
-            c.group
-            for c in self.model.channels
-            if c.group
-            and c.id not in hidden
-            and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
-            and (self.proxy.section in ("favorites", "recent") or c.kind == self.proxy.section)
-            and not (c.series_id and c.kind == "movie")
+        counts = Counter()
+        positions = {}
+        hidden_groups = set()
+        personal = self.proxy.section in ("favorites", "recent")
+        for c in self.model.channels:
+            if (
+                c.id in hidden
+                or (self.proxy.source and not c.id.startswith(self.proxy.source + ":"))
+                or (not personal and c.kind != self.proxy.section)
+                or (c.series_id and c.kind == "movie")
+            ):
+                continue
+            key = self.proxy.category_key(c)
+            if not personal and self.proxy.category_hidden(c):
+                hidden_groups.add(key)
+                continue
+            if not c.group:
+                continue
+            counts[c.group] += 1
+            position = self.proxy.category_positions.get(key) if not personal else None
+            if position is not None:
+                positions[c.group] = min(positions.get(c.group, position), position)
+        groups = sorted(
+            counts,
+            key=lambda g: (g not in positions, positions.get(g, 0), -counts[g], g.casefold()),
         )
-        for group in sorted(counts, key=str.casefold):
+        for group in groups:
             self.category.addItem(group, group)
         index = self.category.findData(current)
         self.category.setCurrentIndex(index if index >= 0 else 0)
         self.category.blockSignals(False)
+        self.category_bar.edit_button.setVisible(not personal)
         self.category_bar.set_items(
-            [(group, group, count) for group, count in counts.items()],
+            [(group, group, counts[group]) for group in groups],
             self.category.currentData() or "",
         )
+        self.category_bar.edit_button.setEnabled(bool(self.store.sources()))
+        self._hidden_category_count = len(hidden_groups)
+        self.hidden_categories_label.setText(
+            f'{len(hidden_groups)} kategori gizli · <a href="edit" style="color: {theme.ACCENT};'
+            f' text-decoration: none;">Düzenle</a>'
+        )
         self.refresh_folders()
+
+    def edit_categories(self, *_):
+        if self.proxy.section not in ("live", "movie", "series"):
+            return
+        if not self.guard("Kategori düzenini değiştirmek için PIN gir."):
+            return
+        dialog = CategoryEditor(self.store, self.proxy.source, self.proxy.section, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.refresh_library()  # reorders from the catalogue, so a reset restores it
+        dialog.deleteLater()
 
     def refresh_folders(self):
         folders = self.store.folders()
@@ -643,6 +708,11 @@ class MainWindow(QMainWindow):
         else:
             self.count_label.setText(f"{count:,} yayın".replace(",", "."))
         self.category_bar.setVisible(not searching and not favorites)
+        self.hidden_categories_label.setVisible(
+            bool(self._hidden_category_count)
+            and not searching
+            and self.proxy.section in ("live", "movie", "series")
+        )
         self.folder_row.setVisible(favorites)
         self.kind_bar.setVisible(searching)
         kind = self.proxy.kind if searching else self.proxy.section
@@ -656,7 +726,10 @@ class MainWindow(QMainWindow):
         )
 
     def activate_index(self, index):
-        channel = index.data(Qt.UserRole)
+        self.open_channel(index.data(Qt.UserRole))
+
+    def open_channel(self, channel):
+        """Open a channel through the shared playback or PIN-guarded detail path."""
         if not channel:
             return
         if channel.kind == "live":
@@ -719,7 +792,10 @@ class MainWindow(QMainWindow):
         index = self.proxy.index(row, 0)
         self.channel_list.setCurrentIndex(index)
         self.channel_list.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
-        self.channel_list.setFocus()
+        if self.library_pages.currentWidget() is self.home_view:
+            self.home_view.select_channel(last)
+        else:
+            self.channel_list.setFocus()
         if action == "play":
             self.request_play(index.data(Qt.UserRole))
             return
@@ -753,6 +829,7 @@ class MainWindow(QMainWindow):
         """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
         if not self.unlock_channel(channel, approved=approved):
             return
+        self.cancel_next_episode()
         self.dismiss_resume()
         preferences = normalize_preferences(preferences) if preferences is not None else None
         position = self.resume_position(channel)
@@ -968,6 +1045,8 @@ class MainWindow(QMainWindow):
         if self.current and self.current.kind != "live" and not self._loading:
             self.save_progress()
         self._finish_playback()
+        if reason == "eof" and not self.sleep_timer.media_ended():
+            self.offer_next_episode()
         if recovery_handled and self.recovery.state == "failed":
             self.status(
                 self.recovery.message,
@@ -1085,6 +1164,7 @@ class MainWindow(QMainWindow):
                 self.current.id, self._position, self._duration, mark_recent=self._record_recent
             )
             self.model.set_progress(self.current.id, self._position, self._duration)
+            self.refresh_home()
 
     def confirm_clear_history(self):
         if self._history_dialog is not None and isValid(self._history_dialog):
@@ -1119,6 +1199,7 @@ class MainWindow(QMainWindow):
             self.model.replace_progress(self.store.progress_map())
         self.proxy.set_recent_ids(self.store.recent_ids())
         self.filter_changed()
+        self.refresh_home()
         self.status(
             "İzleme geçmişi temizlendi."
             + (
@@ -1158,6 +1239,148 @@ class MainWindow(QMainWindow):
         if self.transport.rate:
             self.play_button.setText("▶")
 
+    # Watching comforts: next episode, sleep timer, channel numbers.
+
+    def _notice(self, kind, text, primary=None, secondary=None):
+        self._notice_kind = kind
+        self.watch_notice.present(text, primary, secondary)
+
+    def _clear_notice(self, kind=None):
+        if kind is None or self._notice_kind == kind:
+            self._notice_kind = None
+            self.watch_notice.hide()
+
+    def offer_next_episode(self):
+        """After an episode ends: the next one starts by itself after a short countdown."""
+        following = next_episode(self.model.channels, self.current)
+        if following is None:
+            return False
+        if selected_setting(self.store, "autoplay_next", AUTOPLAY_CHOICES) != "on":
+            self._notice(
+                "next",
+                f"Sonraki bölüm: {following.name}",
+                ("Oynat", lambda: self.play_next_episode(following)),
+                ("Kapat", lambda: self._clear_notice("next")),
+            )
+            return True
+        self.next_countdown.start(following)
+        return True
+
+    def _next_episode_tick(self, seconds):
+        following = self.next_countdown.payload
+        self._notice(
+            "next",
+            f"Sonraki bölüm {seconds} saniye içinde: {following.name}",
+            ("Şimdi oynat", self.next_countdown.finish_now),
+            ("İptal", self.cancel_next_episode),
+        )
+
+    def cancel_next_episode(self):
+        self.next_countdown.cancel()
+        self._clear_notice("next")
+
+    def play_next_episode(self, channel):
+        self._clear_notice("next")
+        fresh = next((c for c in self.model.channels if c.id == channel.id), None)
+        if fresh is not None:
+            # The series was already open, so this episode needs no PIN again.
+            self.request_play(fresh, approved=True)
+
+    def sleep_menu(self):
+        menu = self.build_sleep_menu()
+        menu.exec(self.sleep_button.mapToGlobal(self.sleep_button.rect().topLeft()))
+        menu.deleteLater()
+
+    def build_sleep_menu(self):
+        menu = QMenu(self)
+        menu.setTitle("Uyku zamanlayıcısı")
+        if self.sleep_timer.active:
+            remaining = (
+                "Bitince duracak"
+                if self.sleep_timer.mode == "media"
+                else f"Kalan: {self.sleep_timer.label()}"
+            )
+            menu.addAction(remaining).setEnabled(False)
+            menu.addAction("15 dakika uzat", lambda: self.sleep_timer.extend(15))
+            menu.addAction("Kapat", self.sleep_timer.cancel)
+            menu.addSeparator()
+        for minutes in SLEEP_CHOICES:
+            menu.addAction(f"{minutes} dakika sonra", lambda m=minutes: self.start_sleep(m))
+        if self.current is not None and self._playback_active:
+            if self.current.kind == "live":
+                programme = self.programme_now(self.current)
+                if programme is not None:
+                    end = programme.end.timestamp()
+                    menu.addAction("Bu program bitince", lambda: self.start_sleep_until(end))
+            elif self._duration > 0:
+                label = "Bu bölüm bitince" if self.current.series_id else "Bu film bitince"
+                menu.addAction(label, self.start_sleep_at_media_end)
+        return menu
+
+    def start_sleep(self, minutes):
+        self.sleep_timer.start(minutes)
+        self.status(f"Uyku zamanlayıcısı: {minutes} dakika sonra oynatma duracak.")
+
+    def start_sleep_at_media_end(self):
+        self.sleep_timer.start_at_media_end()
+        self.status("Uyku zamanlayıcısı: bitince oynatma duracak.")
+
+    def start_sleep_until(self, moment):
+        self.sleep_timer.start_until(moment)
+        self.status("Uyku zamanlayıcısı: bitince oynatma duracak.")
+
+    def refresh_sleep_button(self):
+        active = self.sleep_timer.active
+        self.sleep_label.setText(self.sleep_timer.label())
+        self.sleep_label.setVisible(active)
+        self.sleep_button.setToolTip(
+            (
+                "Uyku zamanlayıcısı: bitince duracak"
+                if self.sleep_timer.mode == "media"
+                else f"Uyku zamanlayıcısı: {self.sleep_timer.label()} kaldı"
+            )
+            if active
+            else "Uyku zamanlayıcısı"
+        )
+        if active and self.sleep_timer.mode != "media":
+            self._sleep_label_timer.start()
+        else:
+            self._sleep_label_timer.stop()
+
+    def sleep_expired(self):
+        self.cancel_next_episode()
+        if self._playback_active:
+            self.stop_playback()
+        self.leave_fullscreen()
+        self.status("Uyku zamanlayıcısı: oynatma durduruldu. İyi geceler.")
+
+    def numbered_channels(self):
+        """Live channels in list order, of the chosen source; their 1-based place is the number."""
+        source = self.proxy.source
+        return [
+            c
+            for c in self.model.channels
+            if c.kind == "live"
+            and not self.proxy.category_hidden(c)
+            and (not source or c.id.startswith(source + ":"))
+            and not (self.proxy.hide_locked and c.id in self.model.locked)
+        ]
+
+    def _number_typing(self, digits):
+        self._notice("number", f"Kanal {digits}_")
+
+    def jump_to_number(self, number):
+        channels = self.numbered_channels()
+        if number > len(channels):
+            self._notice("number", f"{number} numaralı kanal yok (1–{len(channels)}).")
+            QTimer.singleShot(2500, lambda: self._clear_notice("number"))
+            return False
+        channel = channels[number - 1]
+        self._notice("number", f"{number} · {channel.name}")
+        QTimer.singleShot(2500, lambda: self._clear_notice("number"))
+        self.request_play(channel)
+        return True
+
     def close_current(self):
         """Stop and forget the current channel, back to the welcome screen."""
         self.stop_playback()
@@ -1168,6 +1391,7 @@ class MainWindow(QMainWindow):
         self.video_title.setText("İyi bir yayına yer aç.")
 
     def stop_playback(self):
+        self.cancel_next_episode()  # Stop, profile switches and closing end the countdown too
         self.dismiss_resume()
         self.save_progress()
         self.recovery.cancel()
@@ -1277,6 +1501,7 @@ class MainWindow(QMainWindow):
         if self.current:
             favorite = self.current.id in self.model.favorites
             self.favorite_button.setText("★" if favorite else "☆")
+        self.refresh_home()
         self.details.refresh_favorite()
         self.refresh_folders()
         self.filter_changed()
@@ -1757,6 +1982,7 @@ class MainWindow(QMainWindow):
             self.refresh_categories()
             self.filter_changed()
             self._reminders_changed()
+            self.refresh_home()
         if self.current and self.proxy.hide_locked and self.current.id in self.model.locked:
             self.close_current()
 
@@ -1912,6 +2138,8 @@ class MainWindow(QMainWindow):
     def _refresh_live_cards(self):
         if self._guide_index and not self._closed:
             self.channel_list.viewport().update()
+            if self.library_pages.currentWidget() is self.home_view:
+                self.home_view.refresh_programmes()
 
     def update_guide(self):
         if self._closed:
@@ -2024,7 +2252,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Luna IPTV",
-            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
+            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\n0–9  Kanal numarasıyla geç\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
         )
 
     def dragEnterEvent(self, event):
@@ -2056,6 +2284,7 @@ class MainWindow(QMainWindow):
         self.recovery.close()
         self._guide_timer.stop()
         self.logo_viewport.close()
+        self.home_view.close_artwork()
         self.logos.close()
         self.posters.close()
         self.player.shutdown()

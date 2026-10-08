@@ -368,3 +368,15 @@ def test_native_render_playback_controls_and_teardown(tmp_path, qt_app):
         assert not isValid(widget), "The test must destroy its GL widget on the GUI thread"
         if player._termination:
             player._termination.join(timeout=20)
+
+
+def test_file_loaded_resends_seekability_that_mpv_may_not_repeat(event_player):
+    player, backend = event_player
+    backend.duration, backend.seekable, backend.partially_seekable = 60.0, True, None
+    seen = []
+    player.property_changed.connect(lambda name, value: seen.append((name, value)))
+    player.load("file:///same.mkv")
+    backend.events["start-file"](mpv_event(playlist_entry_id=7))
+    backend.events["file-loaded"](mpv_event())
+    assert ("duration", 60.0) in seen and ("seekable", True) in seen
+    assert all(name != "partially-seekable" for name, _ in seen)  # unknown stays unknown

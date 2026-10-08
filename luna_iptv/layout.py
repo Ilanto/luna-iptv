@@ -23,11 +23,13 @@ from . import __version__, icons, theme
 from .chips import ChipBar
 from .dialogs import text_label
 from .guide_view import GuideView
+from .home_view import HomeView
 from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
 from .motion import IconButton, LogoMark, MoonSky, NavFrame
 from .player import VideoWidget
 from .profiles_ui import ProfileAvatar
+from .watching import WatchNotice
 
 
 class VideoStack(QStackedWidget):
@@ -97,6 +99,7 @@ def build_window(w):
     side.addSpacing(22)
     w.nav_buttons = {}
     for key, title, icon in [
+        ("home", "Ana sayfa", "home"),
         ("live", "Canlı TV", "live"),
         ("guide", "Rehber", "guide"),
         ("movie", "Filmler", "movie"),
@@ -118,7 +121,7 @@ def build_window(w):
         b.toggled.connect(lambda on, b=b: on and w.sidebar.indicator.follow(b))
         side.addWidget(b, 0, Qt.AlignHCenter)
         w.nav_buttons[key] = b
-    w.nav_buttons["live"].setChecked(True)
+    w.nav_buttons["home"].setChecked(True)
     side.addStretch()
     w.profile_button = ProfileAvatar(42)
     w.profile_button.clicked.connect(w.profile_menu)
@@ -199,14 +202,23 @@ def build_window(w):
     w.category.hide()
     row.addWidget(w.category)
     w.category.currentIndexChanged.connect(w.filter_changed)
-    w.category_bar = ChipBar(more_label="Tüm kategoriler")
+    w.category_bar = ChipBar(more_label="Tüm kategoriler", sort_by_count=False, editable=True)
     w.category_bar.chosen.connect(w.choose_category)
+    w.category_bar.edit_requested.connect(w.edit_categories)
     row.addWidget(w.category_bar, 1)
     w.kind_bar = ChipBar(limit=3, show_counts=True)
     w.kind_bar.chosen.connect(w.choose_search_kind)
     w.kind_bar.hide()
     row.addWidget(w.kind_bar, 1)
     lib.addLayout(row)
+    w.hidden_categories_label = text_label("", "muted")
+    w.hidden_categories_label.setTextFormat(Qt.RichText)
+    w.hidden_categories_label.setTextInteractionFlags(
+        Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard
+    )
+    w.hidden_categories_label.linkActivated.connect(w.edit_categories)
+    w.hidden_categories_label.hide()
+    lib.addWidget(w.hidden_categories_label)
     w.folder_row = QWidget()
     folders = QHBoxLayout(w.folder_row)
     folders.setContentsMargins(0, 0, 0, 0)
@@ -256,6 +268,9 @@ def build_window(w):
     w.guide_view.add_guide.connect(w.configure_guide)
     w.guide_view.show_reminders.connect(w.open_reminders)
     w.library_pages.addWidget(w.guide_view)
+    w.home_view = HomeView(w)
+    w.library_pages.addWidget(w.home_view)
+    w.library_pages.setCurrentWidget(w.home_view)
     w.splitter.addWidget(w.library)
     w.watch = QFrame()
     w.watch.setObjectName("watchPanel")
@@ -288,6 +303,8 @@ def build_window(w):
     w.language_notice.setAccessibleName("Dil tercihi bilgisi")
     w.language_notice.hide()
     header.addWidget(w.language_notice)
+    w.watch_notice = WatchNotice()
+    header.addWidget(w.watch_notice)
     view.addWidget(w.player_header)
     w.video_stack = VideoStack()
     w.video_stack.setMinimumHeight(200)
@@ -431,6 +448,13 @@ def build_window(w):
     w.buffer_label.hide()
     row.addWidget(w.buffer_label)
     row.addStretch()
+    w.sleep_label = text_label("", "badge")
+    w.sleep_label.setAccessibleName("Uyku zamanlayıcısı kalan süre")
+    w.sleep_label.hide()
+    row.addWidget(w.sleep_label)
+    w.sleep_button = icon_button("Uyku", w.sleep_menu, "moon", tip="Uyku zamanlayıcısı")
+    w.sleep_button.setProperty("mini_hidden", True)
+    row.addWidget(w.sleep_button)
     w.info_button = icon_button(
         "Bilgi", w.toggle_info_panel, "info", tip="Yayın bilgisini göster / gizle"
     )
@@ -527,6 +551,8 @@ def build_window(w):
         ("K", w.transport.normal_play),
         ("PgDown", lambda: w.zap(1)),
         ("PgUp", lambda: w.zap(-1)),
+        *[(str(n), lambda n=n: w.number_entry.digit(n)) for n in range(10)],
+        *[(f"Num+{n}", lambda n=n: w.number_entry.digit(n)) for n in range(10)],
     ]:
         shortcut = QShortcut(QKeySequence(key), w)
         shortcut.activated.connect(lambda cb=callback, k=key: w.shortcut_action(k, cb))

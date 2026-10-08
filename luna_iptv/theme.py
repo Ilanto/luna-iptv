@@ -95,6 +95,9 @@ QLabel#count {{ color: {ACCENT}; background: {ACCENT_TINT}; border-radius: 8px;
     padding: 2px 9px; font-size: 9px; font-weight: 600; }}
 QLabel#clock {{ color: {TEXT_SOFT}; }}
 QLabel#badge {{ color: {ACCENT}; font-size: 10px; }}
+QFrame#watchNotice {{ background: {ACCENT_TINT}; border: 1px solid {LINE};
+    border-radius: 12px; }}
+QFrame#watchNotice QLabel {{ color: {TEXT}; font-weight: 600; }}
 QLabel#error {{ color: {DANGER}; }}
 QLabel#pinBadge {{ background: {DUSK}; border: 1px solid {LINE}; }}
 QLabel#profileName {{ color: {TEXT_SOFT}; font-weight: 600; }}
@@ -104,6 +107,15 @@ QPushButton#danger:hover {{ border-color: {DANGER}; }}
 QTreeWidget#lockTree {{ background: {DUSK}; border: 1px solid {LINE_SOFT}; border-radius: 12px;
     padding: 6px; }}
 QTreeWidget#lockTree::item {{ padding: 4px 2px; }}
+QListWidget#categoryList {{ background: {DUSK}; border: 1px solid {LINE_SOFT};
+    border-radius: 12px; padding: 6px; }}
+QListWidget#categoryList::item {{ padding: 5px 4px; border-radius: 8px; }}
+QListWidget#categoryList::item:selected {{ background: {ACCENT_TINT}; color: {TEXT}; }}
+QListWidget#categoryList::indicator {{ width: 16px; height: 16px; }}
+QListWidget#categoryList::indicator:unchecked {{ border: 1px solid {LINE}; border-radius: 5px;
+    background: {RAISED}; }}
+QListWidget#categoryList::indicator:checked {{ border: 1px solid {ACCENT}; border-radius: 5px;
+    background: {ACCENT}; }}
 QTreeWidget#lockTree::indicator {{ width: 16px; height: 16px; }}
 QTreeWidget#lockTree::indicator:unchecked {{ border: 1px solid {LINE}; border-radius: 5px;
     background: {RAISED}; }}
@@ -184,6 +196,8 @@ QListWidget#chipList::item:selected, QListWidget#chipList::item:hover {{
 QPushButton#rate {{ background: transparent; border: 1px solid {LINE}; border-radius: 12px;
     padding: 4px 10px; color: {TEXT_SOFT}; font-size: 9px; font-weight: 600; }}
 QPushButton#rate:hover {{ border-color: {ACCENT}; color: {TEXT}; }}
+
+QPushButton#homeScroll {{ border-radius: 15px; padding: 0; font-size: 22px; }}
 
 QListView {{ background: transparent; border: none; outline: none; }}
 QListView::item {{ border-radius: 12px; }}
