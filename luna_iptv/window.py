@@ -386,6 +386,7 @@ class MainWindow(QMainWindow):
             else "Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak."
         )
         self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
+        self._reminders_changed()  # the visible guide must not keep removed channels
 
     def set_section(self, section):
         if section == "guide":
@@ -1687,6 +1688,7 @@ class MainWindow(QMainWindow):
         return reminder_id
 
     def _reminders_changed(self):
+        """Rebuild the guide rows if the guide is on screen."""
         if self.library_pages.currentWidget() is self.guide_view:
             self.refresh_guide_view()
 

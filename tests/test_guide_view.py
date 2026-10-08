@@ -1,13 +1,22 @@
 """The Rehber page: a virtualised timetable over the XMLTV guide."""
 
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from PySide6.QtCore import QPointF
+from PySide6.QtWidgets import QMessageBox
 from shiboken6 import isValid
 
 from luna_iptv.epg import GuideIndex
-from luna_iptv.guide_view import HEADER, LOGO_COLUMN, ROW, GuideGrid, ProgrammeCard
+from luna_iptv.guide_view import (
+    HEADER,
+    LOGO_COLUMN,
+    ROW,
+    GuideGrid,
+    ProgrammeCard,
+    local_day,
+)
 from luna_iptv.models import Channel, Programme
 from luna_iptv.storage import Store
 from luna_iptv.window import MainWindow
@@ -131,3 +140,33 @@ def test_reminder_set_from_the_guide_marks_the_programme(window):
     assert not again.remind_button.isEnabled()
     assert again.remind_button.text() == "Hatırlatıcı kurulu"
     again.close()
+
+
+def test_removing_a_source_clears_the_open_guide(window, monkeypatch):
+    window._guide_index["home"] = GuideIndex([programme("nova", "Derin Mavi", NOW)])
+    window.set_section("guide")
+    assert len(window.guide_view.grid.rows) == 1
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.Yes)
+    window.remove_source(window.store.sources()[0])
+    assert window.guide_view.grid.rows == []
+
+
+@pytest.fixture
+def berlin_time(monkeypatch):
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize("day, hours", [(date(2026, 3, 29), 23), (date(2026, 10, 25), 25)])
+def test_local_day_follows_dst_changes(berlin_time, day, hours):
+    start, end = local_day(day)
+    assert end - start == timedelta(hours=hours)
+    assert end.astimezone().date() == day + timedelta(days=1)
+    assert end.astimezone().hour == 0
+    grid = GuideGrid()
+    grid.set_day(day)
+    assert grid.day_minutes() == hours * 60
+    grid.close()

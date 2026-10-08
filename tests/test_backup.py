@@ -280,14 +280,25 @@ def test_direct_source_merge_reuses_the_existing_single_channel(stores):
     assert target.progress("direct:new") == (5, 10)
 
 
-def test_folder_name_conflict_rolls_back_source_and_favorite_changes(personal, stores):
-    target = stores("folder-conflict")
+def test_folders_merge_by_name_not_by_backup_id(personal, stores):
+    target = stores("folder-ids")
+    sport = target.create_folder("Spor")  # same local id as the backup's "Akşam"
     target.create_folder("Başka")
-    target.create_folder("Akşam")
-    before = snapshot(target)
-    with pytest.raises(ValueError, match="klasör"):
-        apply_backup(target, export_backup(personal))
-    assert snapshot(target) == before
+    evening = target.create_folder("akşam ")
+    apply_backup(target, export_backup(personal))
+    assert target.folders() == [(sport, "Spor"), (sport + 1, "Başka"), (evening, "akşam")]
+    assert target.folder_items(sport) == set()
+    assert target.folder_items(evening) == {"provider:old-one"}
+
+
+def test_folder_with_a_new_name_goes_last_under_a_fresh_id(personal, stores):
+    target = stores("folder-new")
+    sport = target.create_folder("Spor")
+    apply_backup(target, export_backup(personal))
+    (_, first), (new_id, name) = target.folders()
+    assert first == "Spor" and name == "Akşam" and new_id != sport
+    assert target.folder_items(sport) == set()
+    assert target.folder_items(new_id) == {"provider:old-one"}
 
 
 @pytest.mark.parametrize(

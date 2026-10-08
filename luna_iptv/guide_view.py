@@ -29,7 +29,6 @@ ROW = 64
 HEADER = 40
 LOGO_COLUMN = 190
 PX_PER_MINUTE = 5
-DAY_MINUTES = 24 * 60
 
 
 def reminded_key(channel, programme):
@@ -38,9 +37,10 @@ def reminded_key(channel, programme):
 
 
 def local_day(day):
-    """UTC bounds of a local calendar day."""
+    """UTC bounds of a local calendar day; 23 or 25 hours long on DST changes."""
     start = datetime.combine(day, time.min).astimezone()
-    return start.astimezone(timezone.utc), (start + timedelta(days=1)).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=1), time.min).astimezone()
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
 class GuideGrid(QAbstractScrollArea):
@@ -86,8 +86,11 @@ class GuideGrid(QAbstractScrollArea):
         self.day_start, self.day_end = local_day(day)
         self.viewport().update()
 
+    def day_minutes(self):
+        return round((self.day_end - self.day_start).total_seconds() / 60)
+
     def _update_ranges(self):
-        width = DAY_MINUTES * PX_PER_MINUTE
+        width = self.day_minutes() * PX_PER_MINUTE
         self.horizontalScrollBar().setRange(
             0, max(0, width - (self.viewport().width() - LOGO_COLUMN))
         )
@@ -211,7 +214,7 @@ class GuideGrid(QAbstractScrollArea):
         painter.setFont(font)
         step = 30
         first = (self.horizontalScrollBar().value() // (step * PX_PER_MINUTE)) * step
-        for minutes in range(first, DAY_MINUTES + step, step):
+        for minutes in range(first, self.day_minutes() + step, step):
             moment = self.day_start + timedelta(minutes=minutes)
             x = self.x_for(moment)
             if x > width:

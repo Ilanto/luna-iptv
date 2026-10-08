@@ -951,24 +951,19 @@ class Store:
                 "INSERT OR IGNORE INTO favorites(channel_id) VALUES(?)",
                 [(channel_ids[identity],) for identity in data["favorites"]],
             )
-            folders = dict(self.folders())
-            folder_names = {name.casefold(): identity for identity, name in folders.items()}
-            for folder in data["favorite_folders"]:
-                identity, name = folder["id"], folder["name"].strip()
-                matching = folder_names.get(name.casefold())
-                if identity not in folders and matching is not None:
-                    identity = matching
-                elif matching is not None and matching != identity:
-                    raise ValueError("Yedekteki klasör adı mevcut bir klasörle çakışıyor.")
-                if identity in folders:
-                    folder_names.pop(folders[identity].casefold(), None)
-                folders[identity] = name
-                folder_names[name.casefold()] = identity
-                self._db.execute(
-                    """INSERT INTO favorite_folders(id,name,position) VALUES(?,?,?)
-                    ON CONFLICT(id) DO UPDATE SET name=excluded.name,position=excluded.position""",
-                    (identity, name, folder["position"]),
-                )
+            # Folder ids are local autoincrement values, so folders merge by name:
+            # a backup's folder 1 may be a different folder here. New ones go last.
+            folder_names = {name.strip().casefold(): identity for identity, name in self.folders()}
+            for folder in sorted(data["favorite_folders"], key=lambda f: (f["position"], f["id"])):
+                name = folder["name"].strip()
+                identity = folder_names.get(name.casefold())
+                if identity is None:
+                    identity = self._db.execute(
+                        """INSERT INTO favorite_folders(name,position)
+                        SELECT ?,COALESCE(MAX(position), -1) + 1 FROM favorite_folders""",
+                        (name,),
+                    ).lastrowid
+                    folder_names[name.casefold()] = identity
                 self._db.executemany(
                     "INSERT OR IGNORE INTO favorite_folder_items(folder_id,channel_id) VALUES(?,?)",
                     [(identity, channel_ids[item]) for item in folder["members"]],
