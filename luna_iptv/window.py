@@ -41,6 +41,8 @@ from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
 from .preferences import TrackPreferences, normalize_preferences
 from .recovery import RecoveryController
+from .reminders import ReminderService
+from .reminders_dialog import RemindersDialog
 from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
 from .settings_dialog import SettingsDialog
 from .source_connections import HealthResult, check_connection, validate_candidate
@@ -156,6 +158,8 @@ class MainWindow(QMainWindow):
         self.reminders = None  # ReminderService, when available
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
+        self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
+        self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
         self.recovery.changed.connect(self.refresh_recovery)
@@ -553,6 +557,7 @@ class MainWindow(QMainWindow):
             )
         folders.addSeparator()
         folders.addAction("Yeni klasör…", lambda: self.create_folder(channel))
+        self._add_reminder_menu(menu, channel)
         return menu
 
     def channel_context_menu(self, position):
@@ -1356,6 +1361,7 @@ class MainWindow(QMainWindow):
         restore.setEnabled(not self._busy)
         menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
+        menu.addAction("Hatırlatıcılar…", self.open_reminders)
         return menu
 
     def export_backup(self):
@@ -1666,6 +1672,54 @@ class MainWindow(QMainWindow):
             read, done, "Program rehberi okunuyor…", lambda: self.load_guide(source), busy=False
         )
 
+    def _add_reminder_menu(self, menu, channel):
+        index = self._guide_index.get(channel.id.split(":", 1)[0])
+        upcoming = index.upcoming(channel.tvg_id, 20) if index and channel.kind == "live" else []
+        if upcoming:
+            reminders = menu.addMenu("Hatırlatıcı kur")
+            for programme in upcoming:
+                label = f"{programme.start.astimezone():%d.%m %H:%M} · {programme.title}"
+                reminders.addAction(
+                    label.replace("&", "&&"),
+                    lambda programme=programme: self.remind_programme(channel, programme),
+                )
+        menu.addAction("Hatırlatıcılar…", self.open_reminders)
+
+    def remind_programme(self, channel, programme):
+        try:
+            reminder_id = self.reminder_service.add(channel, programme)
+        except ValueError as error:
+            self.status(str(error))
+            return None
+        if reminder_id is not None:
+            self.status(
+                f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}"
+            )
+        return reminder_id
+
+    def cancel_reminder(self, reminder_id):
+        self.reminder_service.remove(reminder_id)
+
+    def open_reminders(self):
+        if self._reminders_dialog is None or not isValid(self._reminders_dialog):
+            self._reminders_dialog = RemindersDialog(self.reminder_service, self.store, self)
+        self._reminders_dialog.refresh()
+        self._reminders_dialog.show()
+        self._reminders_dialog.raise_()
+        self._reminders_dialog.activateWindow()
+        return self._reminders_dialog
+
+    def _watch_reminder(self, channel_id):
+        if self._closed:
+            return
+        channel = next((item for item in self.store.channels() if item.id == channel_id), None)
+        if channel is None:
+            self.status("Bu kanal artık kaynakta bulunmuyor.")
+            return
+        self.leave_mini_player()
+        RemoteControl(self).raise_window()
+        self.request_play(channel)
+
     def programme_now(self, channel):
         """What a live card shows as on now; cheap enough to call while painting."""
         if channel.kind != "live" or not channel.tvg_id:
@@ -1808,6 +1862,7 @@ class MainWindow(QMainWindow):
         self._closed = True
         self.idle_inhibit.close()
         self.mpris.close()
+        self.reminder_service.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()

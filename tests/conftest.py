@@ -71,3 +71,39 @@ def private_media_controls(monkeypatch):
     import luna_iptv.window
 
     monkeypatch.setattr(luna_iptv.window, "MprisService", RecordingMpris)
+
+
+class RecordingNotifications:
+    """Window tests record notifications without contacting the desktop server."""
+
+    def __init__(self, parent=None):
+        from PySide6.QtCore import QObject, Signal
+
+        class Events(QObject):
+            action_invoked = Signal("uint", str)
+            notification_closed = Signal("uint")
+
+        self._events = Events(parent)
+        self.action_invoked = self._events.action_invoked
+        self.notification_closed = self._events.notification_closed
+        self.sent = []
+        self.closed = False
+        self.available = True
+        self.defer = False
+        self.callbacks = []
+
+    def send(self, title, body, callback):
+        self.sent.append((title, body))
+        self.callbacks.append(callback)
+        if not self.defer:
+            callback(len(self.sent) if self.available else None)
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture(autouse=True)
+def private_reminder_notifications(monkeypatch):
+    import luna_iptv.reminders
+
+    monkeypatch.setattr(luna_iptv.reminders, "DesktopNotifications", RecordingNotifications)
