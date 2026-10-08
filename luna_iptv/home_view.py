@@ -273,7 +273,7 @@ class HomeView(QWidget):
             if window.proxy.hide_locked and cid in model.locked:
                 continue
             episode = channel.kind == "movie" and bool(channel.series_id)
-            if channel.kind in counts and not episode:
+            if channel.kind in counts and not episode and not window.proxy.category_hidden(channel):
                 counts[channel.kind] += 1
             favorite = cid in model.favorites
             if (

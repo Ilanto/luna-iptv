@@ -146,6 +146,15 @@ class Store:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS category_prefs (
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                group_name TEXT NOT NULL,
+                hidden INTEGER NOT NULL DEFAULT 0,
+                position INTEGER,
+                PRIMARY KEY(profile_id, source_id, kind, group_name)
+            );
             CREATE TABLE IF NOT EXISTS group_locks (
                 source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
                 group_name TEXT NOT NULL,
@@ -824,6 +833,44 @@ class Store:
                 "SELECT channel_id FROM favorites WHERE profile_id=?", (self.profile_id,)
             )
         }
+
+    def category_prefs(self, source_id: str | None = None) -> dict[tuple[str, str, str], dict]:
+        sql = (
+            "SELECT source_id,kind,group_name,hidden,position FROM category_prefs "
+            "WHERE profile_id=?"
+        )
+        parameters = [self.profile_id]
+        if source_id is not None:
+            sql += " AND source_id=?"
+            parameters.append(source_id)
+        return {
+            (source, kind, group): {"hidden": bool(hidden), "position": position}
+            for source, kind, group, hidden, position in self._db.execute(sql, parameters)
+        }
+
+    def save_category_prefs(self, source_id: str, kind: str, rows: list[tuple[str, bool]]) -> None:
+        """Replace one profile's source and section preferences atomically."""
+        if kind not in ("live", "movie", "series"):
+            raise ValueError("Geçersiz yayın türü.")
+        with self._db:
+            self._db.execute(
+                "DELETE FROM category_prefs WHERE profile_id=? AND source_id=? AND kind=?",
+                (self.profile_id, source_id, kind),
+            )
+            self._db.executemany(
+                "INSERT INTO category_prefs VALUES(?,?,?,?,?,?)",
+                [
+                    (self.profile_id, source_id, kind, group, int(hidden), position)
+                    for position, (group, hidden) in enumerate(rows)
+                ],
+            )
+
+    def reset_category_prefs(self, source_id: str, kind: str) -> None:
+        with self._db:
+            self._db.execute(
+                "DELETE FROM category_prefs WHERE profile_id=? AND source_id=? AND kind=?",
+                (self.profile_id, source_id, kind),
+            )
 
     def folders(self) -> list[tuple[int, str]]:
         return self._db.execute(
