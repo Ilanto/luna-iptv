@@ -1,5 +1,6 @@
 """The parental PIN: asked every time for locked content and for anything that changes Luna."""
 
+import math
 import time
 
 from PySide6.QtCore import QRegularExpression, Qt, Signal
@@ -49,6 +50,7 @@ def lock_badge(size=44):
     badge.setObjectName("pinBadge")
     badge.setFixedSize(size, size)
     badge.setAlignment(Qt.AlignCenter)
+    badge.setStyleSheet(f"border-radius: {size // 2}px;")
     badge.setPixmap(icons.pixmap("lock", theme.GOLD, size // 2, badge.devicePixelRatioF()))
     return badge
 
@@ -97,7 +99,7 @@ class PinDialog(QDialog):
         self.field.setEnabled(not locked)
         self.open_button.setEnabled(not locked)
         if locked:
-            self.error.setText(f"Çok fazla yanlış deneme. {int(wait) + 1} saniye sonra dene.")
+            self.error.setText(f"Çok fazla yanlış deneme. {math.ceil(wait)} saniye sonra dene.")
         return locked
 
     def try_pin(self):

@@ -162,7 +162,7 @@ def test_leaving_a_kids_profile_or_entering_a_protected_one_asks(window, store, 
     answers.append(True)
     assert window.switch_profile(me) and store.profile_id == me
     assert not window.switch_profile(guarded) and store.profile_id == me
-    assert len(asked) == 2
+    assert len(asked) == 3
 
 
 def test_profiles_keep_their_own_favorites(window, store):

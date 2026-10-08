@@ -96,7 +96,7 @@ QLabel#count {{ color: {ACCENT}; background: {ACCENT_TINT}; border-radius: 8px;
 QLabel#clock {{ color: {TEXT_SOFT}; }}
 QLabel#badge {{ color: {ACCENT}; font-size: 10px; }}
 QLabel#error {{ color: {DANGER}; }}
-QLabel#pinBadge {{ background: {DUSK}; border: 1px solid {LINE}; border-radius: 22px; }}
+QLabel#pinBadge {{ background: {DUSK}; border: 1px solid {LINE}; }}
 QLabel#profileName {{ color: {TEXT_SOFT}; font-weight: 600; }}
 QLineEdit#pinField {{ font-size: 22px; letter-spacing: 10px; padding: 10px; }}
 QPushButton#danger {{ color: {DANGER}; }}

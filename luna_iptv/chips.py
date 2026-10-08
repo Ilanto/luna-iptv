@@ -113,6 +113,9 @@ class ChipBar(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(6)
         self.more_button = None
+        self._overflow = False
+        # Chips never shrink below their text; what does not fit goes behind "more".
+        self.setMinimumWidth(1)
 
     def buttons(self):
         """Visible pills by value (for tests and keyboard focus)."""
@@ -124,6 +127,7 @@ class ChipBar(QWidget):
         button.setCheckable(True)
         button.setCursor(Qt.PointingHandCursor)
         button.setFixedHeight(30)
+        button.setMinimumWidth(button.sizeHint().width())
         if tip:
             button.setToolTip(tip)
         button.setAccessibleName(tip or text)
@@ -161,7 +165,8 @@ class ChipBar(QWidget):
             shown += [item for item in self._items if item[0] == current]
         for value, label, count in shown:
             self._chip(value, self._label(label, count), f"{label} · {count:,}".replace(",", "."))
-        if self.more_label and len(self._items) > len(shown):
+        self._overflow = len(self._items) > len(shown)
+        if self.more_label:
             if self.more_button is None:
                 self.more_button = QPushButton(self.more_label + "  ▾")
                 self.more_button.setObjectName("chipMore")
@@ -169,13 +174,38 @@ class ChipBar(QWidget):
                 self.more_button.setFixedHeight(30)
                 self.more_button.setAccessibleName(self.more_label)
                 self.more_button.clicked.connect(self.open_popup)
+                self.more_button.setMinimumWidth(self.more_button.sizeHint().width())
             self._layout.addWidget(self.more_button)
-            self.more_button.show()
-        elif self.more_button is not None:
-            self.more_button.hide()
         self._layout.addStretch()
         button = self._buttons.get(current) or self._buttons[""]
         button.setChecked(True)
+        self._fit()
+
+    def _fit(self):
+        """Show the chips that fit in order, the chosen one always; the rest wait in the list."""
+        if not self.more_label or not self._buttons:
+            return
+        spacing = self._layout.spacing()
+        chips = [button for value, button in self._buttons.items() if value]
+        chosen = self._buttons.get(self._current) if self._current else None
+        room = self.width() - self._buttons[""].minimumWidth()
+        room -= self.more_button.minimumWidth() + spacing * 2
+        if chosen is not None:
+            room -= chosen.minimumWidth() + spacing
+        hidden = False
+        for button in chips:
+            if button is chosen:
+                continue
+            need = button.minimumWidth() + spacing
+            fits = not hidden and need <= room
+            button.setVisible(fits)
+            room -= need if fits else 0
+            hidden = hidden or not fits
+        self.more_button.setVisible(self._overflow or hidden)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit()
 
     def set_current(self, value):
         """Mark ``value`` chosen, bringing it into the row if it was in the list only."""

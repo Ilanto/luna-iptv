@@ -179,7 +179,7 @@ class ProfileEditor(QDialog):
             self.colors.buttons()[0].setChecked(True)
         swatches.addStretch()
         layout.addLayout(swatches)
-        self.kids = QCheckBox("Çocuk profili: kilitli kategoriler ve yayınlar hiç görünmez")
+        self.kids = QCheckBox("Çocuk profili (kilitli içerik hiç görünmez)")
         self.kids.setChecked(bool(profile and profile["kids"]))
         self.kids.toggled.connect(self._preview)
         layout.addWidget(self.kids)
