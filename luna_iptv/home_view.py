@@ -324,6 +324,9 @@ class HomeView(QWidget):
     def _feature(self, resume_ids, live_ids):
         """The banner shows what to continue first, else a favourite with something on now."""
         model = self.window_ref.model
+        # Locked content never reaches the banner: its cards hide artwork and programmes too.
+        resume_ids = [cid for cid in resume_ids if cid not in model.locked]
+        live_ids = [cid for cid in live_ids if cid not in model.locked]
         by_id = {
             cid: model.channels[row]
             for cid in (*resume_ids[:1], *live_ids)

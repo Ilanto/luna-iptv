@@ -423,3 +423,28 @@ def test_hero_features_what_to_continue_then_a_live_favourite(qt_app):
     hero.clear()
     assert hero.isHidden()
     assert remaining_text(59) == "1 dk kaldı" and remaining_text(3600) == "1 sa kaldı"
+
+
+def test_hero_skips_locked_content(qt_app):
+    from types import SimpleNamespace
+
+    from luna_iptv.home_view import HomeView
+
+    film = Channel("h:f", "Gizli", "file:///f", kind="movie")
+    model = SimpleNamespace(
+        locked=frozenset({"h:f"}),
+        channels=[film],
+        progress={"h:f": (100, 1000)},
+        row_of=lambda cid: 0 if cid == "h:f" else None,
+    )
+    shown = []
+    view = SimpleNamespace(
+        window_ref=SimpleNamespace(model=model, programme_now=lambda c: None),
+        hero=SimpleNamespace(
+            show_resume=lambda *a: shown.append(a),
+            show_live=lambda *a: shown.append(a),
+            clear=lambda: shown.append("clear"),
+        ),
+    )
+    HomeView._feature(view, ["h:f"], [])
+    assert shown == ["clear"]

@@ -11,7 +11,6 @@ from .library import KIND_LABELS
 SHOW_SECONDS = 4.5
 MARGIN = 14
 MAX_WIDTH = 760
-MIN_HOST_WIDTH = 420  # the mini player is too small for it
 
 
 class ChannelBanner(QFrame):
@@ -92,11 +91,11 @@ class ChannelBanner(QFrame):
         self._place_fill()
 
     def show_for(self, seconds=SHOW_SECONDS):
-        """Show; hide again after ``seconds`` (None keeps it until hide_banner)."""
-        host = self.parentWidget()
-        if host is not None and host.width() < MIN_HOST_WIDTH:
-            self.hide()
-            return
+        """Show; hide again after ``seconds`` (None keeps it until hide_banner).
+
+        The window decides when not to (the mini player); a width rule here would also hide
+        it while the player panel is still sliding in.
+        """
         self._timer.stop()
         self.show()
         self.raise_()
@@ -126,10 +125,11 @@ class ChannelBanner(QFrame):
 class BannerPlacer(QObject):
     """Keeps the banner over the video as the panel, fullscreen controls or mini player move."""
 
-    def __init__(self, banner, video, controls, fullscreen_active):
+    def __init__(self, banner, video, controls, fullscreen_active, suppressed=lambda: False):
         super().__init__(banner)
         self.banner, self.video, self.controls = banner, video, controls
         self.fullscreen_active = fullscreen_active
+        self.suppressed = suppressed  # the mini player: too small for a banner
         for widget in (video, controls):
             widget.installEventFilter(self)
 
@@ -139,6 +139,9 @@ class BannerPlacer(QObject):
         return False
 
     def place(self):
+        if self.suppressed():
+            self.banner.hide_banner()
+            return
         area = self.video.geometry()
         bottom = None
         if self.fullscreen_active() and not self.controls.isHidden():

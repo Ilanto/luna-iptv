@@ -163,7 +163,11 @@ class MainWindow(QMainWindow):
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.channel_banner = ChannelBanner(self.watch)
         self._banner_placer = BannerPlacer(
-            self.channel_banner, self.video_stack, self.controls, lambda: self.fullscreen.active
+            self.channel_banner,
+            self.video_stack,
+            self.controls,
+            lambda: self.fullscreen.active,
+            self.banner_suppressed,
         )
         self.fullscreen.controls_shown.connect(lambda: self.show_channel_banner(None))
         self.fullscreen.controls_hidden.connect(self.channel_banner.hide_banner)
@@ -1035,10 +1039,18 @@ class MainWindow(QMainWindow):
         """Update the loaded UI; native callbacks validate their token first."""
         self._mark_loaded()
 
+    def banner_suppressed(self):
+        """The mini player (unless it went fullscreen) has no room for the banner."""
+        mini = getattr(self, "mini_player", None)
+        return bool(mini is not None and mini.active and not self.isFullScreen())
+
     def show_channel_banner(self, seconds=4.5):
         """The TV-style banner: number, channel, programme now and next."""
         channel = self.current
         if self._closed or channel is None or self.video_stack.currentIndex() != 1:
+            return
+        if self.banner_suppressed():
+            self.channel_banner.hide_banner()
             return
         programme = self.programme_now(channel)
         following = None

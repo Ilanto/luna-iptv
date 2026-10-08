@@ -46,17 +46,6 @@ def test_banner_shows_programme_progress_and_what_comes_next(qt_app):
     assert banner.following.isHidden() and banner.track.isHidden()
 
 
-def test_banner_stays_out_of_the_mini_player(qt_app):
-    host = QWidget()
-    host.resize(320, 180)
-    host.show()
-    banner = ChannelBanner(host)
-    banner.set_content(Channel("h:n", "NTV", "file:///n.ts"))
-    banner.show_for()
-    assert banner.isHidden()
-    host.close()
-
-
 @pytest.fixture
 def window(qt_app, tmp_path, monkeypatch):
     store = Store(tmp_path / "library.sqlite3")
@@ -101,3 +90,19 @@ def test_fullscreen_controls_bring_the_banner_and_take_it_away(window):
     assert not window.channel_banner._timer.isActive()  # stays while the controls show
     window.fullscreen.controls_hidden.emit()
     assert window.channel_banner.isHidden()
+
+
+def test_mini_player_gets_no_banner(window):
+    ntv = next(c for c in window.model.channels if c.name == "NTV")
+    window.request_play(ntv)
+    window._mark_loaded()
+    assert not window.channel_banner.isHidden()
+    # Only the flag the banner reads; reset before teardown so closing stays normal.
+    window.mini_player.active = True
+    try:
+        window._banner_placer.place()  # what a mini-player resize does
+        assert window.channel_banner.isHidden()
+        window.fullscreen.controls_shown.emit()
+        assert window.channel_banner.isHidden()
+    finally:
+        window.mini_player.active = False
