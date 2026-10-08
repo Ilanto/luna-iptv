@@ -18,6 +18,7 @@ def search_key(text):
 
 
 PROGRESS_ROLE = Qt.UserRole + 2
+LOCKED_ROLE = Qt.UserRole + 3
 
 
 def resumable(position, duration):
@@ -37,6 +38,7 @@ class ChannelModel(QAbstractListModel):
         self.favorites = set()
         self.search_keys = []
         self.progress = {}
+        self.locked = frozenset()  # channel ids behind the parental PIN
         self._rows = {}
 
     def rowCount(self, parent=None):
@@ -57,8 +59,11 @@ class ChannelModel(QAbstractListModel):
                 return None
             position, duration = self.progress[channel.id]
             return position / duration if resumable(position, duration) else None
+        if role == LOCKED_ROLE:
+            return channel.id in self.locked
         if role == Qt.AccessibleTextRole:
-            return channel.name + ", " + channel.group
+            locked = ", kilitli" if channel.id in self.locked else ""
+            return channel.name + ", " + channel.group + locked
 
     def reset(self, channels, favorites, progress=None):
         self.beginResetModel()
@@ -68,6 +73,14 @@ class ChannelModel(QAbstractListModel):
         self._rows = {channel.id: row for row, channel in enumerate(channels)}
         self.search_keys = [search_key(c.name + " " + c.group) for c in channels]
         self.endResetModel()
+
+    def set_locked(self, channel_ids):
+        """Swap the set of locked channels and repaint every card."""
+        self.locked = frozenset(channel_ids)
+        if self.channels:
+            self.dataChanged.emit(
+                self.index(0, 0), self.index(len(self.channels) - 1, 0), [LOCKED_ROLE]
+            )
 
     def replace_progress(self, progress):
         """Swap in freshly loaded positions (after history is reset) and repaint every card."""
@@ -99,6 +112,7 @@ class ChannelFilter(QSortFilterProxyModel):
         self.kind = ""
         self.recent = {}
         self.folder_ids = None
+        self.hide_locked = False  # a kids profile never sees locked channels
 
     def set_recent_ids(self, channel_ids):
         self.recent = {channel_id: rank for rank, channel_id in enumerate(channel_ids)}
@@ -127,6 +141,8 @@ class ChannelFilter(QSortFilterProxyModel):
 
     def filterAcceptsRow(self, row, parent):
         channel = self.sourceModel().channels[row]
+        if self.hide_locked and channel.id in self.sourceModel().locked:
+            return False
         if self.source and not channel.id.startswith(self.source + ":"):
             return False
         if self._query_key:
@@ -167,6 +183,7 @@ class ChannelFilter(QSortFilterProxyModel):
             personal = self.section in ("favorites", "recent")
             if (
                 channel.kind in counts
+                and not (self.hide_locked and channel.id in model.locked)
                 and (personal or not (channel.series_id and channel.kind == "movie"))
                 and (not self.source or channel.id.startswith(self.source + ":"))
                 and self._in_personal_list(channel)
@@ -280,7 +297,9 @@ class ChannelDelegate(QStyledItemDelegate):
         self.posters = posters
         self.now_for = now_for or (lambda channel: None)
 
-    def artwork(self, channel):
+    def artwork(self, channel, locked=False):
+        if locked:
+            return None  # no poster or logo for content behind the PIN
         cache = self.posters if channel.kind in POSTER_KINDS and self.posters else self.logos
         return cache.prepared_logo(channel.logo) if cache and channel.logo else None
 
@@ -341,6 +360,20 @@ class ChannelDelegate(QStyledItemDelegate):
                 QRectF(rect.right() - 28, rect.top() + 11, 16, 16), star, QRectF(star.rect())
             )
 
+    def _lock(self, painter, locked, rect):
+        """A gold padlock in the top-left corner of locked artwork."""
+        if not locked:
+            return
+        badge = QRectF(rect.left() + 10, rect.top() + 10, 26, 26)
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(11, 16, 32, 200))
+        painter.drawEllipse(badge)
+        ratio = painter.device().devicePixelRatioF()
+        lock = icons.pixmap("lock", theme.GOLD, 15, ratio)
+        painter.drawPixmap(badge.adjusted(5.5, 5.5, -5.5, -5.5), lock, QRectF(lock.rect()))
+        painter.restore()
+
     def _watched(self, painter, index, art):
         """How much of a film or episode has been watched, along the artwork's foot."""
         fraction = index.data(PROGRESS_ROLE)
@@ -387,7 +420,8 @@ class ChannelDelegate(QStyledItemDelegate):
         art = QRectF(card.left(), card.top(), card.width(), card.width() * 1.5)
         painter.save()
         painter.setClipPath(shape)
-        poster = self.artwork(channel)
+        locked = bool(index.data(LOCKED_ROLE))
+        poster = self.artwork(channel, locked)
         if poster is not None:
             # Cover the 2:3 frame; posters of other shapes are cropped, never stretched.
             painter.drawPixmap(art, poster, cover_source(poster, art))
@@ -398,6 +432,7 @@ class ChannelDelegate(QStyledItemDelegate):
             self._wordmark(painter, option, channel.name, art.adjusted(14, 14, -14, -14), 12, True)
         self._watched(painter, index, art)
         self._star(painter, index, art)
+        self._lock(painter, locked, art)
         painter.restore()
         self._caption(
             painter,
@@ -413,7 +448,8 @@ class ChannelDelegate(QStyledItemDelegate):
         painter.save()
         painter.setClipPath(shape)
         self._stage(painter, channel, stage, shape, lit)
-        logo = self.artwork(channel)
+        locked = bool(index.data(LOCKED_ROLE))
+        logo = self.artwork(channel, locked)
         if logo is not None and channel.kind in POSTER_KINDS:
             # A poster in a wide card (favorites, history): artwork left, name right.
             height = stage.height() - 16
@@ -436,9 +472,10 @@ class ChannelDelegate(QStyledItemDelegate):
         else:
             self._wordmark(painter, option, channel.name, stage.adjusted(16, 0, -16, 0), 14)
         self._star(painter, index, stage)
+        self._lock(painter, locked, stage)
         painter.restore()
 
-        programme = self.now_for(channel)
+        programme = None if locked else self.now_for(channel)
         kind = KIND_LABELS.get(channel.kind, "")
         if programme:
             start, end = programme.start.astimezone(), programme.end.astimezone()

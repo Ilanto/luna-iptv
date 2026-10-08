@@ -44,7 +44,7 @@ def main():
             "Yerel veritabanı okunamadı. Veri dizinindeki izinleri ve boş disk alanını kontrol edin.",
         )
         return 1
-    window = MainWindow(store)
+    window = MainWindow(store, ask_profile=True)
     window.show()
     if args.file:
         path = str(Path(args.file).expanduser().resolve())

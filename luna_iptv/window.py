@@ -37,9 +37,11 @@ from .models import Channel, Playlist
 from .motion import set_motion_level
 from .mpris import MprisService
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
+from .parental_ui import ParentalDialog, ask_pin
 from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
 from .preferences import TrackPreferences, normalize_preferences
+from .profiles_ui import ProfilePicker, ProfilesDialog
 from .recovery import RecoveryController
 from .reminders import ReminderService
 from .reminders_dialog import RemindersDialog
@@ -102,7 +104,7 @@ class RemoteControl:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, store):
+    def __init__(self, store, *, ask_profile=False):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
@@ -177,13 +179,14 @@ class MainWindow(QMainWindow):
             lambda: self.engine_label.setText("mpv  ·  " + QApplication.platformName())
         )
         self.refresh_library()
+        self.refresh_profile_badge()
         self._guide_timer = QTimer(self)
         self._guide_timer.setInterval(30000)
         self._guide_timer.timeout.connect(self.update_guide)
         self._guide_timer.timeout.connect(self._refresh_live_cards)
         self._guide_timer.start()
         QTimer.singleShot(0, self.load_cached_guides)
-        QTimer.singleShot(0, self.restore_last_channel)
+        QTimer.singleShot(0, self.start_session if ask_profile else self.restore_last_channel)
 
     def status(self, message, retry=None):
         self.mini_status.setText(message)
@@ -242,7 +245,7 @@ class MainWindow(QMainWindow):
         QThreadPool.globalInstance().start(task)
 
     def add_source(self, checked=False, location=""):
-        if self._busy:
+        if self._busy or not self.guard("Kaynak eklemek için PIN gir."):
             return
         dialog = SourceDialog(self, location)
         if dialog.exec() == QDialog.Accepted:
@@ -364,6 +367,9 @@ class MainWindow(QMainWindow):
         self.source_combo.blockSignals(False)
         self.proxy.source = self.source_combo.currentData() or ""
         self.model.reset(self.store.channels(), self.store.favorites(), self.store.progress_map())
+        if self.store.pin_hash():
+            self.store.lock_adult_groups()  # new adult categories from this catalogue
+        self.apply_locks(filter_now=False)
         self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
             stored_current = next((c for c in self.model.channels if c.id == self.current.id), None)
@@ -424,10 +430,12 @@ class MainWindow(QMainWindow):
         self.category.blockSignals(True)
         self.category.clear()
         self.category.addItem("Tüm kategoriler", "")
+        hidden = self.model.locked if self.proxy.hide_locked else frozenset()
         counts = Counter(
             c.group
             for c in self.model.channels
             if c.group
+            and c.id not in hidden
             and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
             and (self.proxy.section in ("favorites", "recent") or c.kind == self.proxy.section)
             and not (c.series_id and c.kind == "movie")
@@ -454,6 +462,7 @@ class MainWindow(QMainWindow):
             c.id
             for c in self.model.channels
             if c.id in self.model.favorites
+            and not (self.proxy.hide_locked and c.id in self.model.locked)
             and (not self.proxy.source or c.id.startswith(self.proxy.source + ":"))
         }
         self.folder_bar.set_items(
@@ -559,6 +568,12 @@ class MainWindow(QMainWindow):
         folders.addSeparator()
         folders.addAction("Yeni klasör…", lambda: self.create_folder(channel))
         self._add_reminder_menu(menu, channel)
+        if self.store.pin_hash() and not self.kids_profile():
+            menu.addSeparator()
+            if channel.id in self.store.locked_channels():
+                menu.addAction("Kilidi kaldır…", lambda: self.set_channel_locked(channel, False))
+            elif channel.id not in self.model.locked:
+                menu.addAction("Kilitle", lambda: self.set_channel_locked(channel, True))
         return menu
 
     def channel_context_menu(self, position):
@@ -585,6 +600,8 @@ class MainWindow(QMainWindow):
         rows, seen = [], set()
         for channel in self.model.channels:
             if channel.kind != "live" or not channel.tvg_id or channel.id in seen:
+                continue
+            if self.proxy.hide_locked and channel.id in self.model.locked:
                 continue
             index = self._guide_index.get(channel.id.split(":", 1)[0])
             if index is not None and channel.tvg_id in index.channel_ids():
@@ -645,7 +662,7 @@ class MainWindow(QMainWindow):
         if channel.kind == "live":
             self.details.dismiss()
             self.request_play(channel)
-        else:
+        elif self.unlock_channel(channel):
             self.details.open(channel)
 
     def _proxy_row(self, channel_id):
@@ -677,7 +694,7 @@ class MainWindow(QMainWindow):
         for _ in range(rows - 1):
             row = (row + step) % rows
             channel = self.proxy.index(row, 0).data(Qt.UserRole)
-            if channel.kind == "live":
+            if channel.kind == "live" and channel.id not in self.model.locked:
                 index = self.proxy.index(row, 0)
                 self.channel_list.setCurrentIndex(index)
                 self.channel_list.scrollTo(index)
@@ -692,7 +709,9 @@ class MainWindow(QMainWindow):
         action = selected_setting(self.store, "startup_action", STARTUP_CHOICES)
         if action == "none":
             return
-        live = {c.id for c in self.model.channels if c.kind == "live"}
+        live = {
+            c.id for c in self.model.channels if c.kind == "live" and c.id not in self.model.locked
+        }
         last = next((cid for cid in self.store.recent_ids(10_000) if cid in live), None)
         row = self._proxy_row(last) if last else None
         if row is None:
@@ -709,6 +728,8 @@ class MainWindow(QMainWindow):
         )
 
     def open_settings(self):
+        if not self.guard("Ayarları açmak için PIN gir."):
+            return
         if self._settings_dialog is None or not isValid(self._settings_dialog):
             self._settings_dialog = SettingsDialog(self.store, self)
         self._settings_dialog.show()
@@ -728,7 +749,10 @@ class MainWindow(QMainWindow):
         if dialog is not None and isValid(dialog):
             dialog.reject()
 
-    def request_play(self, channel, *, preferences=None):
+    def request_play(self, channel, *, preferences=None, approved=False):
+        """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
+        if not self.unlock_channel(channel, approved=approved):
+            return
         self.dismiss_resume()
         preferences = normalize_preferences(preferences) if preferences is not None else None
         position = self.resume_position(channel)
@@ -1134,6 +1158,15 @@ class MainWindow(QMainWindow):
         if self.transport.rate:
             self.play_button.setText("▶")
 
+    def close_current(self):
+        """Stop and forget the current channel, back to the welcome screen."""
+        self.stop_playback()
+        self.current = None
+        self._current_persistent = False
+        self.favorite_button.setEnabled(False)
+        self.video_stack.setCurrentIndex(0)
+        self.video_title.setText("İyi bir yayına yer aç.")
+
     def stop_playback(self):
         self.dismiss_resume()
         self.save_progress()
@@ -1357,11 +1390,15 @@ class MainWindow(QMainWindow):
     def export_backup(self):
         from .backup_dialog import save_backup_dialog
 
+        if not self.guard("Yedek almak için PIN gir."):
+            return
         save_backup_dialog(self)
 
     def restore_backup(self):
         from .backup_dialog import restore_backup_dialog
 
+        if not self.guard("Yedekten geri yüklemek için PIN gir."):
+            return
         restore_backup_dialog(self)
 
     @staticmethod
@@ -1370,7 +1407,7 @@ class MainWindow(QMainWindow):
         return all(str(left.get(field, "")) == str(right.get(field, "")) for field in fields)
 
     def edit_source(self, source):
-        if source is None or self._busy:
+        if source is None or self._busy or not self.guard("Bağlantıyı düzenlemek için PIN gir."):
             return
         expected = dict(source)
         dialog = SourceDialog(self, source=expected)
@@ -1536,7 +1573,7 @@ class MainWindow(QMainWindow):
         )
 
     def rename_source(self, source):
-        if source is None:
+        if source is None or not self.guard("Kaynağı yeniden adlandırmak için PIN gir."):
             return
         name, accepted = QInputDialog.getText(
             self, "Kaynağı yeniden adlandır", "Kaynak adı", QLineEdit.Normal, source["name"]
@@ -1557,6 +1594,8 @@ class MainWindow(QMainWindow):
         self.status("Kaynak adı güncellendi.")
 
     def remove_source(self, source):
+        if not self.guard("Kaynağı kaldırmak için PIN gir."):
+            return
         if (
             QMessageBox.question(
                 self,
@@ -1570,12 +1609,7 @@ class MainWindow(QMainWindow):
         self._source_edit_tokens.pop(source["id"], None)
         self._source_health_tokens.pop(source["id"], None)
         if self.current and self.current.id.startswith(source["id"] + ":"):
-            self.stop_playback()
-            self.current = None
-            self._current_persistent = False
-            self.favorite_button.setEnabled(False)
-            self.video_stack.setCurrentIndex(0)
-            self.video_title.setText("İyi bir yayına yer aç.")
+            self.close_current()
         account_dialog = self._account_dialog
         if account_dialog is not None:
             if not isValid(account_dialog):
@@ -1686,6 +1720,159 @@ class MainWindow(QMainWindow):
                 f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}"
             )
         return reminder_id
+
+    def guard(self, reason):
+        """Ask for the PIN when one is set; every time, nothing is remembered."""
+        return ask_pin(self.store, reason, self)
+
+    def kids_profile(self):
+        profile = self.store.profile(self.store.profile_id)
+        return bool(profile and profile["kids"])
+
+    def unlock_channel(self, channel, *, approved=False):
+        """May this channel open now? approved: the PIN was just asked for it."""
+        if channel.id not in self.model.locked:
+            return True
+        if self.kids_profile():
+            self.status("Bu içerik bu profilde kapalı.")
+            return False
+        return approved or self.guard(f"“{channel.name}” kilitli. Açmak için PIN gir.")
+
+    def locked_ids(self):
+        """Channels behind the PIN: locked one by one or through their category."""
+        if not self.store.pin_hash():
+            return set()
+        channels = self.store.locked_channels()
+        groups = self.store.locked_groups()
+        return {
+            c.id
+            for c in self.model.channels
+            if c.id in channels or (c.id.split(":", 1)[0], c.group) in groups
+        }
+
+    def apply_locks(self, *, filter_now=True):
+        self.model.set_locked(self.locked_ids())
+        self.proxy.hide_locked = self.kids_profile() and bool(self.model.locked)
+        if filter_now:
+            self.refresh_categories()
+            self.filter_changed()
+            self._reminders_changed()
+        if self.current and self.proxy.hide_locked and self.current.id in self.model.locked:
+            self.close_current()
+
+    def set_channel_locked(self, channel, locked):
+        if not locked and not self.guard(f"“{channel.name}” kilidini kaldırmak için PIN gir."):
+            return
+        self.store.set_channel_locked(channel.id, locked)
+        self.apply_locks()
+        self.status(f"“{channel.name}” kilitlendi." if locked else "Kilit kaldırıldı.")
+
+    def open_parental(self):
+        if not self.guard("Ebeveyn denetimini açmak için PIN gir."):
+            return
+        dialog = ParentalDialog(self.store, self)
+        dialog.changed.connect(self.apply_locks)
+        dialog.changed.connect(self.refresh_profile_badge)
+        dialog.exec()
+
+    def open_profiles(self):
+        if not self.guard("Profilleri yönetmek için PIN gir."):
+            return
+        dialog = ProfilesDialog(self.store, self)
+        dialog.deleting.connect(self._deleting_profile)
+        dialog.changed.connect(self.profiles_changed)
+        dialog.exec()
+
+    def profiles_changed(self):
+        """A profile was edited or deleted; the active one may have changed under us."""
+        self.load_profile()
+
+    def refresh_profile_badge(self):
+        self.profile_button.set_profile(self.store.profile(self.store.profile_id))
+
+    def profile_menu(self):
+        menu = self.build_profile_menu()
+        menu.exec(self.profile_button.mapToGlobal(self.profile_button.rect().topRight()))
+        menu.deleteLater()
+
+    def build_profile_menu(self):
+        menu = QMenu(self)
+        for profile in self.store.profiles():
+            action = menu.addAction(profile["name"])
+            action.setCheckable(True)
+            action.setChecked(profile["id"] == self.store.profile_id)
+            action.triggered.connect(
+                lambda checked=False, pid=profile["id"]: self.switch_profile(pid)
+            )
+        menu.addSeparator()
+        menu.addAction("Profilleri yönet…", self.open_profiles)
+        menu.addAction("Ebeveyn denetimi…", self.open_parental)
+        return menu
+
+    def switch_profile(self, profile_id):
+        """Leaving a kids profile or entering a protected one asks for the PIN."""
+        target = self.store.profile(profile_id)
+        if target is None or profile_id == self.store.profile_id:
+            return False
+        if (target["protected"] or self.kids_profile()) and not self.guard(
+            f"“{target['name']}” profiline geçmek için PIN gir."
+        ):
+            return False
+        self.leave_profile()
+        self.store.use_profile(profile_id)
+        self.load_profile()
+        self.status(f"{target['name']} profili açık.")
+        return True
+
+    def leave_profile(self):
+        """Before another profile becomes active: save and stop what this one watches."""
+        self.details.dismiss()  # an open detail card was unlocked for this profile only
+        if self.current is not None:
+            self.close_current()
+
+    def _deleting_profile(self, profile_id):
+        if profile_id == self.store.profile_id:
+            self.leave_profile()
+
+    def load_profile(self):
+        """Reload everything personal: favorites, folders, history, reminders, locks."""
+        self.details.dismiss()
+        self.reminder_service.reload()
+        self.refresh_library()
+        self.refresh_favorites()
+        self.refresh_profile_badge()
+
+    def start_session(self):
+        if self._closed:
+            return
+        self.choose_profile_at_start()
+        self.restore_last_channel()
+
+    def choose_profile_at_start(self):
+        """'Kim izliyor?' when there is more than one profile; protected ones need the PIN."""
+        profiles = self.store.profiles()
+        if len(profiles) > 1:
+            picker = ProfilePicker(profiles, self.store.profile_id, self)
+            if picker.exec() == QDialog.Accepted and picker.chosen != self.store.profile_id:
+                if self.switch_profile(picker.chosen):
+                    return self.store.profile_id
+        return self.enter_active_profile()
+
+    def enter_active_profile(self):
+        """The profile left active last time; a protected one asks before it opens."""
+        profile = self.store.profile(self.store.profile_id)
+        if not (profile["protected"] and self.store.pin_hash()):
+            return profile["id"]
+        if self.guard(f"“{profile['name']}” profiline girmek için PIN gir."):
+            return profile["id"]
+        fallback = next((p for p in self.store.profiles() if not p["protected"]), None)
+        if fallback is None:
+            self.close()  # every profile is protected and the PIN was not given
+            return None
+        self.store.use_profile(fallback["id"])
+        self.load_profile()
+        self.status(f"{fallback['name']} profili açık.")
+        return fallback["id"]
 
     def _reminders_changed(self):
         """Rebuild the guide rows if the guide is on screen."""

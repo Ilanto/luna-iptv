@@ -27,6 +27,7 @@ from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
 from .motion import IconButton, LogoMark, MoonSky, NavFrame
 from .player import VideoWidget
+from .profiles_ui import ProfileAvatar
 
 
 class VideoStack(QStackedWidget):
@@ -119,6 +120,10 @@ def build_window(w):
         w.nav_buttons[key] = b
     w.nav_buttons["live"].setChecked(True)
     side.addStretch()
+    w.profile_button = ProfileAvatar(42)
+    w.profile_button.clicked.connect(w.profile_menu)
+    side.addWidget(w.profile_button, 0, Qt.AlignHCenter)
+    side.addSpacing(6)
     w.add_button = icon_button("Kaynak ekle", w.add_source, "plus", "primary", tip="Kaynak ekle")
     w.add_button.setFixedSize(52, 52)
     side.addWidget(w.add_button, 0, Qt.AlignHCenter)

@@ -227,7 +227,8 @@ class MediaDetailController(QObject):
         if fresh is not None:
             preferences = self.dialog.playback_preferences()
             self.dismiss()
-            self.window.request_play(fresh, preferences=preferences)
+            # The details opened only after the PIN, so do not ask again.
+            self.window.request_play(fresh, preferences=preferences, approved=True)
 
     def _favorite(self, channel):
         if self.dialog is not None and self._valid(channel, self._fingerprint):

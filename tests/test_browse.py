@@ -83,3 +83,23 @@ def test_search_in_favorites_stays_in_favorites(window):
     window.set_section("favorites")
     window.search.setText("ay")
     assert visible_ids(window) == {"home:film"}
+
+
+def test_chips_that_do_not_fit_wait_in_the_list_without_squeezing(qt_app):
+    from luna_iptv.chips import ChipBar
+
+    bar = ChipBar(more_label="Tüm kategoriler", limit=7)
+    items = [(f"g{i}", f"Uzun kategori adı {i}", 10 - i) for i in range(7)]
+    bar.resize(560, 30)
+    bar.set_items(items, "g6")
+    chips = bar.buttons()
+    shown = [value for value, button in chips.items() if not button.isHidden()]
+    assert shown[0] == "" and "g6" in shown and len(shown) < len(chips)
+    assert not bar.more_button.isHidden()
+    assert all(b.width() >= b.sizeHint().width() for b in chips.values() if not b.isHidden())
+    bar.show()
+    bar.resize(3000, 30)
+    qt_app.processEvents()
+    assert all(not button.isHidden() for button in chips.values())
+    assert bar.more_button.isHidden()
+    bar.close()

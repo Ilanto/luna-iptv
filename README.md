@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.15.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.16.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,14 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.16.0 · profiller ve ebeveyn denetimi
+
+- **Profiller:** kenar çubuğundaki yuvarlak simgeden profil değiştirilir. Her profilin kendi favorileri, klasörleri, izleme geçmişi ve hatırlatıcıları vardır; kaynaklar ve ayarlar ortaktır. Birden fazla profil varsa Luna açılırken "Kim izliyor?" diye sorar. Var olan veriler ilk profile ("Ben") kayıpsız taşınır.
+- **Ebeveyn denetimi** (profil menüsünde): bir PIN belirlenir; yetişkin kategorileri kendiliğinden bulunup kilitlenir, liste üzerinden kategori seçilir, kartın sağ tık menüsünden tek yayın kilitlenir. Kilitli içerik her açılışta PIN ister (hatırlanmaz), kartında afiş ve program gösterilmez, kanal değiştirirken atlanır. Ayarlar, kaynak ekleme/düzenleme/silme, yedekler, profiller ve denetimin kendisi de PIN ister. Beş yanlış denemede 30 saniye beklenir.
+- **Çocuk profili:** kilitli kategoriler ve yayınlar listede, aramada, geçmişte ve rehberde hiç görünmez; çocuk profilinden çıkmak PIN ister. Bir profile "girerken PIN sor" da denebilir.
+- PIN PBKDF2 ile özetlenip saklanır, yedeğe girmez. PIN bir erişim denetimidir, verileri şifrelemez.
+- **Kategori düğmeleri** artık sıkışmıyor; sığmayanlar "Tüm kategoriler" listesinde bekler.
 
 ### 0.15.0 · rehber, hatırlatıcı, yedekleme
 

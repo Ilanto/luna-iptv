@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.15.0
+Version:        0.16.0
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,11 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Thu Oct 08 2026 Luna IPTV contributors - 0.16.0-1
+- Profiles with their own favorites, folders, history and reminders.
+- Parental PIN for locked categories and channels, settings, sources and backups.
+- Category chips that do not fit wait in the full list instead of shrinking.
+
 * Thu Oct 08 2026 Luna IPTV contributors - 0.15.0-1
 - Rehber: a full programme guide with days, search and a now line.
 - Programme reminders with desktop notifications and an Izle action.

@@ -1,3 +1,3 @@
 """Luna IPTV — personal native Linux television client."""
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"

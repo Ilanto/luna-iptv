@@ -36,7 +36,7 @@ taahhüt değildir.
 | 4 | Arama ve filtreler | Kısmi | Arama sonuçlarını kaynak, içerik türü, kategori ve kişisel listelerle daha rahat daraltma; filtre durumunu anlaşılır biçimde gösterme. | Büyük katalog arama hızını ve birleşen filtrelerin doğruluğunu korumalı. |
 | 5 | Linux masaüstü uyumu | Kısmi | Oynatma sırasında ekran uyku engeli 0.7.0 ile teslim edildi. Kalan: MPRIS durumu/metadata, medya tuşları ve kullanıcının açtığı isteğe bağlı bildirimler. | D-Bus yokken sessizce temel davranışa dönmeli; pause/stop/close sonrası inhibit mutlaka bırakılmalı. Bildirimler yayın adresi veya hesap bilgisi taşımamalı. |
 | 6 | Yedekleme ve geri yükleme | Teslim | Kaynaklar, favoriler, klasörler, kategori düzeni, tercihler ve istenirse geçmiş için sürümlü dışa aktarma/içe aktarma. | Erişim bilgilerinin dahil edilmesi açık kullanıcı seçimi olmalı. İçe aktarma önce doğrulanmalı, mevcut veri atomik işlem olmadan değiştirilmemeli. |
-| 7 | Profiller ve ebeveyn denetimi | Gelecek | Ayrı profil tercihleri/geçmişi ve tanımlı içerik kısıtları. | Profil sahipliği ve veri göçü önce tanımlanmalı. PIN erişim denetimidir; veri şifreleme vaadi olarak sunulmamalı. |
+| 7 | Profiller ve ebeveyn denetimi | Teslim | Ayrı profil tercihleri/geçmişi ve tanımlı içerik kısıtları. | Profil sahipliği ve veri göçü önce tanımlanmalı. PIN erişim denetimidir; veri şifreleme vaadi olarak sunulmamalı. |
 
 ## Güç kullanıcıları için daha sonraki adaylar
 

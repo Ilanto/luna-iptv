@@ -75,8 +75,8 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 import luna_iptv.window as module
 class PackageWindow(module.MainWindow):
-    def __init__(self, store):
-        super().__init__(store)
+    def __init__(self, store, **options):
+        super().__init__(store, **options)
         QTimer.singleShot(650, self.capture)
     def capture(self):
         out = Path(os.environ['LUNA_PACKAGE_REPORT'])

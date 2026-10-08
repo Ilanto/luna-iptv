@@ -60,3 +60,11 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - Birleştirmede git çakışma göstermedi ama rehberin yer tutucu `remind_programme`/`open_reminders` yöntemleri hatırlatıcının gerçek yöntemleriyle aynı adı taşıyordu (Python sessizce üstüne yazar). Yer tutucular kaldırıldı; rehber hatırlatıcıları (kanal, başlangıç zaman damgası) ile eşleştirir. Uçtan uca test: rehberden hatırlatıcı kurulur, kart "Hatırlatıcı kurulu" gösterir.
 - `GuideIndex.between()` ikili aramayla yalnız görünen zaman penceresini döndürür; rehber yalnız ekrandaki satırları boyar.
 - `scripts/test-quiet.sh`: **650 geçti**, 5 atlandı. Görsel kontrol (offscreen): rehber, hatırlatıcılar ve yedekleme pencereleri.
+
+# Luna IPTV 0.16.0 · profiller ve ebeveyn denetimi
+
+- Veri katmanı (profil başına favori/klasör/geçmiş/hatırlatıcı, tek işlemde tablo yeniden kurma göçü, PIN özeti, kategori/yayın kilitleri) Codex'e (gpt-6-astra) ayrı worktree'de, arayüzle aynı anda yazdırıldı; API önceden sabitlendi. Eski şemayla kurulan veritabanının profile 1'e kayıpsız taşındığı ve ikinci açılışta değişmediği test edilir.
+- PIN her seferinde sorulur; testler aynı kanalın iki kez açılmasında iki kez sorulduğunu, kilitsiz kanalda sorulmadığını, ayarlar/kaynak/yedek/profil/denetim kapılarını, beş yanlışta 30 saniyelik beklemeyi ve beklemenin pencere yeniden açılınca sıfırlanmadığını doğrular.
+- Çocuk profilinde kilitli içerik listede, aramada ve rehberde görünmez; kanal değiştirme kilitlileri atlar; bölümler dizi kartı PIN'le açıldıktan sonra yeniden sormaz.
+- Kategori düğmelerinin `main`'de de sıkışıp kırpıldığı (ör. "3elgese") offscreen görüntüde fark edildi; sığmayan düğmeler artık listeye geçer.
+- `scripts/test-quiet.sh`: **760 geçti**, 5 atlandı (Codex incelemesi düzeltmeleriyle). Görsel kontrol (offscreen): ana pencere (kilit rozetleri, profil simgesi), "Kim izliyor?", PIN, ebeveyn denetimi, profil düzenleyici.
