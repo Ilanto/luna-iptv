@@ -3,7 +3,6 @@ from __future__ import annotations
 import gzip
 import hashlib
 import math
-import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -1046,7 +1045,7 @@ class MainWindow(QMainWindow):
         if self.current and self.current.kind != "live" and not self._loading:
             self.save_progress()
         self._finish_playback()
-        if reason == "eof":
+        if reason == "eof" and not self.sleep_timer.media_ended():
             self.offer_next_episode()
         if recovery_handled and self.recovery.state == "failed":
             self.status(
@@ -1256,10 +1255,6 @@ class MainWindow(QMainWindow):
         following = next_episode(self.model.channels, self.current)
         if following is None:
             return False
-        if self.sleep_timer.mode == "end":
-            self.sleep_timer.cancel()  # "stop when this ends" means not the next one either
-            self.status("Uyku zamanlayıcısı: bölüm bitti, oynatma durdu.")
-            return False
         if selected_setting(self.store, "autoplay_next", AUTOPLAY_CHOICES) != "on":
             self._notice(
                 "next",
@@ -1300,35 +1295,35 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.setTitle("Uyku zamanlayıcısı")
         if self.sleep_timer.active:
-            menu.addAction(f"Kalan: {self.sleep_timer.label()}").setEnabled(False)
+            remaining = (
+                "Bitince duracak"
+                if self.sleep_timer.mode == "media"
+                else f"Kalan: {self.sleep_timer.label()}"
+            )
+            menu.addAction(remaining).setEnabled(False)
             menu.addAction("15 dakika uzat", lambda: self.sleep_timer.extend(15))
             menu.addAction("Kapat", self.sleep_timer.cancel)
             menu.addSeparator()
         for minutes in SLEEP_CHOICES:
             menu.addAction(f"{minutes} dakika sonra", lambda m=minutes: self.start_sleep(m))
-        end = self.sleep_end_moment()
-        if end is not None:
-            label = "Bu program bitince" if self.current.kind == "live" else "Bu film bitince"
-            if self.current.kind != "live" and self.current.series_id:
-                label = "Bu bölüm bitince"
-            menu.addAction(label, lambda: self.start_sleep_until(end))
+        if self.current is not None and self._playback_active:
+            if self.current.kind == "live":
+                programme = self.programme_now(self.current)
+                if programme is not None:
+                    end = programme.end.timestamp()
+                    menu.addAction("Bu program bitince", lambda: self.start_sleep_until(end))
+            elif self._duration > 0:
+                label = "Bu bölüm bitince" if self.current.series_id else "Bu film bitince"
+                menu.addAction(label, self.start_sleep_at_media_end)
         return menu
-
-    def sleep_end_moment(self):
-        """When the current programme or film ends, in Unix seconds, if known."""
-        if self.current is None or not self._playback_active:
-            return None
-        if self.current.kind == "live":
-            programme = self.programme_now(self.current)
-            return programme.end.timestamp() if programme else None
-        position = self._position if self._duration > 0 else None
-        if position is None:
-            return None
-        return time.time() + max(0.0, self._duration - position)
 
     def start_sleep(self, minutes):
         self.sleep_timer.start(minutes)
         self.status(f"Uyku zamanlayıcısı: {minutes} dakika sonra oynatma duracak.")
+
+    def start_sleep_at_media_end(self):
+        self.sleep_timer.start_at_media_end()
+        self.status("Uyku zamanlayıcısı: bitince oynatma duracak.")
 
     def start_sleep_until(self, moment):
         self.sleep_timer.start_until(moment)
@@ -1339,11 +1334,15 @@ class MainWindow(QMainWindow):
         self.sleep_label.setText(self.sleep_timer.label())
         self.sleep_label.setVisible(active)
         self.sleep_button.setToolTip(
-            f"Uyku zamanlayıcısı: {self.sleep_timer.label()} kaldı"
+            (
+                "Uyku zamanlayıcısı: bitince duracak"
+                if self.sleep_timer.mode == "media"
+                else f"Uyku zamanlayıcısı: {self.sleep_timer.label()} kaldı"
+            )
             if active
             else "Uyku zamanlayıcısı"
         )
-        if active:
+        if active and self.sleep_timer.mode != "media":
             self._sleep_label_timer.start()
         else:
             self._sleep_label_timer.stop()
@@ -1392,6 +1391,7 @@ class MainWindow(QMainWindow):
         self.video_title.setText("İyi bir yayına yer aç.")
 
     def stop_playback(self):
+        self.cancel_next_episode()  # Stop, profile switches and closing end the countdown too
         self.dismiss_resume()
         self.save_progress()
         self.recovery.cancel()

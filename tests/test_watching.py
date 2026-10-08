@@ -76,6 +76,8 @@ def test_next_episode_follows_catalogue_order():
     assert next_episode(channels, episodes[2]) is None
     assert next_episode(channels, other) is None
     assert next_episode(channels, Channel("s:m", "Film", "file:///m", kind="movie")) is None
+    other_source = Channel("t:e9", "Başka kaynak", "file:///9", kind="movie", series_id="7")
+    assert next_episode(channels + [other_source], episodes[2]) is None  # same id, other source
 
 
 @pytest.fixture
@@ -139,11 +141,25 @@ def test_autoplay_off_only_offers_the_next_episode(window):
     assert window.played[-1] == "file:///e2.mkv"
 
 
-def test_sleep_until_the_end_stops_before_the_next_episode(window):
+def test_sleep_at_the_end_follows_the_video_not_the_clock(window):
     window.request_play(episode(window, "Bölüm 1"))
-    window.sleep_timer.start_until(window.sleep_timer._clock() + 600)
+    window._playback_active, window._duration = True, 2400.0
+    labels = [a.text() for a in window.build_sleep_menu().actions()]
+    assert "Bu bölüm bitince" in labels
+    window.start_sleep_at_media_end()
+    assert window.sleep_timer.active and window.sleep_label.text() == "bitince"
+    assert not window.sleep_timer._timer.isActive()  # pausing or seeking cannot fire it early
     finish(window)
     assert not window.next_countdown.running and not window.sleep_timer.active
+    assert "İyi geceler" in window.message.text()
+
+
+def test_stop_cancels_a_running_next_episode_countdown(window):
+    window.request_play(episode(window, "Bölüm 1"))
+    finish(window)
+    assert window.next_countdown.running
+    window.stop_playback()
+    assert not window.next_countdown.running and window.watch_notice.isHidden()
 
 
 def test_sleep_timer_stops_playback_and_shows_time_left(window):

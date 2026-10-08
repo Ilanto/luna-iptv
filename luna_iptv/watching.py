@@ -14,7 +14,8 @@ NUMBER_PAUSE_MS = 1300
 
 
 class SleepTimer(QObject):
-    """Stops playback after some minutes, or when the programme or film ends."""
+    """Stops playback after some minutes, at a moment (a live programme's end), or when the
+    playing film or episode itself ends ("media": no clock, the player reports the end)."""
 
     changed = Signal()
     expired = Signal()
@@ -23,14 +24,29 @@ class SleepTimer(QObject):
         super().__init__(parent)
         self._clock = clock
         self.deadline = None
-        self.mode = None  # "minutes" or "end"
+        self.mode = None  # "minutes", "end" (a moment) or "media" (the file's own end)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._fire)
 
     @property
     def active(self):
-        return self.deadline is not None
+        return self.mode is not None
+
+    def start_at_media_end(self):
+        """Pausing or seeking moves a film's end, so wait for the player instead of a clock."""
+        self._timer.stop()
+        self.deadline, self.mode = None, "media"
+        self.changed.emit()
+
+    def media_ended(self):
+        """The film or episode reached its end; True when that was the sleep moment."""
+        if self.mode != "media":
+            return False
+        self.mode = None
+        self.changed.emit()
+        self.expired.emit()
+        return True
 
     def start(self, minutes):
         self._arm(self._clock() + minutes * 60, "minutes")
@@ -47,9 +63,11 @@ class SleepTimer(QObject):
     def extend(self, minutes):
         if self.deadline is not None:
             self._arm(self.deadline + minutes * 60, "minutes")
+        elif self.mode == "media":
+            self.start(minutes)
 
     def cancel(self):
-        if self.deadline is None:
+        if self.mode is None:
             return
         self._timer.stop()
         self.deadline = self.mode = None
@@ -61,7 +79,9 @@ class SleepTimer(QObject):
         return max(0, math.ceil((self.deadline - self._clock()) / 60))
 
     def label(self):
-        """Short text for the button: '25 dk'."""
+        """Short text for the button: '25 dk', or 'bitince'."""
+        if self.mode == "media":
+            return "bitince"
         return f"{self.remaining_minutes()} dk" if self.active else ""
 
     def _fire(self):
@@ -153,7 +173,13 @@ def next_episode(channels, current):
     """The episode after ``current`` in catalogue order, which follows seasons."""
     if current is None or not current.series_id or current.kind != "movie":
         return None
-    episodes = [c for c in channels if c.series_id == current.series_id and c.kind == "movie"]
+    # Series ids are the provider's own: two sources may both have series 42.
+    source = current.id.split(":", 1)[0] + ":"
+    episodes = [
+        c
+        for c in channels
+        if c.series_id == current.series_id and c.kind == "movie" and c.id.startswith(source)
+    ]
     ids = [c.id for c in episodes]
     if current.id not in ids:
         return None
