@@ -425,10 +425,12 @@ class BackupWindow(QWidget):
         self.store = store
         self._busy = False
         self.messages = []
+        self.message_icons = []
         self.refreshes = 0
 
-    def status(self, message):
+    def status(self, message, *, icon=None):
         self.messages.append(message)
+        self.message_icons.append(icon)
 
     def refresh_library(self):
         self.refreshes += 1
@@ -504,6 +506,7 @@ def test_export_ui_passes_explicit_options(qt_app, personal, tmp_path, monkeypat
     assert data["sources"][0]["password"] == "fixture-secret"
     assert data["history"] is None
     assert window.messages == ["Yedek kaydedildi."]
+    assert window.message_icons == ["check"]
     window.close()
 
 

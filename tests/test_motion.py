@@ -55,6 +55,8 @@ def window(qt_app, tmp_path, monkeypatch):
     value = MainWindow(store)
     monkeypatch.setattr(value.player, "load", lambda *a, **kw: None)
     monkeypatch.setattr(value.player, "set_property", lambda *a: None)
+    # This fixture exercises the welcome artwork explicitly, even with the idle panel hidden.
+    value.watch.show()
     value.show()
     qt_app.processEvents()
     yield value

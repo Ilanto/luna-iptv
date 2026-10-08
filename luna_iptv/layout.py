@@ -535,6 +535,7 @@ def build_window(w):
     w.recovery_cancel_button.setAccessibleName("Otomatik yeniden bağlanmayı iptal et")
     w.recovery_cancel_button.hide()
     bar.addWidget(w.recovery_cancel_button)
+    w.message_bar.hide()
     outer.addWidget(w.message_bar)
     w.setCentralWidget(root)
     for key, callback in [

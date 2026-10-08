@@ -57,12 +57,17 @@ class FullscreenController(QObject):
         if active:
             if not self._essential_widgets_are_valid():
                 return
+            if panel := getattr(self._window, "watch_panel", None):
+                panel.suspend()
             self._snapshot_normal_state()
             self.active = True
             self._enter()
         else:
             self._leave()
             self.active = False
+            if panel := getattr(self._window, "watch_panel", None):
+                panel.sync(animate=False)
+                self._window._sync_message_bar()
 
     def set_compact(self, compact: bool):
         """Use compact controls without changing the native fullscreen state."""

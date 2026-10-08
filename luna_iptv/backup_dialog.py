@@ -87,7 +87,7 @@ def save_backup_dialog(window):
             "Dosya yazılamadı. Disk alanını ve izinleri kontrol edin.",
         )
         return
-    window.status("Yedek kaydedildi.")
+    window.status("Yedek kaydedildi.", icon="check")
 
 
 def restore_backup_dialog(window):
