@@ -28,6 +28,7 @@ from .logos import LogoCache, LogoViewportController
 from .motion import IconButton, LogoMark, MoonSky, NavFrame
 from .player import VideoWidget
 from .profiles_ui import ProfileAvatar
+from .watching import WatchNotice
 
 
 class VideoStack(QStackedWidget):
@@ -288,6 +289,8 @@ def build_window(w):
     w.language_notice.setAccessibleName("Dil tercihi bilgisi")
     w.language_notice.hide()
     header.addWidget(w.language_notice)
+    w.watch_notice = WatchNotice()
+    header.addWidget(w.watch_notice)
     view.addWidget(w.player_header)
     w.video_stack = VideoStack()
     w.video_stack.setMinimumHeight(200)
@@ -431,6 +434,13 @@ def build_window(w):
     w.buffer_label.hide()
     row.addWidget(w.buffer_label)
     row.addStretch()
+    w.sleep_label = text_label("", "badge")
+    w.sleep_label.setAccessibleName("Uyku zamanlayıcısı kalan süre")
+    w.sleep_label.hide()
+    row.addWidget(w.sleep_label)
+    w.sleep_button = icon_button("Uyku", w.sleep_menu, "moon", tip="Uyku zamanlayıcısı")
+    w.sleep_button.setProperty("mini_hidden", True)
+    row.addWidget(w.sleep_button)
     w.info_button = icon_button(
         "Bilgi", w.toggle_info_panel, "info", tip="Yayın bilgisini göster / gizle"
     )
@@ -527,6 +537,8 @@ def build_window(w):
         ("K", w.transport.normal_play),
         ("PgDown", lambda: w.zap(1)),
         ("PgUp", lambda: w.zap(-1)),
+        *[(str(n), lambda n=n: w.number_entry.digit(n)) for n in range(10)],
+        *[(f"Num+{n}", lambda n=n: w.number_entry.digit(n)) for n in range(10)],
     ]:
         shortcut = QShortcut(QKeySequence(key), w)
         shortcut.activated.connect(lambda cb=callback, k=key: w.shortcut_action(k, cb))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import math
+import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -45,11 +46,12 @@ from .profiles_ui import ProfilePicker, ProfilesDialog
 from .recovery import RecoveryController
 from .reminders import ReminderService
 from .reminders_dialog import RemindersDialog
-from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selected_setting
 from .settings_dialog import SettingsDialog
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .tasks import Task
 from .transport import TransportController
+from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
 
 def clock_text(seconds):
@@ -161,6 +163,19 @@ class MainWindow(QMainWindow):
         self.mpris = MprisService(RemoteControl(self), self)
         self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
         self.reminder_service.changed.connect(self._reminders_changed)
+        self.sleep_timer = SleepTimer(self)
+        self.sleep_timer.changed.connect(self.refresh_sleep_button)
+        self.sleep_timer.expired.connect(self.sleep_expired)
+        self._sleep_label_timer = QTimer(self)
+        self._sleep_label_timer.setInterval(20000)
+        self._sleep_label_timer.timeout.connect(self.refresh_sleep_button)
+        self.next_countdown = Countdown(self)
+        self.next_countdown.tick.connect(self._next_episode_tick)
+        self.next_countdown.due.connect(self.play_next_episode)
+        self.number_entry = NumberEntry(self)
+        self.number_entry.typing.connect(self._number_typing)
+        self.number_entry.chosen.connect(self.jump_to_number)
+        self._notice_kind = None
         self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
@@ -753,6 +768,7 @@ class MainWindow(QMainWindow):
         """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
         if not self.unlock_channel(channel, approved=approved):
             return
+        self.cancel_next_episode()
         self.dismiss_resume()
         preferences = normalize_preferences(preferences) if preferences is not None else None
         position = self.resume_position(channel)
@@ -968,6 +984,8 @@ class MainWindow(QMainWindow):
         if self.current and self.current.kind != "live" and not self._loading:
             self.save_progress()
         self._finish_playback()
+        if reason == "eof":
+            self.offer_next_episode()
         if recovery_handled and self.recovery.state == "failed":
             self.status(
                 self.recovery.message,
@@ -1157,6 +1175,147 @@ class MainWindow(QMainWindow):
         self.rate_button.setEnabled(bool(self.transport.rate))
         if self.transport.rate:
             self.play_button.setText("▶")
+
+    # Watching comforts: next episode, sleep timer, channel numbers.
+
+    def _notice(self, kind, text, primary=None, secondary=None):
+        self._notice_kind = kind
+        self.watch_notice.present(text, primary, secondary)
+
+    def _clear_notice(self, kind=None):
+        if kind is None or self._notice_kind == kind:
+            self._notice_kind = None
+            self.watch_notice.hide()
+
+    def offer_next_episode(self):
+        """After an episode ends: the next one starts by itself after a short countdown."""
+        following = next_episode(self.model.channels, self.current)
+        if following is None:
+            return False
+        if self.sleep_timer.mode == "end":
+            self.sleep_timer.cancel()  # "stop when this ends" means not the next one either
+            self.status("Uyku zamanlayıcısı: bölüm bitti, oynatma durdu.")
+            return False
+        if selected_setting(self.store, "autoplay_next", AUTOPLAY_CHOICES) != "on":
+            self._notice(
+                "next",
+                f"Sonraki bölüm: {following.name}",
+                ("Oynat", lambda: self.play_next_episode(following)),
+                ("Kapat", lambda: self._clear_notice("next")),
+            )
+            return True
+        self.next_countdown.start(following)
+        return True
+
+    def _next_episode_tick(self, seconds):
+        following = self.next_countdown.payload
+        self._notice(
+            "next",
+            f"Sonraki bölüm {seconds} saniye içinde: {following.name}",
+            ("Şimdi oynat", self.next_countdown.finish_now),
+            ("İptal", self.cancel_next_episode),
+        )
+
+    def cancel_next_episode(self):
+        self.next_countdown.cancel()
+        self._clear_notice("next")
+
+    def play_next_episode(self, channel):
+        self._clear_notice("next")
+        fresh = next((c for c in self.model.channels if c.id == channel.id), None)
+        if fresh is not None:
+            # The series was already open, so this episode needs no PIN again.
+            self.request_play(fresh, approved=True)
+
+    def sleep_menu(self):
+        menu = self.build_sleep_menu()
+        menu.exec(self.sleep_button.mapToGlobal(self.sleep_button.rect().topLeft()))
+        menu.deleteLater()
+
+    def build_sleep_menu(self):
+        menu = QMenu(self)
+        menu.setTitle("Uyku zamanlayıcısı")
+        if self.sleep_timer.active:
+            menu.addAction(f"Kalan: {self.sleep_timer.label()}").setEnabled(False)
+            menu.addAction("15 dakika uzat", lambda: self.sleep_timer.extend(15))
+            menu.addAction("Kapat", self.sleep_timer.cancel)
+            menu.addSeparator()
+        for minutes in SLEEP_CHOICES:
+            menu.addAction(f"{minutes} dakika sonra", lambda m=minutes: self.start_sleep(m))
+        end = self.sleep_end_moment()
+        if end is not None:
+            label = "Bu program bitince" if self.current.kind == "live" else "Bu film bitince"
+            if self.current.kind != "live" and self.current.series_id:
+                label = "Bu bölüm bitince"
+            menu.addAction(label, lambda: self.start_sleep_until(end))
+        return menu
+
+    def sleep_end_moment(self):
+        """When the current programme or film ends, in Unix seconds, if known."""
+        if self.current is None or not self._playback_active:
+            return None
+        if self.current.kind == "live":
+            programme = self.programme_now(self.current)
+            return programme.end.timestamp() if programme else None
+        position = self._position if self._duration > 0 else None
+        if position is None:
+            return None
+        return time.time() + max(0.0, self._duration - position)
+
+    def start_sleep(self, minutes):
+        self.sleep_timer.start(minutes)
+        self.status(f"Uyku zamanlayıcısı: {minutes} dakika sonra oynatma duracak.")
+
+    def start_sleep_until(self, moment):
+        self.sleep_timer.start_until(moment)
+        self.status("Uyku zamanlayıcısı: bitince oynatma duracak.")
+
+    def refresh_sleep_button(self):
+        active = self.sleep_timer.active
+        self.sleep_label.setText(self.sleep_timer.label())
+        self.sleep_label.setVisible(active)
+        self.sleep_button.setToolTip(
+            f"Uyku zamanlayıcısı: {self.sleep_timer.label()} kaldı"
+            if active
+            else "Uyku zamanlayıcısı"
+        )
+        if active:
+            self._sleep_label_timer.start()
+        else:
+            self._sleep_label_timer.stop()
+
+    def sleep_expired(self):
+        self.cancel_next_episode()
+        if self._playback_active:
+            self.stop_playback()
+        self.leave_fullscreen()
+        self.status("Uyku zamanlayıcısı: oynatma durduruldu. İyi geceler.")
+
+    def numbered_channels(self):
+        """Live channels in list order, of the chosen source; their 1-based place is the number."""
+        source = self.proxy.source
+        return [
+            c
+            for c in self.model.channels
+            if c.kind == "live"
+            and (not source or c.id.startswith(source + ":"))
+            and not (self.proxy.hide_locked and c.id in self.model.locked)
+        ]
+
+    def _number_typing(self, digits):
+        self._notice("number", f"Kanal {digits}_")
+
+    def jump_to_number(self, number):
+        channels = self.numbered_channels()
+        if number > len(channels):
+            self._notice("number", f"{number} numaralı kanal yok (1–{len(channels)}).")
+            QTimer.singleShot(2500, lambda: self._clear_notice("number"))
+            return False
+        channel = channels[number - 1]
+        self._notice("number", f"{number} · {channel.name}")
+        QTimer.singleShot(2500, lambda: self._clear_notice("number"))
+        self.request_play(channel)
+        return True
 
     def close_current(self):
         """Stop and forget the current channel, back to the welcome screen."""
@@ -2024,7 +2183,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Luna IPTV",
-            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
+            f"Luna IPTV {__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\n0–9  Kanal numarasıyla geç\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
         )
 
     def dragEnterEvent(self, event):

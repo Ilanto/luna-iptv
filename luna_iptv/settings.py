@@ -6,6 +6,7 @@ STARTUP_CHOICES = (
     ("Son kanalı oynat", "play"),
     ("Hiçbir şey yapma", "none"),
 )
+AUTOPLAY_CHOICES = (("Açık", "on"), ("Kapalı", "off"))
 
 
 def selected_setting(store, key, choices):

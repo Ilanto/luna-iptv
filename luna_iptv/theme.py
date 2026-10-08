@@ -95,6 +95,9 @@ QLabel#count {{ color: {ACCENT}; background: {ACCENT_TINT}; border-radius: 8px;
     padding: 2px 9px; font-size: 9px; font-weight: 600; }}
 QLabel#clock {{ color: {TEXT_SOFT}; }}
 QLabel#badge {{ color: {ACCENT}; font-size: 10px; }}
+QFrame#watchNotice {{ background: {ACCENT_TINT}; border: 1px solid {LINE};
+    border-radius: 12px; }}
+QFrame#watchNotice QLabel {{ color: {TEXT}; font-weight: 600; }}
 QLabel#error {{ color: {DANGER}; }}
 QLabel#pinBadge {{ background: {DUSK}; border: 1px solid {LINE}; }}
 QLabel#profileName {{ color: {TEXT_SOFT}; font-weight: 600; }}
