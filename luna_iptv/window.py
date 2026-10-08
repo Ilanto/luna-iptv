@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.mini_player = MiniPlayerController(self)
+        self.reminders = None  # ReminderService, when available
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
         self._playback_paused = False
@@ -378,6 +379,10 @@ class MainWindow(QMainWindow):
         self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
 
     def set_section(self, section):
+        if section == "guide":
+            self.show_guide()
+            return
+        self.library_pages.setCurrentWidget(self.browse)
         if section != "favorites":
             self._folder_id = None
             self.proxy.folder_ids = None
@@ -556,6 +561,38 @@ class MainWindow(QMainWindow):
     def set_folder_membership(self, folder_id, channel, member):
         self.store.set_in_folder(folder_id, channel.id, member)
         self.refresh_favorites()
+
+    def show_guide(self):
+        """The Rehber page; the browse filters keep their state for when people return."""
+        for key, button in self.nav_buttons.items():
+            button.setChecked(key == "guide")
+        self.library_pages.setCurrentWidget(self.guide_view)
+        self.refresh_guide_view()
+        self.guide_view.go_now()
+
+    def refresh_guide_view(self):
+        rows, seen = [], set()
+        for channel in self.model.channels:
+            if channel.kind != "live" or not channel.tvg_id or channel.id in seen:
+                continue
+            index = self._guide_index.get(channel.id.split(":", 1)[0])
+            if index is not None and channel.tvg_id in index.channel_ids():
+                rows.append((channel, index))
+                seen.add(channel.id)
+        self.guide_view.can_remind = self.reminders is not None
+        reminded = (
+            {(r.channel_id, r.start) for r in self.reminders.reminders()} if self.reminders else ()
+        )
+        self.guide_view.set_rows(rows, reminded)
+
+    def remind_programme(self, channel, programme):
+        """Reminders arrive with the reminder service; until then the guide offers none."""
+        if self.reminders is not None:
+            self.reminders.add(channel, programme)
+            self.refresh_guide_view()
+
+    def open_reminders(self):
+        pass
 
     def choose_category(self, group):
         index = self.category.findData(group)
@@ -1594,6 +1631,8 @@ class MainWindow(QMainWindow):
             self._guide_data[source["id"]] = programmes
             self._guide_index[source["id"]] = GuideIndex(programmes)
             self._refresh_live_cards()
+            if self.library_pages.currentWidget() is self.guide_view:
+                self.refresh_guide_view()
             if not cached:
                 import os
 

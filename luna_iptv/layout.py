@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from . import __version__, icons, theme
 from .chips import ChipBar
 from .dialogs import text_label
+from .guide_view import GuideView
 from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
 from .motion import IconButton, LogoMark, MoonSky, NavFrame
@@ -96,6 +97,7 @@ def build_window(w):
     w.nav_buttons = {}
     for key, title, icon in [
         ("live", "Canlı TV", "live"),
+        ("guide", "Rehber", "guide"),
         ("movie", "Filmler", "movie"),
         ("series", "Diziler", "series"),
         ("favorites", "Favoriler", "star"),
@@ -142,7 +144,13 @@ def build_window(w):
     w.library = QFrame()
     w.library.setObjectName("library")
     w.library.setMinimumWidth(300)
-    lib = QVBoxLayout(w.library)
+    pages = QVBoxLayout(w.library)
+    pages.setContentsMargins(0, 0, 0, 0)
+    w.library_pages = QStackedWidget()
+    pages.addWidget(w.library_pages)
+    w.browse = QWidget()
+    w.library_pages.addWidget(w.browse)
+    lib = QVBoxLayout(w.browse)
     lib.setContentsMargins(28, 26, 16, 0)
     lib.setSpacing(14)
     row = QHBoxLayout()
@@ -237,6 +245,12 @@ def build_window(w):
     w.no_results.setWordWrap(True)
     w.no_results.setAlignment(Qt.AlignCenter)
     lib.addWidget(w.no_results, 1)
+    w.guide_view = GuideView(w.logos)
+    w.guide_view.watch_channel.connect(w.request_play)
+    w.guide_view.remind_programme.connect(w.remind_programme)
+    w.guide_view.add_guide.connect(w.configure_guide)
+    w.guide_view.show_reminders.connect(w.open_reminders)
+    w.library_pages.addWidget(w.guide_view)
     w.splitter.addWidget(w.library)
     w.watch = QFrame()
     w.watch.setObjectName("watchPanel")
