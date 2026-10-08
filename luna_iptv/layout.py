@@ -23,6 +23,7 @@ from . import __version__, icons, theme
 from .chips import ChipBar
 from .dialogs import text_label
 from .guide_view import GuideView
+from .home_view import HomeView
 from .library import CardGrid, ChannelDelegate
 from .logos import LogoCache, LogoViewportController
 from .motion import IconButton, LogoMark, MoonSky, NavFrame
@@ -98,6 +99,7 @@ def build_window(w):
     side.addSpacing(22)
     w.nav_buttons = {}
     for key, title, icon in [
+        ("home", "Ana sayfa", "home"),
         ("live", "Canlı TV", "live"),
         ("guide", "Rehber", "guide"),
         ("movie", "Filmler", "movie"),
@@ -119,7 +121,7 @@ def build_window(w):
         b.toggled.connect(lambda on, b=b: on and w.sidebar.indicator.follow(b))
         side.addWidget(b, 0, Qt.AlignHCenter)
         w.nav_buttons[key] = b
-    w.nav_buttons["live"].setChecked(True)
+    w.nav_buttons["home"].setChecked(True)
     side.addStretch()
     w.profile_button = ProfileAvatar(42)
     w.profile_button.clicked.connect(w.profile_menu)
@@ -257,6 +259,9 @@ def build_window(w):
     w.guide_view.add_guide.connect(w.configure_guide)
     w.guide_view.show_reminders.connect(w.open_reminders)
     w.library_pages.addWidget(w.guide_view)
+    w.home_view = HomeView(w)
+    w.library_pages.addWidget(w.home_view)
+    w.library_pages.setCurrentWidget(w.home_view)
     w.splitter.addWidget(w.library)
     w.watch = QFrame()
     w.watch.setObjectName("watchPanel")

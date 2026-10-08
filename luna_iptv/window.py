@@ -407,9 +407,20 @@ class MainWindow(QMainWindow):
             else "Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak."
         )
         self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
+        self.refresh_home()
         self._reminders_changed()  # the visible guide must not keep removed channels
 
+    def refresh_home(self):
+        if not self._closed and self.library_pages.currentWidget() is self.home_view:
+            self.home_view.refresh()
+
     def set_section(self, section):
+        if section == "home":
+            for key, button in self.nav_buttons.items():
+                button.setChecked(key == "home")
+            self.library_pages.setCurrentWidget(self.home_view)
+            self.refresh_home()
+            return
         if section == "guide":
             self.show_guide()
             return
@@ -671,7 +682,10 @@ class MainWindow(QMainWindow):
         )
 
     def activate_index(self, index):
-        channel = index.data(Qt.UserRole)
+        self.open_channel(index.data(Qt.UserRole))
+
+    def open_channel(self, channel):
+        """Open a channel through the shared playback or PIN-guarded detail path."""
         if not channel:
             return
         if channel.kind == "live":
@@ -734,7 +748,10 @@ class MainWindow(QMainWindow):
         index = self.proxy.index(row, 0)
         self.channel_list.setCurrentIndex(index)
         self.channel_list.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
-        self.channel_list.setFocus()
+        if self.library_pages.currentWidget() is self.home_view:
+            self.home_view.select_channel(last)
+        else:
+            self.channel_list.setFocus()
         if action == "play":
             self.request_play(index.data(Qt.UserRole))
             return
@@ -1103,6 +1120,7 @@ class MainWindow(QMainWindow):
                 self.current.id, self._position, self._duration, mark_recent=self._record_recent
             )
             self.model.set_progress(self.current.id, self._position, self._duration)
+            self.refresh_home()
 
     def confirm_clear_history(self):
         if self._history_dialog is not None and isValid(self._history_dialog):
@@ -1137,6 +1155,7 @@ class MainWindow(QMainWindow):
             self.model.replace_progress(self.store.progress_map())
         self.proxy.set_recent_ids(self.store.recent_ids())
         self.filter_changed()
+        self.refresh_home()
         self.status(
             "İzleme geçmişi temizlendi."
             + (
@@ -1436,6 +1455,7 @@ class MainWindow(QMainWindow):
         if self.current:
             favorite = self.current.id in self.model.favorites
             self.favorite_button.setText("★" if favorite else "☆")
+        self.refresh_home()
         self.details.refresh_favorite()
         self.refresh_folders()
         self.filter_changed()
@@ -1916,6 +1936,7 @@ class MainWindow(QMainWindow):
             self.refresh_categories()
             self.filter_changed()
             self._reminders_changed()
+            self.refresh_home()
         if self.current and self.proxy.hide_locked and self.current.id in self.model.locked:
             self.close_current()
 
@@ -2071,6 +2092,8 @@ class MainWindow(QMainWindow):
     def _refresh_live_cards(self):
         if self._guide_index and not self._closed:
             self.channel_list.viewport().update()
+            if self.library_pages.currentWidget() is self.home_view:
+                self.home_view.refresh_programmes()
 
     def update_guide(self):
         if self._closed:
@@ -2215,6 +2238,7 @@ class MainWindow(QMainWindow):
         self.recovery.close()
         self._guide_timer.stop()
         self.logo_viewport.close()
+        self.home_view.close_artwork()
         self.logos.close()
         self.posters.close()
         self.player.shutdown()
