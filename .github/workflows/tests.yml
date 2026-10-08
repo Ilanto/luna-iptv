@@ -58,6 +58,9 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e ".[dev]"
+      - name: Test videoları üretilebiliyor mu
+        # Without ffmpeg's encoder the native suites skip, and skips would look green.
+        run: ffmpeg -hide_banner -encoders | grep -q mpeg2video
       - name: Gerçek pencere ve video testleri (Xvfb)
         env:
           QT_QPA_PLATFORM: xcb
