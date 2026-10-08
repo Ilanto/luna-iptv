@@ -69,6 +69,7 @@ desktop-file-validate packaging/luna-iptv.desktop
 * Thu Oct 08 2026 Luna IPTV contributors - 0.17.0-1
 - Ana sayfa: continue watching, favourite channels on air, recent channels.
 - Sleep timer, next-episode countdown and channel numbers from the keyboard.
+- Hide and reorder categories per profile, source and section.
 
 * Thu Oct 08 2026 Luna IPTV contributors - 0.16.0-1
 - Profiles with their own favorites, folders, history and reminders.

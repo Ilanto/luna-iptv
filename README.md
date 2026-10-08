@@ -27,12 +27,13 @@ Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk par�
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
 
-### 0.17.0 · ana sayfa ve izleme kolaylıkları
+### 0.17.0 · ana sayfa, izleme kolaylıkları ve kategori düzeni
 
 - **Ana sayfa** (menünün başında, açılışta gelir): saate göre selam ve profil adı; "Kaldığın yerden devam et" (yarım kalan film ve bölümler, altın ilerleme çizgisiyle), "Favorilerinde şu an" (favori kanallarda o an yayındaki program), "Son izlenen kanallar" ve "Favori filmler ve diziler" şeritleri. Boş şeritler görünmez; çocuk profilinde kilitli içerik yer almaz.
 - **Uyku zamanlayıcısı** (oynatıcıdaki ay düğmesi): 15–120 dakika ya da "bu program / film / bölüm bitince"; uzatılabilir, kalan süre düğmenin yanında.
 - **Sonraki bölüm:** bölüm bitince 10 saniyelik geri sayımla sonraki bölüm başlar ("Şimdi oynat" / "İptal"). Ayarlar'dan kapatılırsa yalnız önerilir.
 - **Kanal numarası:** klavyeden rakam yazınca seçili kaynağın canlı listesindeki o sıradaki kanal açılır ("12 · Kanal adı").
+- **Kategori düzeni:** kategori düğmelerinin sonundaki "Düzenle" ile kategoriler gizlenir ve sürükleyerek sıralanır (profil, kaynak ve bölüm başına). Gizli kategoriler listeden, aramadan ve kanal numaralarından çıkar; Favoriler ve Geçmiş etkilenmez. "Tümü" görünümü seçilen sırayı izler. PIN varsa düzenleme PIN ister.
 
 ### 0.16.0 · profiller ve ebeveyn denetimi
 
