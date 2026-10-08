@@ -161,6 +161,16 @@ class ReminderService(QObject):
                 self._store.remove_reminder(reminder["id"])
         self._arm()
 
+    def reload(self):
+        """Another profile became active: forget pending notices and re-arm from the store."""
+        if self._closed:
+            return
+        self._notifications = {}
+        self._deliveries = {}
+        self._store.drop_expired_reminders(self._clock())
+        self._arm()
+        self.changed.emit()
+
     @staticmethod
     def _deadline(reminder):
         return reminder["start"] - reminder["lead_minutes"] * 60

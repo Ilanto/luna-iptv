@@ -95,6 +95,20 @@ QLabel#count {{ color: {ACCENT}; background: {ACCENT_TINT}; border-radius: 8px;
     padding: 2px 9px; font-size: 9px; font-weight: 600; }}
 QLabel#clock {{ color: {TEXT_SOFT}; }}
 QLabel#badge {{ color: {ACCENT}; font-size: 10px; }}
+QLabel#error {{ color: {DANGER}; }}
+QLabel#pinBadge {{ background: {DUSK}; border: 1px solid {LINE}; border-radius: 22px; }}
+QLabel#profileName {{ color: {TEXT_SOFT}; font-weight: 600; }}
+QLineEdit#pinField {{ font-size: 22px; letter-spacing: 10px; padding: 10px; }}
+QPushButton#danger {{ color: {DANGER}; }}
+QPushButton#danger:hover {{ border-color: {DANGER}; }}
+QTreeWidget#lockTree {{ background: {DUSK}; border: 1px solid {LINE_SOFT}; border-radius: 12px;
+    padding: 6px; }}
+QTreeWidget#lockTree::item {{ padding: 4px 2px; }}
+QTreeWidget#lockTree::indicator {{ width: 16px; height: 16px; }}
+QTreeWidget#lockTree::indicator:unchecked {{ border: 1px solid {LINE}; border-radius: 5px;
+    background: {RAISED}; }}
+QTreeWidget#lockTree::indicator:checked {{ border: 1px solid {GOLD}; border-radius: 5px;
+    background: {GOLD}; }}
 QLabel#accountStatus {{ color: {TEXT_SOFT}; font-weight: 600; }}
 QLabel#accountStatus[state="active"] {{ color: {ACCENT}; }}
 QLabel#accountStatus[state="expired"], QLabel#accountStatus[state="disabled"],
