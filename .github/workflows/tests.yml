@@ -50,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            xvfb xauth libmpv2 libegl1 libgl1 libgl1-mesa-dri libxkbcommon0 \
+            xvfb xauth ffmpeg libmpv2 libegl1 libgl1 libgl1-mesa-dri libxkbcommon0 \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
             libfontconfig1 libdbus-1-3 libglib2.0-0 fonts-dejavu-core
@@ -67,4 +67,11 @@ jobs:
           xvfb-run -a -s "-screen 0 1920x1080x24" .venv/bin/python -m pytest -q \
             -p no:cacheprovider \
             tests/test_transport_ui.py tests/test_mini_player_native.py \
-            tests/test_preferences_native.py
+            tests/test_preferences_native.py -rs
+      - name: Oynatıcı ve açılış denetimi (Xvfb)
+        env:
+          QT_QPA_PLATFORM: xcb
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" .venv/bin/python scripts/player_probe.py
+          xvfb-run -a -s "-screen 0 1920x1080x24" .venv/bin/python scripts/smoke.py
