@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 from shiboken6 import isValid
@@ -10,6 +10,9 @@ from shiboken6 import isValid
 
 class FullscreenController(QObject):
     """Move existing controls over a full-bleed video while fullscreen is active."""
+
+    controls_shown = Signal()
+    controls_hidden = Signal()
 
     IDLE_MILLISECONDS = 2500
     OVERLAY_MARGIN = 16
@@ -117,6 +120,7 @@ class FullscreenController(QObject):
             info_panel.setVisible(self._info_open and not self.compact)
         if not self._controls_visible:
             self._restore_cursors()
+            self.controls_shown.emit()
         self._controls_visible = True
         if needs_layout:
             self.layout_overlays()
@@ -248,7 +252,16 @@ class FullscreenController(QObject):
             self.reveal()
         return False
 
+    def _set_overlay_style(self, overlay):
+        """Glass controls over the video in fullscreen, the solid card otherwise."""
+        controls = self._widget("controls")
+        if controls is not None:
+            controls.setProperty("overlay", overlay)
+            controls.style().unpolish(controls)
+            controls.style().polish(controls)
+
     def _enter(self):
+        self._set_overlay_style(True)
         for widget in self._normal_panels():
             if self._valid(widget):
                 widget.hide()
@@ -270,6 +283,8 @@ class FullscreenController(QObject):
 
     def _leave(self):
         self._idle_timer.stop()
+        self._set_overlay_style(False)
+        self.controls_hidden.emit()
         self._restore_cursors()
         self._restore_mouse_tracking()
 
@@ -329,6 +344,7 @@ class FullscreenController(QObject):
         if info_panel is not None:
             info_panel.hide()
         self._controls_visible = False
+        self.controls_hidden.emit()
         self._set_blank_cursor()
 
     def _interaction_blocks_hiding(self) -> bool:

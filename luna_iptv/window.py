@@ -25,6 +25,7 @@ from shiboken6 import isValid
 from . import __version__, theme
 from .accounts import sanitize_profile
 from .category_editor import CategoryEditor
+from .channel_banner import BannerPlacer, ChannelBanner
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
@@ -158,6 +159,12 @@ class MainWindow(QMainWindow):
         self._language_notice_timer.timeout.connect(self.language_notice.hide)
         self.details = MediaDetailController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
+        self.channel_banner = ChannelBanner(self.watch)
+        self._banner_placer = BannerPlacer(
+            self.channel_banner, self.video_stack, self.controls, lambda: self.fullscreen.active
+        )
+        self.fullscreen.controls_shown.connect(lambda: self.show_channel_banner(None))
+        self.fullscreen.controls_hidden.connect(self.channel_banner.hide_banner)
         self.mini_player = MiniPlayerController(self)
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
@@ -984,9 +991,29 @@ class MainWindow(QMainWindow):
         """Update the loaded UI; native callbacks validate their token first."""
         self._mark_loaded()
 
+    def show_channel_banner(self, seconds=4.5):
+        """The TV-style banner: number, channel, programme now and next."""
+        channel = self.current
+        if self._closed or channel is None or self.video_stack.currentIndex() != 1:
+            return
+        programme = self.programme_now(channel)
+        following = None
+        if programme is not None:
+            index = self._guide_index.get(channel.id.split(":", 1)[0])
+            upcoming = index.upcoming(channel.tvg_id, 1) if index else []
+            following = upcoming[0] if upcoming else None
+        number = None
+        if channel.kind == "live":
+            ids = [c.id for c in self.numbered_channels()]
+            number = ids.index(channel.id) + 1 if channel.id in ids else None
+        self.channel_banner.set_content(channel, number, programme, following)
+        self._banner_placer.place()
+        self.channel_banner.show_for(seconds)
+
     def _mark_loaded(self):
         if self._closed:
             return
+        self.show_channel_banner()
         self._idle = False
         self._loading = False
         self.transport.loaded()
@@ -1383,6 +1410,7 @@ class MainWindow(QMainWindow):
 
     def close_current(self):
         """Stop and forget the current channel, back to the welcome screen."""
+        self.channel_banner.hide_banner()
         self.stop_playback()
         self.current = None
         self._current_persistent = False
