@@ -257,3 +257,56 @@ def test_profile_picker_editor_and_manager(qt_app, store, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.Yes)
     assert manager.remove(store.profile(editor.profile_id))
     assert [p["name"] for p in store.profiles()] == ["Ben", "Ece"]
+
+
+def test_switching_saves_progress_into_the_profile_that_watched(window, store, monkeypatch):
+    saved_for = []
+    monkeypatch.setattr(window, "save_progress", lambda: saved_for.append(store.profile_id))
+    window.request_play(channel(window, "Haber"))
+    other = store.create_profile("Misafir", "#F07A8C")
+    window.switch_profile(other)
+    assert saved_for and set(saved_for) == {1}
+    assert window.current is None
+
+
+def test_an_approved_play_still_respects_a_kids_profile(window, store, monkeypatch):
+    lock_adult(store)
+    dismissed = []
+    monkeypatch.setattr(window.details, "dismiss", lambda: dismissed.append(True))
+    kid = store.create_profile("Ece", "#4FC3A1", kids=True)
+    window.switch_profile(kid)
+    assert dismissed  # an open detail card does not survive the switch
+    window.request_play(channel(window, "Film"), approved=True)
+    assert window.played == []
+
+
+def test_startup_asks_for_the_pin_of_a_protected_active_profile(
+    window, store, pin_answers, monkeypatch
+):
+    answers, asked = pin_answers
+    store.set_pin_hash(hash_pin(PIN))
+    guarded = store.create_profile("Ebeveyn", "#7C8CF8", protected=True)
+    store.use_profile(guarded)
+
+    def pick_same(picker):
+        picker.chosen = guarded
+        return QDialog.Accepted
+
+    monkeypatch.setattr(ProfilePicker, "exec", pick_same)
+    assert window.choose_profile_at_start() == 1  # refused: falls back to an open profile
+    assert store.profile_id == 1 and len(asked) == 1
+    store.use_profile(guarded)
+    answers.append(True)
+    assert window.choose_profile_at_start() == guarded and len(asked) == 2
+
+
+def test_new_adult_categories_lock_on_refresh_and_hide_from_kids_chips(window, store):
+    lock_adult(store)
+    store.upsert_channels("home", [Channel("adult2", "Yeni", "file:///a.ts", group="Adults Only")])
+    window.refresh_library()
+    assert ("home", "Adults Only") in store.locked_groups()
+    kid = store.create_profile("Ece", "#4FC3A1", kids=True)
+    window.switch_profile(kid)
+    window.set_section("live")
+    chips = window.category_bar.buttons()
+    assert "XXX Adult" not in chips and "Adults Only" not in chips and "Haber" in chips

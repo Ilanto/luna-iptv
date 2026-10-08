@@ -67,4 +67,4 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - PIN her seferinde sorulur; testler aynı kanalın iki kez açılmasında iki kez sorulduğunu, kilitsiz kanalda sorulmadığını, ayarlar/kaynak/yedek/profil/denetim kapılarını, beş yanlışta 30 saniyelik beklemeyi ve beklemenin pencere yeniden açılınca sıfırlanmadığını doğrular.
 - Çocuk profilinde kilitli içerik listede, aramada ve rehberde görünmez; kanal değiştirme kilitlileri atlar; bölümler dizi kartı PIN'le açıldıktan sonra yeniden sormaz.
 - Kategori düğmelerinin `main`'de de sıkışıp kırpıldığı (ör. "3elgese") offscreen görüntüde fark edildi; sığmayan düğmeler artık listeye geçer.
-- `scripts/test-quiet.sh`: **756 geçti**, 5 atlandı. Görsel kontrol (offscreen): ana pencere (kilit rozetleri, profil simgesi), "Kim izliyor?", PIN, ebeveyn denetimi, profil düzenleyici.
+- `scripts/test-quiet.sh`: **760 geçti**, 5 atlandı (Codex incelemesi düzeltmeleriyle). Görsel kontrol (offscreen): ana pencere (kilit rozetleri, profil simgesi), "Kim izliyor?", PIN, ebeveyn denetimi, profil düzenleyici.

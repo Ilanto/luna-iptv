@@ -241,6 +241,7 @@ class ProfilesDialog(QDialog):
     """Every profile with its switches; add, edit or delete."""
 
     changed = Signal()
+    deleting = Signal(int)  # before the rows go, so playback can be saved first
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -322,6 +323,7 @@ class ProfilesDialog(QDialog):
         )
         if answer != QMessageBox.Yes:
             return False
+        self.deleting.emit(profile["id"])
         self._store.delete_profile(profile["id"])
         self.refresh()
         self.changed.emit()
