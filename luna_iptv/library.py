@@ -74,6 +74,10 @@ class ChannelModel(QAbstractListModel):
         self.search_keys = [search_key(c.name + " " + c.group) for c in channels]
         self.endResetModel()
 
+    def row_of(self, channel_id):
+        """The model row of a channel id, or None."""
+        return self._rows.get(channel_id)
+
     def set_locked(self, channel_ids):
         """Swap the set of locked channels and repaint every card."""
         self.locked = frozenset(channel_ids)

@@ -95,6 +95,10 @@ QLabel#count {{ color: {ACCENT}; background: {ACCENT_TINT}; border-radius: 8px;
     padding: 2px 9px; font-size: 9px; font-weight: 600; }}
 QLabel#clock {{ color: {TEXT_SOFT}; }}
 QLabel#badge {{ color: {ACCENT}; font-size: 10px; }}
+QLabel#heroTitle {{ color: {TEXT}; font-size: 34px; font-weight: 700; }}
+QFrame#homeHero {{ background: transparent; border: none; }}
+QFrame#heroTrack {{ background: rgba(232, 236, 255, 0.16); border-radius: 3px; }}
+QFrame#heroFill {{ background: {GOLD}; border-radius: 3px; }}
 QFrame#watchNotice {{ background: {ACCENT_TINT}; border: 1px solid {LINE};
     border-radius: 12px; }}
 QFrame#watchNotice QLabel {{ color: {TEXT}; font-weight: 600; }}

@@ -403,3 +403,23 @@ def test_large_catalogue_refresh_uses_one_pass_and_bulk_history(window, monkeypa
     assert ids(window, "favorite_live") == [str(i) for i in range(20)]
     assert ids(window, "recent_live") == [str(i) for i in range(30, 50)]
     assert window.home_view.summary.text().startswith("50.000 canlı kanal")
+
+
+def test_hero_features_what_to_continue_then_a_live_favourite(qt_app):
+    from luna_iptv.home_hero import HomeHero, remaining_text
+    from luna_iptv.models import Channel
+
+    hero = HomeHero()
+    film = Channel("h:f", "Dune", "file:///f", kind="movie", group="Bilim Kurgu")
+    played = []
+    hero.play.connect(played.append)
+    hero.show_resume(film, 2400, 9000)
+    assert not hero.isHidden() and hero.title.text() == "Dune"
+    assert hero.left.text() == "1 sa 50 dk kaldı" and hero.play_button.text() == "Devam et"
+    hero.play_button.click()
+    assert played == [film]
+    hero.show_live(Channel("h:l", "NTV", "file:///l"))
+    assert hero.eyebrow.text() == "FAVORİN ŞU AN YAYINDA" and hero.details_button.isHidden()
+    hero.clear()
+    assert hero.isHidden()
+    assert remaining_text(59) == "1 dk kaldı" and remaining_text(3600) == "1 sa kaldı"
