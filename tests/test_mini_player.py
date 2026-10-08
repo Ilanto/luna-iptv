@@ -9,6 +9,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 from shiboken6 import isValid
 
+from luna_iptv.models import Channel
 from luna_iptv.storage import Store
 from luna_iptv.theme import apply_theme
 from luna_iptv.window import MainWindow
@@ -89,8 +90,13 @@ def window(qt_app, tmp_path, monkeypatch):
     monkeypatch.setattr(window_module, "Player", InertPlayer)
     monkeypatch.setattr(layout_module, "VideoWidget", InertVideo)
     apply_theme(qt_app)
-    window = MainWindow(Store(tmp_path / "mini.sqlite3"))
+    store = Store(tmp_path / "mini.sqlite3")
+    source = store.save_source({"name": "Mini", "type": "m3u", "location": "mini.m3u"})
+    store.replace_channels(source, [Channel("mini", "Mini test", "https://example.test/stream")])
+    window = MainWindow(store)
+    window.current = store.channels(source)[0]
     window.video_stack.setCurrentWidget(window.video)
+    window.watch_panel.sync(animate=False)
     initial_size = window.size()
     window.show()
     wait_for(qt_app, lambda: window.windowHandle().isExposed() and window.size() == initial_size)

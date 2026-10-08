@@ -147,6 +147,8 @@ class MiniPlayerController(QObject):
         window.setGeometry(self._normal_geometry)
         if self._normal_maximized:
             window.showMaximized()
+        window.watch_panel.sync(animate=False)
+        window._sync_message_bar()
         self._update_button()
 
     def close(self):
