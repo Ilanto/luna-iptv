@@ -52,3 +52,11 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - Codex'in bölüm listesi işi, dizi detayları yüklenince katalog sıfırlamasının izleme ilerlemesini sildiği bir 0.13 hatasını da düzeltti.
 - `scripts/test-quiet.sh`: **554 geçti**, 5 atlandı. Ayarlar, tercih kaydetme mantığına (`TrackPreferences.begin(persist=...)`) dokunduğu için `tests/test_preferences_native.py` ve `tests/test_preplay_native.py` gerçek ekranda ayrıca çalıştırılmalı.
 - Görsel kontrol (offscreen ekran görüntüsü): kategori düğmeleri, favori klasörleri, bölüm listesi, ayarlar. Favorilerde kaynak seçici satırı kaplıyordu; genişliği sınırlandı.
+
+# Luna IPTV 0.15.0 · rehber, hatırlatıcı, yedekleme
+
+- Rehber burada yazıldı; yedekleme ve hatırlatıcı Codex'e (gpt-6-astra) ayrı worktree'lerde paralel yazdırıldı, her biri burada tam sessiz paketle sınandı (619, 580 geçti) ve incelendi.
+- İncelemede düzeltilen: hatırlatıcının "kaç dakika önce" değeri `app_settings` tablosuna `reminder_lead:<id>` anahtarıyla yazılıyordu (görev tanımındaki tabloda sütun yoktu); bu ayarları kirletir ve yedeğe sızardı. Değer `reminders.lead_minutes` sütununa taşındı; testler ayarların temiz kaldığını da doğrular.
+- Birleştirmede git çakışma göstermedi ama rehberin yer tutucu `remind_programme`/`open_reminders` yöntemleri hatırlatıcının gerçek yöntemleriyle aynı adı taşıyordu (Python sessizce üstüne yazar). Yer tutucular kaldırıldı; rehber hatırlatıcıları (kanal, başlangıç zaman damgası) ile eşleştirir. Uçtan uca test: rehberden hatırlatıcı kurulur, kart "Hatırlatıcı kurulu" gösterir.
+- `GuideIndex.between()` ikili aramayla yalnız görünen zaman penceresini döndürür; rehber yalnız ekrandaki satırları boyar.
+- `scripts/test-quiet.sh`: **650 geçti**, 5 atlandı. Görsel kontrol (offscreen): rehber, hatırlatıcılar ve yedekleme pencereleri.

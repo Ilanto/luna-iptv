@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.14.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.15.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,12 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.15.0 · rehber, hatırlatıcı, yedekleme
+
+- **Rehber** (menüde Canlı TV'nin altında): kanallar solda geniş logolarıyla, saatler üstte; altın "şu an" çizgisi, yayındaki programda ilerleme. Dün'den altı gün sonrasına gün düğmeleri, "Şimdi", program arama (eşleşen kanallar kalır, programlar altınla çerçevelenir). Programa tıklayınca kart: "Kanalı aç" ve gelecek programlar için "Hatırlat". Yalnız ekrandaki satır ve saatler çizilir; binlerce kanalda da akıcıdır.
+- **Hatırlatıcı:** program başlamadan 5 dakika önce masaüstü bildirimi ve "İzle" düğmesi. Rehberden, kanal kartının sağ tık menüsünden kurulur; Kaynak menüsünde "Hatırlatıcılar…" listesi. Luna kapalıyken kaçırılanlar sonradan gösterilmez; bildirim sunucusu yoksa durum satırına yazılır.
+- **Yedekleme:** Kaynak menüsünde "Yedekle…" / "Yedekten geri yükle…". Kaynaklar, favoriler, klasörler, oynatma tercihleri, ayarlar ve isteğe bağlı izleme geçmişi tek JSON dosyasında. Hesap bilgileri ve erişim bilgisi taşıyabilecek adresler yalnız açıkça seçilirse yazılır (düz metin uyarısıyla); seçilmezse o kaynakların bağlantısı geri yüklemeden sonra "Bağlantıyı düzenle" ile tamamlanır. Geri yükleme önce dosyayı doğrular, özet gösterir ve tek veritabanı işleminde birleştirir; yedekte olmayan veriye dokunmaz.
 
 ### 0.14.0 · gezinme ve düzen
 

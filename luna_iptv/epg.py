@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timezone
 from xml.etree import ElementTree
 from xml.parsers import expat
@@ -123,6 +123,28 @@ class GuideIndex:
         if position >= 0 and when < items[position].end:
             return items[position]
         return None
+
+    def channel_ids(self) -> set[str]:
+        return set(self._items)
+
+    def between(self, channel_id: str, start: datetime, end: datetime) -> list[Programme]:
+        """Programmes overlapping [start, end), earliest first."""
+        items = self._items.get(channel_id)
+        if not items:
+            return []
+        starts = self._starts[channel_id]
+        first = max(0, bisect_left(starts, start) - 1)
+        last = bisect_left(starts, end)
+        return [item for item in items[first:last] if item.end > start]
+
+    def span(self) -> tuple[datetime, datetime] | None:
+        """Earliest start and latest end in the guide."""
+        if not self._items:
+            return None
+        return (
+            min(items[0].start for items in self._items.values()),
+            max(item.end for items in self._items.values() for item in items[-3:]),
+        )
 
     def upcoming(
         self, channel_id: str, count: int, when: datetime | None = None

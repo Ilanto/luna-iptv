@@ -41,6 +41,8 @@ from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
 from .preferences import TrackPreferences, normalize_preferences
 from .recovery import RecoveryController
+from .reminders import ReminderService
+from .reminders_dialog import RemindersDialog
 from .settings import MOTION_CHOICES, STARTUP_CHOICES, selected_setting
 from .settings_dialog import SettingsDialog
 from .source_connections import HealthResult, check_connection, validate_candidate
@@ -155,6 +157,9 @@ class MainWindow(QMainWindow):
         self.mini_player = MiniPlayerController(self)
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
+        self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
+        self.reminder_service.changed.connect(self._reminders_changed)
+        self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
         self.recovery.changed.connect(self.refresh_recovery)
@@ -244,6 +249,11 @@ class MainWindow(QMainWindow):
             self.import_source(dialog.source())
 
     def import_source(self, source):
+        from .backup import source_incomplete
+
+        if source_incomplete(source):
+            self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
+            return
         source = dict(source)
 
         def load():
@@ -376,8 +386,13 @@ class MainWindow(QMainWindow):
             else "Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak."
         )
         self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
+        self._reminders_changed()  # the visible guide must not keep removed channels
 
     def set_section(self, section):
+        if section == "guide":
+            self.show_guide()
+            return
+        self.library_pages.setCurrentWidget(self.browse)
         if section != "favorites":
             self._folder_id = None
             self.proxy.folder_ids = None
@@ -543,6 +558,7 @@ class MainWindow(QMainWindow):
             )
         folders.addSeparator()
         folders.addAction("Yeni klasör…", lambda: self.create_folder(channel))
+        self._add_reminder_menu(menu, channel)
         return menu
 
     def channel_context_menu(self, position):
@@ -556,6 +572,27 @@ class MainWindow(QMainWindow):
     def set_folder_membership(self, folder_id, channel, member):
         self.store.set_in_folder(folder_id, channel.id, member)
         self.refresh_favorites()
+
+    def show_guide(self):
+        """The Rehber page; the browse filters keep their state for when people return."""
+        for key, button in self.nav_buttons.items():
+            button.setChecked(key == "guide")
+        self.library_pages.setCurrentWidget(self.guide_view)
+        self.refresh_guide_view()
+        self.guide_view.go_now()
+
+    def refresh_guide_view(self):
+        rows, seen = [], set()
+        for channel in self.model.channels:
+            if channel.kind != "live" or not channel.tvg_id or channel.id in seen:
+                continue
+            index = self._guide_index.get(channel.id.split(":", 1)[0])
+            if index is not None and channel.tvg_id in index.channel_ids():
+                rows.append((channel, index))
+                seen.add(channel.id)
+        self.guide_view.can_remind = True
+        reminded = {(r["channel_id"], r["start"]) for r in self.reminder_service.reminders()}
+        self.guide_view.set_rows(rows, reminded)
 
     def choose_category(self, group):
         index = self.category.findData(group)
@@ -1308,8 +1345,24 @@ class MainWindow(QMainWindow):
         remove.setEnabled(source is not None and not self._busy)
         remove.triggered.connect(lambda: self.remove_source(source))
         menu.addSeparator()
+        backup = menu.addAction("Yedekle…", self.export_backup)
+        backup.setEnabled(not self._busy)
+        restore = menu.addAction("Yedekten geri yükle…", self.restore_backup)
+        restore.setEnabled(not self._busy)
+        menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
+        menu.addAction("Hatırlatıcılar…", self.open_reminders)
         return menu
+
+    def export_backup(self):
+        from .backup_dialog import save_backup_dialog
+
+        save_backup_dialog(self)
+
+    def restore_backup(self):
+        from .backup_dialog import restore_backup_dialog
+
+        restore_backup_dialog(self)
 
     @staticmethod
     def _same_source(left, right):
@@ -1594,6 +1647,8 @@ class MainWindow(QMainWindow):
             self._guide_data[source["id"]] = programmes
             self._guide_index[source["id"]] = GuideIndex(programmes)
             self._refresh_live_cards()
+            if self.library_pages.currentWidget() is self.guide_view:
+                self.refresh_guide_view()
             if not cached:
                 import os
 
@@ -1606,6 +1661,59 @@ class MainWindow(QMainWindow):
         self.run_task(
             read, done, "Program rehberi okunuyor…", lambda: self.load_guide(source), busy=False
         )
+
+    def _add_reminder_menu(self, menu, channel):
+        index = self._guide_index.get(channel.id.split(":", 1)[0])
+        upcoming = index.upcoming(channel.tvg_id, 20) if index and channel.kind == "live" else []
+        if upcoming:
+            reminders = menu.addMenu("Hatırlatıcı kur")
+            for programme in upcoming:
+                label = f"{programme.start.astimezone():%d.%m %H:%M} · {programme.title}"
+                reminders.addAction(
+                    label.replace("&", "&&"),
+                    lambda programme=programme: self.remind_programme(channel, programme),
+                )
+        menu.addAction("Hatırlatıcılar…", self.open_reminders)
+
+    def remind_programme(self, channel, programme):
+        try:
+            reminder_id = self.reminder_service.add(channel, programme)
+        except ValueError as error:
+            self.status(str(error))
+            return None
+        if reminder_id is not None:
+            self.status(
+                f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}"
+            )
+        return reminder_id
+
+    def _reminders_changed(self):
+        """Rebuild the guide rows if the guide is on screen."""
+        if self.library_pages.currentWidget() is self.guide_view:
+            self.refresh_guide_view()
+
+    def cancel_reminder(self, reminder_id):
+        self.reminder_service.remove(reminder_id)
+
+    def open_reminders(self):
+        if self._reminders_dialog is None or not isValid(self._reminders_dialog):
+            self._reminders_dialog = RemindersDialog(self.reminder_service, self.store, self)
+        self._reminders_dialog.refresh()
+        self._reminders_dialog.show()
+        self._reminders_dialog.raise_()
+        self._reminders_dialog.activateWindow()
+        return self._reminders_dialog
+
+    def _watch_reminder(self, channel_id):
+        if self._closed:
+            return
+        channel = next((item for item in self.store.channels() if item.id == channel_id), None)
+        if channel is None:
+            self.status("Bu kanal artık kaynakta bulunmuyor.")
+            return
+        self.leave_mini_player()
+        RemoteControl(self).raise_window()
+        self.request_play(channel)
 
     def programme_now(self, channel):
         """What a live card shows as on now; cheap enough to call while painting."""
@@ -1749,6 +1857,7 @@ class MainWindow(QMainWindow):
         self._closed = True
         self.idle_inhibit.close()
         self.mpris.close()
+        self.reminder_service.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()
