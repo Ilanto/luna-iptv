@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import unicodedata
 import uuid
@@ -27,6 +28,11 @@ class Store:
             os.chmod(self.path, 0o600)
             self._db.execute("PRAGMA foreign_keys = ON")
             self._create_schema()
+            profiles = self.profiles()
+            active = self.setting("active_profile")
+            self.profile_id = next(
+                (item["id"] for item in profiles if item["id"] == active), profiles[0]["id"]
+            )
             check = self._db.execute("PRAGMA quick_check").fetchone()
             if check is None or check[0] != "ok":
                 detail = "no result" if check is None else str(check[0])
@@ -39,8 +45,20 @@ class Store:
             raise RuntimeError(f"Database {self.path} is corrupt or unreadable: {error}") from error
 
     def _create_schema(self) -> None:
+        # SQLite table rebuilds must disable FK actions before opening the transaction.
+        self._db.execute("PRAGMA foreign_keys = OFF")
+        try:
+            with self._db:
+                self._initialize_schema()
+                if self._db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                    raise sqlite3.IntegrityError("Profil taşımasında geçersiz veri ilişkisi.")
+        finally:
+            self._db.execute("PRAGMA foreign_keys = ON")
+
+    def _initialize_schema(self) -> None:
         self._db.executescript(
             """
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS sources (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -116,6 +134,27 @@ class Store:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS profiles (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL,
+                kids INTEGER NOT NULL DEFAULT 0,
+                protected INTEGER NOT NULL DEFAULT 0,
+                position INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS secrets (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS group_locks (
+                source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                group_name TEXT NOT NULL,
+                locked INTEGER NOT NULL,
+                PRIMARY KEY(source_id, group_name)
+            );
+            CREATE TABLE IF NOT EXISTS channel_locks (
+                channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS reminders (
                 id INTEGER PRIMARY KEY,
                 channel_id TEXT NOT NULL,
@@ -146,6 +185,7 @@ class Store:
             self._db.execute(
                 "ALTER TABLE channels ADD COLUMN provider_key TEXT NOT NULL DEFAULT ''"
             )
+        self._migrate_profiles()
         self._backfill_all_provider_keys()
         self._db.execute(
             """
@@ -153,7 +193,208 @@ class Store:
             ON channels(source_id, provider_key) WHERE provider_key <> ''
             """
         )
-        self._db.commit()
+
+    def _migrate_profiles(self) -> None:
+        """Rebuild legacy personal tables together, retaining folder and reminder ids."""
+        self._db.execute(
+            """INSERT INTO profiles(id,name,color,kids,protected,position)
+            SELECT 1,'Ben','#E8B04B',0,0,0 WHERE NOT EXISTS(SELECT 1 FROM profiles)"""
+        )
+        definitions = {
+            "favorites": """
+                channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                PRIMARY KEY(profile_id, channel_id)
+            """,
+            "favorite_folders": """
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL
+            """,
+            "progress": """
+                channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                position REAL NOT NULL, duration REAL NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                history_hidden INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(profile_id, channel_id)
+            """,
+            "reminders": """
+                id INTEGER PRIMARY KEY, channel_id TEXT NOT NULL, title TEXT NOT NULL,
+                start INTEGER NOT NULL, end INTEGER NOT NULL,
+                notified INTEGER NOT NULL DEFAULT 0, lead_minutes REAL NOT NULL DEFAULT 5,
+                UNIQUE(profile_id, channel_id, start)
+            """,
+        }
+        migrated = False
+        for table, definition in definitions.items():
+            columns = [row[1] for row in self._db.execute(f"PRAGMA table_info({table})")]
+            if "profile_id" in columns:
+                continue
+            if not migrated:
+                self._db.execute("DROP TRIGGER IF EXISTS favorite_folder_cleanup")
+                migrated = True
+            self._db.execute(
+                f"""CREATE TABLE {table}_profiles (
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    {definition}
+                )"""
+            )
+            names = ",".join(columns)
+            self._db.execute(
+                f"INSERT INTO {table}_profiles(profile_id,{names}) SELECT 1,{names} FROM {table}"
+            )
+            self._db.execute(f"DROP TABLE {table}")
+            self._db.execute(f"ALTER TABLE {table}_profiles RENAME TO {table}")
+        if migrated:
+            self._db.execute(
+                """CREATE TRIGGER favorite_folder_cleanup AFTER DELETE ON favorites BEGIN
+                    DELETE FROM favorite_folder_items WHERE channel_id=OLD.channel_id
+                    AND folder_id IN (
+                        SELECT id FROM favorite_folders WHERE profile_id=OLD.profile_id
+                    );
+                END"""
+            )
+
+    def profiles(self) -> list[dict]:
+        columns = ("id", "name", "color", "kids", "protected", "position")
+        return [
+            dict(zip(columns, (*row[:3], bool(row[3]), bool(row[4]), row[5]), strict=True))
+            for row in self._db.execute(
+                "SELECT id,name,color,kids,protected,position FROM profiles ORDER BY position,id"
+            )
+        ]
+
+    def profile(self, profile_id: int) -> dict | None:
+        return next((item for item in self.profiles() if item["id"] == profile_id), None)
+
+    def _profile_name(self, name: str, profile_id: int | None = None) -> str:
+        if (
+            not name.strip()
+            or len(name.strip()) > 40
+            or any(unicodedata.category(c) == "Cc" for c in name)
+        ):
+            raise ValueError("Profil adı 1–40 karakter olmalı ve kontrol karakteri içermemeli.")
+        name = name.strip()
+        if any(
+            item["id"] != profile_id and item["name"].casefold() == name.casefold()
+            for item in self.profiles()
+        ):
+            raise ValueError("Bu adda bir profil zaten var.")
+        return name
+
+    @staticmethod
+    def _profile_color(color: str) -> str:
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            raise ValueError("Profil rengi #RRGGBB biçiminde olmalı.")
+        return color
+
+    def create_profile(
+        self, name: str, color: str, *, kids: bool = False, protected: bool = False
+    ) -> int:
+        with self._db:
+            name, color = self._profile_name(name), self._profile_color(color)
+            return self._db.execute(
+                """INSERT INTO profiles(name,color,kids,protected,position)
+                SELECT ?,?,?,?,COALESCE(MAX(position), -1) + 1 FROM profiles""",
+                (name, color, int(kids), int(protected)),
+            ).lastrowid
+
+    def update_profile(
+        self, profile_id: int, *, name=None, color=None, kids=None, protected=None
+    ) -> None:
+        with self._db:
+            current = self.profile(profile_id)
+            if current is None:
+                raise ValueError("Profil bulunamadı.")
+            self._db.execute(
+                "UPDATE profiles SET name=?,color=?,kids=?,protected=? WHERE id=?",
+                (
+                    current["name"] if name is None else self._profile_name(name, profile_id),
+                    current["color"] if color is None else self._profile_color(color),
+                    int(current["kids"] if kids is None else kids),
+                    int(current["protected"] if protected is None else protected),
+                    profile_id,
+                ),
+            )
+
+    def delete_profile(self, profile_id: int) -> None:
+        remaining = [item for item in self.profiles() if item["id"] != profile_id]
+        if self.profile(profile_id) is None:
+            raise ValueError("Profil bulunamadı.")
+        if not remaining:
+            raise ValueError("Son profil silinemez.")
+        active = remaining[0]["id"] if self.profile_id == profile_id else self.profile_id
+        with self._db:
+            self._db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+            if self.profile_id == profile_id:
+                self._db.execute(
+                    """INSERT INTO app_settings(key,value) VALUES('active_profile',?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                    (json.dumps(active),),
+                )
+        self.profile_id = active
+
+    def use_profile(self, profile_id: int) -> None:
+        if self.profile(profile_id) is None:
+            raise ValueError("Profil bulunamadı.")
+        self.set_setting("active_profile", profile_id)
+        self.profile_id = profile_id
+
+    def pin_hash(self) -> str | None:
+        row = self._db.execute("SELECT value FROM secrets WHERE key='pin_hash'").fetchone()
+        return row[0] if row is not None else None
+
+    def set_pin_hash(self, value: str | None) -> None:
+        with self._db:
+            if value is None:
+                self._db.execute("DELETE FROM secrets WHERE key='pin_hash'")
+            else:
+                self._db.execute(
+                    """INSERT INTO secrets(key,value) VALUES('pin_hash',?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                    (value,),
+                )
+
+    def locked_groups(self) -> set[tuple[str, str]]:
+        return set(self._db.execute("SELECT source_id,group_name FROM group_locks WHERE locked=1"))
+
+    def set_group_locked(self, source_id: str, group_name: str, locked: bool) -> None:
+        with self._db:
+            self._db.execute(
+                """INSERT INTO group_locks(source_id,group_name,locked) VALUES(?,?,?)
+                ON CONFLICT(source_id,group_name) DO UPDATE SET locked=excluded.locked""",
+                (source_id, group_name, int(locked)),
+            )
+
+    def locked_channels(self) -> set[str]:
+        return {row[0] for row in self._db.execute("SELECT channel_id FROM channel_locks")}
+
+    def set_channel_locked(self, channel_id: str, locked: bool) -> None:
+        with self._db:
+            if locked:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO channel_locks(channel_id) VALUES(?)", (channel_id,)
+                )
+            else:
+                self._db.execute("DELETE FROM channel_locks WHERE channel_id=?", (channel_id,))
+
+    def lock_adult_groups(self) -> int:
+        from .parental import is_adult_group
+
+        with self._db:
+            groups = self._db.execute(
+                """SELECT DISTINCT source_id,group_name FROM channels AS c
+                WHERE NOT EXISTS(SELECT 1 FROM group_locks AS g
+                    WHERE g.source_id=c.source_id AND g.group_name=c.group_name)"""
+            ).fetchall()
+            return self._db.executemany(
+                "INSERT OR IGNORE INTO group_locks(source_id,group_name,locked) VALUES(?,?,1)",
+                [(source, group) for source, group in groups if is_adult_group(group)],
+            ).rowcount
+
+    def channel_groups(self) -> list[tuple[str, str, int]]:
+        rows = self._db.execute(
+            """SELECT source_id,group_name,COUNT(*) FROM channels
+            WHERE group_name<>'' GROUP BY source_id,group_name"""
+        ).fetchall()
+        return sorted(rows, key=lambda row: (row[0], row[1].casefold(), row[1]))
 
     def setting(self, key: str, default: Any = None) -> Any:
         row = self._db.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
@@ -567,20 +808,27 @@ class Store:
         with self._db:
             if favorite:
                 self._db.execute(
-                    "INSERT OR IGNORE INTO favorites(channel_id) VALUES(?)", (channel_id,)
+                    "INSERT OR IGNORE INTO favorites(profile_id,channel_id) VALUES(?,?)",
+                    (self.profile_id, channel_id),
                 )
             else:
-                self._db.execute("DELETE FROM favorites WHERE channel_id = ?", (channel_id,))
                 self._db.execute(
-                    "DELETE FROM favorite_folder_items WHERE channel_id = ?", (channel_id,)
+                    "DELETE FROM favorites WHERE profile_id=? AND channel_id=?",
+                    (self.profile_id, channel_id),
                 )
 
     def favorites(self) -> set[str]:
-        return {row[0] for row in self._db.execute("SELECT channel_id FROM favorites")}
+        return {
+            row[0]
+            for row in self._db.execute(
+                "SELECT channel_id FROM favorites WHERE profile_id=?", (self.profile_id,)
+            )
+        }
 
     def folders(self) -> list[tuple[int, str]]:
         return self._db.execute(
-            "SELECT id,name FROM favorite_folders ORDER BY position,id"
+            "SELECT id,name FROM favorite_folders WHERE profile_id=? ORDER BY position,id",
+            (self.profile_id,),
         ).fetchall()
 
     def _folder_name(self, name: str, folder_id: int | None = None) -> str:
@@ -598,30 +846,50 @@ class Store:
         with self._db:
             name = self._folder_name(name)
             return self._db.execute(
-                """INSERT INTO favorite_folders(name,position)
-                SELECT ?,COALESCE(MAX(position), -1) + 1 FROM favorite_folders""",
-                (name,),
+                """INSERT INTO favorite_folders(profile_id,name,position)
+                SELECT ?,?,COALESCE(MAX(position), -1) + 1 FROM favorite_folders
+                WHERE profile_id=?""",
+                (self.profile_id, name, self.profile_id),
             ).lastrowid
 
     def rename_folder(self, folder_id: int, name: str) -> bool:
         with self._db:
+            if not self._owns_folder(folder_id):
+                return False
             name = self._folder_name(name, folder_id)
             return (
                 self._db.execute(
-                    "UPDATE favorite_folders SET name=? WHERE id=?", (name, folder_id)
+                    "UPDATE favorite_folders SET name=? WHERE id=? AND profile_id=?",
+                    (name, folder_id, self.profile_id),
                 ).rowcount
                 > 0
             )
 
     def delete_folder(self, folder_id: int) -> None:
         with self._db:
-            self._db.execute("DELETE FROM favorite_folders WHERE id=?", (folder_id,))
+            self._db.execute(
+                "DELETE FROM favorite_folders WHERE id=? AND profile_id=?",
+                (folder_id, self.profile_id),
+            )
+
+    def _owns_folder(self, folder_id: int) -> bool:
+        return (
+            self._db.execute(
+                "SELECT 1 FROM favorite_folders WHERE id=? AND profile_id=?",
+                (folder_id, self.profile_id),
+            ).fetchone()
+            is not None
+        )
 
     def folder_items(self, folder_id: int) -> set[str]:
         return {
             row[0]
             for row in self._db.execute(
-                "SELECT channel_id FROM favorite_folder_items WHERE folder_id=?", (folder_id,)
+                """SELECT channel_id FROM favorite_folder_items
+                WHERE folder_id=? AND folder_id IN (
+                    SELECT id FROM favorite_folders WHERE profile_id=?
+                )""",
+                (folder_id, self.profile_id),
             )
         }
 
@@ -629,15 +897,31 @@ class Store:
         return {
             row[0]
             for row in self._db.execute(
-                "SELECT folder_id FROM favorite_folder_items WHERE channel_id=?", (channel_id,)
+                """SELECT folder_id FROM favorite_folder_items
+                WHERE channel_id=? AND folder_id IN (
+                    SELECT id FROM favorite_folders WHERE profile_id=?
+                )""",
+                (channel_id, self.profile_id),
             )
         }
 
     def set_in_folder(self, folder_id: int, channel_id: str, member: bool) -> None:
         with self._db:
+            if not self._owns_folder(folder_id):
+                # Preserve the existing error for missing ids; foreign profiles are a no-op.
+                if (
+                    member
+                    and self._db.execute(
+                        "SELECT 1 FROM favorite_folders WHERE id=?", (folder_id,)
+                    ).fetchone()
+                    is None
+                ):
+                    raise sqlite3.IntegrityError("FOREIGN KEY constraint failed")
+                return
             if member:
                 self._db.execute(
-                    "INSERT OR IGNORE INTO favorites(channel_id) VALUES(?)", (channel_id,)
+                    "INSERT OR IGNORE INTO favorites(profile_id,channel_id) VALUES(?,?)",
+                    (self.profile_id, channel_id),
                 )
                 self._db.execute(
                     "INSERT OR IGNORE INTO favorite_folder_items(folder_id,channel_id) VALUES(?,?)",
@@ -654,22 +938,32 @@ class Store:
     ) -> None:
         with self._db:
             updated_at = self._db.execute(
-                "SELECT COALESCE(MAX(updated_at), 0) + 1 FROM progress"
+                "SELECT COALESCE(MAX(updated_at), 0) + 1 FROM progress WHERE profile_id=?",
+                (self.profile_id,),
             ).fetchone()[0]
             self._db.execute(
                 """
-                INSERT INTO progress(channel_id,position,duration,updated_at,history_hidden)
-                VALUES(?,?,?,?,?)
-                ON CONFLICT(channel_id) DO UPDATE SET position=excluded.position,
+                INSERT INTO progress(
+                    profile_id,channel_id,position,duration,updated_at,history_hidden
+                ) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(profile_id,channel_id) DO UPDATE SET position=excluded.position,
                   duration=excluded.duration, updated_at=excluded.updated_at,
                   history_hidden=excluded.history_hidden
                 """,
-                (channel_id, float(position), float(duration), updated_at, int(not mark_recent)),
+                (
+                    self.profile_id,
+                    channel_id,
+                    float(position),
+                    float(duration),
+                    updated_at,
+                    int(not mark_recent),
+                ),
             )
 
     def progress(self, channel_id: str) -> tuple[float, float]:
         row = self._db.execute(
-            "SELECT position,duration FROM progress WHERE channel_id = ?", (channel_id,)
+            "SELECT position,duration FROM progress WHERE profile_id=? AND channel_id=?",
+            (self.profile_id, channel_id),
         ).fetchone()
         return (0.0, 0.0) if row is None else (float(row[0]), float(row[1]))
 
@@ -678,7 +972,9 @@ class Store:
         return {
             row[0]: (float(row[1]), float(row[2]))
             for row in self._db.execute(
-                "SELECT channel_id,position,duration FROM progress WHERE duration > 0"
+                "SELECT channel_id,position,duration FROM progress "
+                "WHERE profile_id=? AND duration>0",
+                (self.profile_id,),
             )
         }
 
@@ -690,11 +986,11 @@ class Store:
             for row in self._db.execute(
                 """
                 SELECT channel_id FROM progress
-                WHERE position >= 0 AND history_hidden = 0
+                WHERE profile_id=? AND position >= 0 AND history_hidden = 0
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,
-                (int(limit),),
+                (self.profile_id, int(limit)),
             )
         ]
 
@@ -702,11 +998,11 @@ class Store:
         assignments = "history_hidden = 1"
         if reset_progress:
             assignments += ", position = 0, duration = 0"
-        sql = f"UPDATE progress SET {assignments}"
-        args = ()
+        sql = f"UPDATE progress SET {assignments} WHERE profile_id=?"
+        args = (self.profile_id,)
         if source_id is not None:
-            sql += " WHERE channel_id IN (SELECT id FROM channels WHERE source_id = ?)"
-            args = (source_id,)
+            sql += " AND channel_id IN (SELECT id FROM channels WHERE source_id = ?)"
+            args += (source_id,)
         with self._db:
             self._db.execute(sql, args)
 
@@ -821,7 +1117,9 @@ class Store:
                     history_hidden=bool(row[4]),
                 )
                 for row in self._db.execute(
-                    "SELECT channel_id,position,duration,updated_at,history_hidden FROM progress"
+                    "SELECT channel_id,position,duration,updated_at,history_hidden FROM progress "
+                    "WHERE profile_id=?",
+                    (self.profile_id,),
                 )
             ]
         favorites = self.favorites()
@@ -851,7 +1149,9 @@ class Store:
                     members=sorted(self.folder_items(identity)),
                 )
                 for identity, name, position in self._db.execute(
-                    "SELECT id,name,position FROM favorite_folders ORDER BY position,id"
+                    "SELECT id,name,position FROM favorite_folders "
+                    "WHERE profile_id=? ORDER BY position,id",
+                    (self.profile_id,),
                 )
             ],
             "playback_preferences": {
@@ -860,7 +1160,9 @@ class Store:
             },
             "app_settings": {
                 key: self.setting(key)
-                for (key,) in self._db.execute("SELECT key FROM app_settings")
+                for (key,) in self._db.execute(
+                    "SELECT key FROM app_settings WHERE key<>'active_profile'"
+                )
             },
             "history": history,
         }
@@ -948,8 +1250,8 @@ class Store:
                 channel_ids[identity] = identity
 
             self._db.executemany(
-                "INSERT OR IGNORE INTO favorites(channel_id) VALUES(?)",
-                [(channel_ids[identity],) for identity in data["favorites"]],
+                "INSERT OR IGNORE INTO favorites(profile_id,channel_id) VALUES(?,?)",
+                [(self.profile_id, channel_ids[identity]) for identity in data["favorites"]],
             )
             # Folder ids are local autoincrement values, so folders merge by name:
             # a backup's folder 1 may be a different folder here. New ones go last.
@@ -959,9 +1261,10 @@ class Store:
                 identity = folder_names.get(name.casefold())
                 if identity is None:
                     identity = self._db.execute(
-                        """INSERT INTO favorite_folders(name,position)
-                        SELECT ?,COALESCE(MAX(position), -1) + 1 FROM favorite_folders""",
-                        (name,),
+                        """INSERT INTO favorite_folders(profile_id,name,position)
+                        SELECT ?,?,COALESCE(MAX(position), -1) + 1 FROM favorite_folders
+                        WHERE profile_id=?""",
+                        (self.profile_id, name, self.profile_id),
                     ).lastrowid
                     folder_names[name.casefold()] = identity
                 self._db.executemany(
@@ -981,15 +1284,18 @@ class Store:
                 [
                     (key, json.dumps(value, ensure_ascii=False))
                     for key, value in data["app_settings"].items()
+                    if key != "active_profile"
                 ],
             )
             self._db.executemany(
-                """INSERT INTO progress(channel_id,position,duration,updated_at,history_hidden)
-                VALUES(?,?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET
+                """INSERT INTO progress(
+                    profile_id,channel_id,position,duration,updated_at,history_hidden
+                ) VALUES(?,?,?,?,?,?) ON CONFLICT(profile_id,channel_id) DO UPDATE SET
                   position=excluded.position,duration=excluded.duration,
                   updated_at=excluded.updated_at,history_hidden=excluded.history_hidden""",
                 [
                     (
+                        self.profile_id,
                         channel_ids[item["channel_id"]],
                         item["position"],
                         item["duration"],
@@ -1009,29 +1315,37 @@ class Store:
         """Keep duplicate programmes idempotent, including their notification state."""
         with self._db:
             self._db.execute(
-                """INSERT INTO reminders(channel_id,title,start,end,lead_minutes)
-                VALUES(?,?,?,?,?) ON CONFLICT(channel_id,start) DO NOTHING""",
-                (channel_id, title, start, end, float(lead_minutes)),
+                """INSERT INTO reminders(profile_id,channel_id,title,start,end,lead_minutes)
+                VALUES(?,?,?,?,?,?) ON CONFLICT(profile_id,channel_id,start) DO NOTHING""",
+                (self.profile_id, channel_id, title, start, end, float(lead_minutes)),
             )
             return self._db.execute(
-                "SELECT id FROM reminders WHERE channel_id=? AND start=?", (channel_id, start)
+                "SELECT id FROM reminders WHERE profile_id=? AND channel_id=? AND start=?",
+                (self.profile_id, channel_id, start),
             ).fetchone()[0]
 
     def remove_reminder(self, reminder_id: int) -> None:
         with self._db:
-            self._db.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
+            self._db.execute(
+                "DELETE FROM reminders WHERE id=? AND profile_id=?",
+                (reminder_id, self.profile_id),
+            )
 
     def reminders(self) -> list[dict[str, Any]]:
         columns = ("id", "channel_id", "title", "start", "end", "notified", "lead_minutes")
         rows = self._db.execute(
             "SELECT id,channel_id,title,start,end,notified,lead_minutes FROM reminders "
-            "ORDER BY start,id"
+            "WHERE profile_id=? ORDER BY start,id",
+            (self.profile_id,),
         )
         return [dict(zip(columns, row, strict=True)) for row in rows]
 
     def mark_reminder_notified(self, reminder_id: int) -> None:
         with self._db:
-            self._db.execute("UPDATE reminders SET notified=1 WHERE id=?", (reminder_id,))
+            self._db.execute(
+                "UPDATE reminders SET notified=1 WHERE id=? AND profile_id=?",
+                (reminder_id, self.profile_id),
+            )
 
     def drop_expired_reminders(self, now: float) -> int:
         with self._db:
