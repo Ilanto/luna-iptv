@@ -352,7 +352,7 @@ def _validate_v2(data, channel_ids, source_ids):
         for flag in ("kids", "protected"):
             _require(type(profile[flag]) is bool)
         _require(type(profile["position"]) is int and profile["position"] >= 0)
-        if "avatar" in profile:
+        if "avatar" in profile and profile["avatar"] is not None:  # None: the initial
             _text(profile["avatar"], limit=512)
     personal = data["profile_data"]
     _require(isinstance(personal, dict) and set(personal) == {str(i) for i in profile_ids})

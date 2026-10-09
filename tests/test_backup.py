@@ -679,11 +679,8 @@ def test_v2_late_failure_rolls_back_profiles_and_locks(multi_profile, stores):
     assert not target._db.in_transaction
 
 
-def test_v2_avatar_round_trip_when_storage_has_column(personal, stores):
+def test_v2_avatar_round_trip(personal, stores):
     target = stores("avatar")
-    for store in (personal, target):
-        with store._db:
-            store._db.execute("ALTER TABLE profiles ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
     with personal._db:
         personal._db.execute("UPDATE profiles SET avatar='moon' WHERE id=1")
     data = export_backup(personal)
