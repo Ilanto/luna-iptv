@@ -3,7 +3,7 @@
 from datetime import datetime
 from heapq import nsmallest
 
-from PySide6.QtCore import QEvent, QSize, QSortFilterProxyModel, Qt
+from PySide6.QtCore import QAbstractListModel, QEvent, QSize, Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -42,30 +42,50 @@ def greeting(hour):
     return "İyi geceler"
 
 
-class IdListModel(QSortFilterProxyModel):
-    """An ordered selection that retains all roles from ChannelModel."""
+class IdListModel(QAbstractListModel):
+    """Up to a few dozen channels by id, answering every role through ChannelModel.
+
+    Not a proxy: a filter proxy re-checks all of a 100,000-channel catalogue on every reset,
+    four strips at a time; this keeps only its own rows.
+    """
 
     def __init__(self, source, parent=None):
         super().__init__(parent)
-        self.order = {}
+        self.source = source
+        self.wanted = []
+        self.ids = []
         self.hide_locked = False
-        self.setSourceModel(source)
-        self.sort(0)
+        source.modelReset.connect(self._rebuild)
+        source.dataChanged.connect(self._source_changed)
 
     def set_ids(self, ids, *, hide_locked=False):
-        order = {cid: rank for rank, cid in enumerate(ids)}
-        if order != self.order or hide_locked != self.hide_locked:
-            self.order, self.hide_locked = order, hide_locked
-            self.invalidate()
+        self.wanted, self.hide_locked = list(ids), hide_locked
+        self._rebuild()
 
-    def filterAcceptsRow(self, row, parent):
-        source = self.sourceModel()
-        cid = source.channels[row].id
-        return cid in self.order and not (self.hide_locked and cid in source.locked)
+    def _rebuild(self):
+        source = self.source
+        ids = [
+            cid
+            for cid in self.wanted
+            if source.row_of(cid) is not None and not (self.hide_locked and cid in source.locked)
+        ]
+        if ids != self.ids:
+            self.beginResetModel()
+            self.ids = ids
+            self.endResetModel()
 
-    def lessThan(self, left, right):
-        channels = self.sourceModel().channels
-        return self.order[channels[left.row()].id] < self.order[channels[right.row()].id]
+    def _source_changed(self, top, bottom, roles=()):
+        if self.ids:
+            self.dataChanged.emit(self.index(0, 0), self.index(len(self.ids) - 1, 0), roles)
+
+    def rowCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self.ids)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid() or index.row() >= len(self.ids):
+            return None
+        row = self.source.row_of(self.ids[index.row()])
+        return None if row is None else self.source.data(self.source.index(row, 0), role)
 
 
 class CardStrip(CardView):

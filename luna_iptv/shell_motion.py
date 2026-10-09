@@ -143,27 +143,29 @@ class PageTransition(QObject):
         return label
 
     def end(self):
+        """Fade the old page's image out over the new page, which is already live.
+
+        One snapshot, not two: grabbing a large grid costs about as much as the fade lasts.
+        """
         if self.overlay is None:
             return
         self.overlay.raise_()
-        self.incoming = self._snapshot()
         duration = animation_ms(160, 120)
-        for widget, start, end in ((self.overlay, 1.0, 0.0), (self.incoming, 0.0, 1.0)):
-            effect = QGraphicsOpacityEffect(widget)
-            widget.setGraphicsEffect(effect)
-            effect.setOpacity(start)
-            fade = QPropertyAnimation(effect, b"opacity")
-            fade.setDuration(duration)
-            fade.setStartValue(start)
-            fade.setEndValue(end)
-            self.animation.addAnimation(fade)
+        effect = QGraphicsOpacityEffect(self.overlay)
+        self.overlay.setGraphicsEffect(effect)
+        fade = QPropertyAnimation(effect, b"opacity")
+        fade.setDuration(duration)
+        fade.setStartValue(1.0)
+        fade.setEndValue(0.0)
+        fade.setEasingCurve(QEasingCurve.OutCubic)
+        self.animation.addAnimation(fade)
         if motion_level() == "full":
-            slide = QPropertyAnimation(self.incoming, b"pos")
-            slide.setDuration(animation_ms(160, 0))
-            slide.setStartValue(QPoint(0, 8))
-            slide.setEndValue(QPoint(0, 0))
-            slide.setEasingCurve(QEasingCurve.OutCubic)
-            self.animation.addAnimation(slide)
+            drift = QPropertyAnimation(self.overlay, b"pos")
+            drift.setDuration(duration)
+            drift.setStartValue(QPoint(0, 0))
+            drift.setEndValue(QPoint(0, -8))
+            drift.setEasingCurve(QEasingCurve.OutCubic)
+            self.animation.addAnimation(drift)
         self.animation.start()
 
     def finish(self):

@@ -104,3 +104,22 @@ def test_chips_that_do_not_fit_wait_in_the_list_without_squeezing(qt_app):
     assert all(not button.isHidden() for button in chips.values())
     assert bar.more_button.isHidden()
     bar.close()
+
+
+def test_model_reset_reuses_search_keys_and_unchanged_locks_emit_nothing(qt_app, monkeypatch):
+    from luna_iptv import library
+    from luna_iptv.library import ChannelModel
+
+    model = ChannelModel()
+    channels = [Channel(f"h:{n}", f"Kanal {n}", "u", group="Haber") for n in range(50)]
+    model.reset(channels, set())
+    calls = []
+    monkeypatch.setattr(library, "search_key", lambda text: calls.append(text) or text.casefold())
+    model.reset(list(channels) + [Channel("h:new", "Yeni", "u", group="Spor")], set())
+    assert calls == ["Yeni Spor"]  # only the new name is normalised again
+    changes = []
+    model.dataChanged.connect(lambda *a: changes.append(a))
+    model.set_locked(set())
+    assert changes == []
+    model.set_locked({"h:1"})
+    assert len(changes) == 1
