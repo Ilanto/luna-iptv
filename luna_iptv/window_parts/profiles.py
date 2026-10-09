@@ -18,6 +18,7 @@ class ProfilesMixin:
     def show_kids_limit(self, reason):
         if reason:
             self.close_tv_mode()
+            self.close_multiview()
             self.details.dismiss()
             self.dismiss_resume()
             self.mini_player.cancel_pending()

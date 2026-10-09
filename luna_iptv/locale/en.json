@@ -797,6 +797,7 @@
   "Çok fazla yanlış deneme. {seconds} saniyeler sonra dene.": "Too many incorrect attempts. Try again in {seconds} seconds.",
   "Çoklu izleme": "Multiview",
   "Çoklu izleme açıldı; ana oynatıcı bant genişliği için durduruldu.": "Multiview opened; the main player stopped to save bandwidth.",
+  "Çoklu izleme çocuk profilinde kapalı.": "Multi-view is off in a kids profile.",
   "Çoklu izlemeye ekle": "Add to multiview",
   "Çıkış": "Quit",
   "Önbellek: {time} · CANLI": "Cache: {time} · LIVE",

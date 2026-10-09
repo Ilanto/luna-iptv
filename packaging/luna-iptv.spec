@@ -14,6 +14,8 @@ Requires:       python3-python-mpv >= 1.0.8
 Requires:       python3-python-mpv < 2
 Requires:       libmpv2 >= 0.38
 Requires:       python3-dbus-python
+# Recordings run ffmpeg as a separate process.
+Recommends:     ffmpeg
 
 %description
 Luna IPTV is a personal desktop client for M3U playlists, Xtream accounts,

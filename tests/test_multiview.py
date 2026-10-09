@@ -380,3 +380,19 @@ def test_reused_player_ignores_queued_old_playback_events(window, qt_app):
     assert tile.player is player
     assert not tile.running
     assert tile.programme_label.text() == "Program bilgisi yok"
+
+
+def test_kids_profile_cannot_open_multiview_and_limits_close_it(qt_app, tmp_path, monkeypatch):
+    from luna_iptv.window import MainWindow
+
+    window = MainWindow(Store(tmp_path / "kids.sqlite3"))
+    try:
+        monkeypatch.setattr(window, "kids_profile", lambda: True)
+        assert window.open_multiview() is None and window.multiview is None
+        assert "çocuk" in window.message.text()
+        closed = []
+        monkeypatch.setattr(window, "close_multiview", lambda: closed.append(True))
+        window.show_kids_limit("bedtime")
+        assert closed == [True]
+    finally:
+        window.close()

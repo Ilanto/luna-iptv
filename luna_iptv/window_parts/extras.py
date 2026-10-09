@@ -11,6 +11,10 @@ class ExtrasMixin:
         """Open a separate live grid; close_current saves progress before stopping."""
         if self._closed or (channel is not None and channel.kind != "live"):
             return None
+        if self.kids_profile():
+            # Watch time and bedtime are counted on the main player only.
+            self.status(_("Çoklu izleme çocuk profilinde kapalı."))
+            return None
         created = self.multiview is None
         if created:
             self.multiview = _window.MultiViewWindow(self)
