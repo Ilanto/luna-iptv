@@ -4,7 +4,7 @@ import gzip
 import hashlib
 import math
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -31,7 +31,7 @@ from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
 from .layout import build_window
-from .library import ChannelFilter, ChannelModel, ordered_channels, resumable
+from .library import ChannelFilter, ChannelModel, ordered_channels, resumable, search_key
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
@@ -735,8 +735,37 @@ class MainWindow(QMainWindow):
         self.category_bar.set_current(self.category.currentData() or "")
 
     def choose_search_kind(self, kind):
+        if kind == "guide":
+            # Programmes live in the Rehber page: carry the words there.
+            query = self.search.text().strip()
+            self.set_section("guide")
+            self.guide_view.search.setText(query)
+            return
         self.proxy.kind = kind
         self.filter_changed()
+
+    def programme_hits(self, query, hours=24):
+        """How many programmes of the next ``hours`` match ``query`` on visible channels."""
+        key = search_key(query)
+        if len(key) < 2 or not self._guide_index:
+            return 0
+        start = datetime.now(timezone.utc)
+        end = start + timedelta(hours=hours)
+        by_source = {}
+        for channel in self.model.channels:
+            if channel.kind != "live" or not channel.tvg_id:
+                continue
+            if self.proxy.hide_locked and channel.id in self.model.locked:
+                continue
+            source = channel.id.split(":", 1)[0]
+            if self.proxy.source and source != self.proxy.source:
+                continue
+            by_source.setdefault(source, set()).add(channel.tvg_id)
+        return sum(
+            len(index.search(key, start, end, by_source[source]))
+            for source, index in self._guide_index.items()
+            if source in by_source
+        )
 
     def filter_changed(self, *_):
         self.proxy.query = self.search.text().casefold().strip()
@@ -749,14 +778,15 @@ class MainWindow(QMainWindow):
         count = self.proxy.rowCount()
         if searching:
             counts = self.proxy.search_counts()
-            self.kind_bar.set_items(
-                [
-                    ("live", "Canlı", counts["live"]),
-                    ("movie", "Film", counts["movie"]),
-                    ("series", "Dizi", counts["series"]),
-                ],
-                self.proxy.kind,
-            )
+            kinds = [
+                ("live", "Canlı", counts["live"]),
+                ("movie", "Film", counts["movie"]),
+                ("series", "Dizi", counts["series"]),
+            ]
+            programmes = self.programme_hits(self.search.text())
+            if programmes:
+                kinds.append(("guide", "Rehberde", programmes))
+            self.kind_bar.set_items(kinds, self.proxy.kind)
             self.count_label.setText(f"{count:,} sonuç".replace(",", "."))
         else:
             self.count_label.setText(f"{count:,} yayın".replace(",", "."))

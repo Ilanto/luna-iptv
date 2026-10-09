@@ -113,6 +113,23 @@ class GuideIndex:
         for items in self._items.values():
             items.sort(key=lambda programme: programme.start)
         self._starts = {key: [item.start for item in items] for key, items in self._items.items()}
+        self._title_keys = {}  # titles repeat across days and channels
+
+    def title_key(self, programme: Programme) -> str:
+        """The programme title folded for searching, computed once per distinct title."""
+        key = self._title_keys.get(programme.title)
+        if key is None:
+            from .library import search_key
+
+            key = self._title_keys[programme.title] = search_key(programme.title)
+        return key
+
+    def search(self, key: str, start: datetime, end: datetime, channel_ids=None) -> list[Programme]:
+        """Programmes overlapping [start, end) whose title contains ``key``, earliest first."""
+        hits = []
+        for channel_id in self._items if channel_ids is None else channel_ids:
+            hits.extend(p for p in self.between(channel_id, start, end) if key in self.title_key(p))
+        return sorted(hits, key=lambda p: p.start)
 
     def now(self, channel_id: str, when: datetime | None = None) -> Programme | None:
         items = self._items.get(channel_id)

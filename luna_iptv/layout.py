@@ -206,7 +206,7 @@ def build_window(w):
     w.category_bar.chosen.connect(w.choose_category)
     w.category_bar.edit_requested.connect(w.edit_categories)
     row.addWidget(w.category_bar, 1)
-    w.kind_bar = ChipBar(limit=3, show_counts=True)
+    w.kind_bar = ChipBar(limit=4, show_counts=True)
     w.kind_bar.chosen.connect(w.choose_search_kind)
     w.kind_bar.hide()
     row.addWidget(w.kind_bar, 1)

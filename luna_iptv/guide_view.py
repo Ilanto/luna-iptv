@@ -545,7 +545,7 @@ class GuideView(QWidget):
         rows, matches = [], set()
         for channel, index in self._rows:
             hits = [
-                p for p in index.between(channel.tvg_id, start, end) if key in search_key(p.title)
+                p for p in index.between(channel.tvg_id, start, end) if key in index.title_key(p)
             ]
             if hits:
                 rows.append((channel, index))
