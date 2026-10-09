@@ -138,10 +138,14 @@ class ReminderService(QObject):
 
     changed = Signal()
 
-    def __init__(self, store, play, status, parent=None, *, sender=None, clock=time.time):
+    def __init__(
+        self, store, play, status, parent=None, *, sender=None, clock=time.time,
+        switch_profile=None,
+    ):
         super().__init__(parent)
         self._store = store
         self._play = play
+        self._switch_profile = switch_profile
         self._status = status
         self._clock = clock
         self._closed = False
@@ -156,18 +160,17 @@ class ReminderService(QObject):
         self._timer.timeout.connect(self._due)
         now = self._clock()
         self._store.drop_expired_reminders(now)
-        for reminder in self._store.reminders():
+        for reminder in self._store.all_reminders():
             if not reminder["notified"] and self._deadline(reminder) < now:
-                self._store.remove_reminder(reminder["id"])
+                self._store.remove_reminder(reminder["id"], profile_id=reminder["profile_id"])
         self._arm()
 
     def reload(self):
-        """Another profile became active: forget pending notices and re-arm from the store."""
+        """Refresh the active view while retaining valid notices for every profile."""
         if self._closed:
             return
-        self._notifications = {}
-        self._deliveries = {}
         self._store.drop_expired_reminders(self._clock())
+        self._prune_deliveries()
         self._arm()
         self.changed.emit()
 
@@ -199,10 +202,7 @@ class ReminderService(QObject):
         if self._closed:
             return
         self._store.remove_reminder(reminder_id)
-        self._deliveries.pop(reminder_id, None)
-        self._notifications = {
-            key: value for key, value in self._notifications.items() if value["id"] != reminder_id
-        }
+        self._prune_deliveries()
         self._arm()
         self.changed.emit()
 
@@ -218,7 +218,7 @@ class ReminderService(QObject):
             return
         deadlines = [
             item["end"] if item["notified"] else min(self._deadline(item), item["end"])
-            for item in self._store.reminders()
+            for item in self._store.all_reminders()
         ]
         if deadlines:
             delay = math.ceil(max(0, min(deadlines) - self._clock()) * 1000)
@@ -229,24 +229,22 @@ class ReminderService(QObject):
             return
         now = self._clock()
         changed = bool(self._store.drop_expired_reminders(now))
-        self._notifications = {
-            key: item for key, item in self._notifications.items() if item["end"] > now
-        }
-        self._deliveries = {
-            key: item for key, item in self._deliveries.items() if item["end"] > now
-        }
+        self._prune_deliveries()
         channels = {channel.id: channel.name for channel in self._store.channels()}
-        for item in self._store.reminders():
+        profiles = {profile["id"]: profile["name"] for profile in self._store.profiles()}
+        for item in self._store.all_reminders():
             if item["notified"]:
                 continue
             if item["channel_id"] not in channels:
-                self._store.remove_reminder(item["id"])
+                self._store.remove_reminder(item["id"], profile_id=item["profile_id"])
                 changed = True
             elif self._deadline(item) <= now:
-                self._store.mark_reminder_notified(item["id"])
+                self._store.mark_reminder_notified(item["id"], profile_id=item["profile_id"])
                 changed = True
                 moment = datetime.fromtimestamp(item["start"]).strftime("%H:%M")
                 body = f"{channels[item['channel_id']]} · {item['title']}, {moment}"
+                if item["profile_id"] != self._store.profile_id:
+                    body = f"{profiles[item['profile_id']]} için: {body}"
                 self._deliveries[item["id"]] = item
                 self._sender.send(
                     "Program hatırlatıcısı",
@@ -263,10 +261,7 @@ class ReminderService(QObject):
         if self._closed or self._deliveries.get(item["id"]) is not item:
             return
         self._deliveries.pop(item["id"])
-        if not any(
-            all(row[key] == item[key] for key in ("id", "channel_id", "start", "end"))
-            for row in self.reminders()
-        ):
+        if not self._valid(item):
             return
         if notification_id is None:
             self._status(f"Hatırlatıcı: {body}")
@@ -277,8 +272,43 @@ class ReminderService(QObject):
         if self._closed or action != "watch":
             return
         item = self._notifications.pop(notification_id, None)
-        if item is not None and item["end"] > self._clock():
+        if item is None or not self._valid(item):
+            return
+        if item["profile_id"] != self._store.profile_id:
+            if self._switch_profile is None or not self._switch_profile(item["profile_id"]):
+                return
+            if self._store.profile_id != item["profile_id"]:
+                return
+        # The PIN dialog can run an event loop, during which a reminder may expire.
+        if not self._closed and self._valid(item):
             self._play(item["channel_id"])
+
+    @staticmethod
+    def _same_reminder(row, item):
+        return all(
+            row[key] == item[key]
+            for key in ("id", "profile_id", "channel_id", "title", "start", "end", "lead_minutes")
+        )
+
+    def _valid(self, item):
+        return (
+            item["end"] > self._clock()
+            and any(channel.id == item["channel_id"] for channel in self._store.channels())
+            and any(self._same_reminder(row, item) for row in self._store.all_reminders())
+        )
+
+    def _prune_deliveries(self):
+        rows = {item["id"]: item for item in self._store.all_reminders()}
+        channels = {channel.id for channel in self._store.channels()}
+        now = self._clock()
+        for pending in (self._notifications, self._deliveries):
+            for key, item in list(pending.items()):
+                row = rows.get(item["id"])
+                if (
+                    item["end"] <= now or item["channel_id"] not in channels
+                    or row is None or not self._same_reminder(row, item)
+                ):
+                    del pending[key]
 
     def _dismiss(self, notification_id):
         self._notifications.pop(notification_id, None)

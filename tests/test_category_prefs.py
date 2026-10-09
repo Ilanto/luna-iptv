@@ -115,10 +115,11 @@ def test_storage_failed_replace_rolls_back(store):
     assert store.category_prefs() == before
 
 
-def test_storage_persists_and_backup_format_is_unchanged(store):
-    before = store.backup_records()
+def test_storage_persists_and_backup_includes_category_preferences(store):
     store.save_category_prefs("home", "live", [("Spor", True)])
-    assert store.backup_records() == before
+    assert store.backup_records()["profile_data"]["1"]["category_prefs"] == [
+        {"source_id": "home", "kind": "live", "group_name": "Spor", "hidden": True, "position": 0}
+    ]
     reopened = Store(store.path)
     try:
         assert reopened.category_prefs() == store.category_prefs()

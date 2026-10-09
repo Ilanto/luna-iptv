@@ -33,3 +33,16 @@ def playback_defaults(store):
             choice = {"mode": "auto"}
         result[mode] = normalize_preferences({mode: choice}).get(mode, {"mode": "auto"})
     return result
+
+
+REFRESH_CHOICES = (("Her gün", "daily"), ("Her 6 saatte", "6h"), ("Kapalı", "off"))
+
+
+def refresh_time(store):
+    """Return a valid local HH:MM value without rewriting damaged settings."""
+    import re
+
+    value = store.setting("auto_refresh_time", "05:00")
+    if isinstance(value, str) and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+        return value
+    return "05:00"

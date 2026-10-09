@@ -24,6 +24,7 @@ from shiboken6 import isValid
 
 from . import __version__, theme
 from .accounts import sanitize_profile
+from .auto_refresh import RefreshScheduler
 from .category_editor import CategoryEditor
 from .channel_banner import BannerPlacer, ChannelBanner
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         self._seekable = False
         self._closed = False
         self._busy = False
+        self._importing = False
         self._tasks = set()
         self._retry = None
         self._guide_data = {}
@@ -177,7 +179,13 @@ class MainWindow(QMainWindow):
         self.toast = Toast(self)
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
-        self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
+        self.reminder_service = ReminderService(
+            self.store,
+            self._watch_reminder,
+            self.status,
+            self,
+            switch_profile=lambda profile_id: self.switch_profile(profile_id),
+        )
         self.reminder_service.changed.connect(self._reminders_changed)
         self.sleep_timer = SleepTimer(self)
         self.sleep_timer.changed.connect(self.refresh_sleep_button)
@@ -218,6 +226,33 @@ class MainWindow(QMainWindow):
         self._guide_timer.start()
         QTimer.singleShot(0, self.load_cached_guides)
         QTimer.singleShot(0, self.start_session if ask_profile else self.restore_last_channel)
+        self.refresh_scheduler = RefreshScheduler(
+            self.store, self.import_source, self._auto_refresh_available, self.toast.show_message, self
+        )
+        self.recovery.changed.connect(self._wake_refresh)
+        self.refresh_scheduler.start()
+
+    def _wake_refresh(self):
+        scheduler = getattr(self, "refresh_scheduler", None)
+        if scheduler is not None:
+            scheduler.wake()
+
+    def _auto_refresh_available(self, source):
+        if self._closed or self._busy or self._importing or self._tasks:
+            return False
+        return not MainWindow._auto_refresh_playing(self, source)
+
+    def _auto_refresh_playing(self, source):
+        return bool(
+            self.current
+            and self.current.id.startswith(source["id"] + ":")
+            and (
+                self._playback_active
+                or self._loading
+                or self.recovery.state
+                in {"connecting", "untracked-connecting", "waiting", "buffering"}
+            )
+        )
 
     def status(self, message, retry=None, *, icon=None):
         self.mini_status.setText(message)
@@ -259,6 +294,7 @@ class MainWindow(QMainWindow):
                 self._busy = False
                 if not self._closed:
                     self.add_button.setEnabled(True)
+            self._wake_refresh()
 
         def done(result):
             finish()
@@ -267,9 +303,11 @@ class MainWindow(QMainWindow):
             try:
                 success(result)
             except Exception:
-                self.status(
-                    "Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin.", retry
-                )
+                message = "Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin."
+                if failure is not None:
+                    failure(message)
+                else:
+                    self.status(message, retry)
 
         def failed(error):
             finish()
@@ -291,29 +329,76 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             self.import_source(dialog.source())
 
-    def import_source(self, source):
+    def import_source(self, source, *, quiet=False, on_finished=None):
         from .backup import source_incomplete
 
         if source_incomplete(source):
-            self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
-            return
-        if self._busy:
-            return
+            if not quiet:
+                self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
+            return False
+        if self._busy or self._importing or (quiet and not self._auto_refresh_available(source)):
+            return False
         source = dict(source)
-        self.channel_list.set_loading(True)
-        self.filter_changed()
+        self._importing = True
+        completed = False
+        if not quiet:
+            self.channel_list.set_loading(True)
+            self.filter_changed()
 
-        def done(result):
-            try:
-                self.accept_import(source, result)
-            finally:
+        def finish(success, changed=False):
+            nonlocal completed
+            if completed:
+                return
+            completed = True
+            self._importing = False
+            if not quiet:
                 self.channel_list.set_loading(False)
                 self.filter_changed()
+            if on_finished is not None:
+                on_finished(success, changed)
+            self._wake_refresh()
+
+        def done(result):
+            if quiet:
+                stored = next((s for s in self.store.sources() if s["id"] == source["id"]), None)
+                if (
+                    stored is None
+                    or not self._same_source(stored, source)
+                    or self._auto_refresh_playing(source)
+                ):
+                    finish(False)
+                    return
+            try:
+                changed = (
+                    self.accept_import(source, result, quiet=True)
+                    if quiet
+                    else self.accept_import(source, result)
+                )
+                if quiet and changed is None:
+                    finish(False)
+                elif quiet:
+                    updated = next(s for s in self.store.sources() if s["id"] == source["id"])
+                    if updated.get("epg_url"):
+                        self.load_guide(
+                            updated,
+                            quiet=True,
+                            on_finished=lambda success, guide_changed: finish(
+                                success, changed or guide_changed
+                            ),
+                        )
+                    else:
+                        finish(True, changed)
+                else:
+                    finish(True)
+            except Exception:
+                failed("Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin.")
 
         def failed(error):
-            self.channel_list.set_loading(False)
-            self.filter_changed()
-            self.status(error, lambda: self.import_source(source))
+            if quiet:
+                self.toast.show_message(error)
+            else:
+                self.status(error, lambda: self.import_source(source))
+            finish(False)
 
         def load():
             if source["type"] == "xtream":
@@ -356,16 +441,22 @@ class MainWindow(QMainWindow):
         self.run_task(
             load,
             done,
-            "Kaynak okunuyor…",
-            lambda: self.import_source(source),
+            None if quiet else "Kaynak okunuyor…",
+            None if quiet else lambda: self.import_source(source),
             failure=failed,
         )
+        return True
 
-    def accept_import(self, source, playlist):
+    def accept_import(self, source, playlist, *, quiet=False):
         if not playlist.channels:
-            self.status("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
+            notify = self.toast.show_message if quiet else self.status
+            notify("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
             return
         source = dict(source)
+        previous_source = next(
+            (s for s in self.store.sources() if s["id"] == source.get("id")), None
+        )
+        previous_channels = self.store.channels(source["id"]) if source.get("id") else []
         if not source.get("epg_url") and playlist.epg_urls:
             source["epg_url"] = playlist.epg_urls[0]
         source_id = self.store.save_source(source)
@@ -403,15 +494,27 @@ class MainWindow(QMainWindow):
                 self.favorite_button.setEnabled(False)
                 self.video_stack.setCurrentIndex(0)
                 self.video_title.setText("İyi bir yayına yer aç.")
-        self.refresh_library(select_source=source_id)
-        kind = playlist.channels[0].kind
-        self.set_section(kind if kind in ("live", "movie", "series") else "live")
-        detail = f"{len(playlist.channels)} yayın hazır."
-        if playlist.warnings:
-            detail += f" {len(playlist.warnings)} geçersiz satır atlandı."
-        self.status(detail)
-        if source.get("epg_url"):
-            self.load_guide(source)
+        changed = previous_source != source or sorted(
+            previous_channels, key=lambda c: c.id
+        ) != sorted(stored_channels, key=lambda c: c.id)
+        if not quiet or changed:
+            self.refresh_library(select_source=None if quiet else source_id)
+        if not quiet:
+            # A manual import already fetched the catalogue. Do not immediately
+            # download it a second time when the scheduler next becomes idle.
+            last = self.store.setting("auto_refresh_last", {})
+            last = dict(last) if isinstance(last, dict) else {}
+            last[source_id] = datetime.now().timestamp()
+            self.store.set_setting("auto_refresh_last", last)
+            kind = playlist.channels[0].kind
+            self.set_section(kind if kind in ("live", "movie", "series") else "live")
+            detail = f"{len(playlist.channels)} yayın hazır."
+            if playlist.warnings:
+                detail += f" {len(playlist.warnings)} geçersiz satır atlandı."
+            self.status(detail)
+            if source.get("epg_url"):
+                self.load_guide(source)
+        return changed
 
     def refresh_library(self, select_source=None):
         previous = select_source if select_source is not None else self.source_combo.currentData()
@@ -862,6 +965,7 @@ class MainWindow(QMainWindow):
             return
         if self._settings_dialog is None or not isValid(self._settings_dialog):
             self._settings_dialog = SettingsDialog(self.store, self)
+            self._settings_dialog.refresh_changed.connect(self._wake_refresh)
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
@@ -918,6 +1022,7 @@ class MainWindow(QMainWindow):
         """Tell the desktop what is playing: the idle inhibit and media controls."""
         self.idle_inhibit.set_active(self._playback_active and not self._playback_paused)
         self._sync_mpris()
+        self._wake_refresh()
 
     def _sync_mpris(self):
         channel = self.current if self._playback_active else None
@@ -1963,7 +2068,7 @@ class MainWindow(QMainWindow):
             if path.exists():
                 self.load_guide(source, cached=True)
 
-    def load_guide(self, source, cached=False):
+    def load_guide(self, source, cached=False, *, quiet=False, on_finished=None):
         path = self.store.path.parent / f"epg-{source['id']}.xml"
 
         def read():
@@ -1991,26 +2096,49 @@ class MainWindow(QMainWindow):
                         raise NetworkError("Açılmış rehber boyut sınırını aşıyor.")
             return raw, parse_xmltv(raw)
 
+        def finish(success, changed=False):
+            if on_finished is not None:
+                on_finished(success, changed)
+
         def done(result):
-            if not any(s["id"] == source["id"] for s in self.store.sources()):
+            stored = next((s for s in self.store.sources() if s["id"] == source["id"]), None)
+            if stored is None or (quiet and not self._same_source(stored, source)):
+                finish(False)
                 return
             raw, programmes = result
-            self._guide_data[source["id"]] = programmes
-            self._guide_index[source["id"]] = GuideIndex(programmes)
-            self._refresh_live_cards()
-            if self.library_pages.currentWidget() is self.guide_view:
-                self.refresh_guide_view()
+            changed = self._guide_data.get(source["id"]) != programmes
             if not cached:
                 import os
 
                 descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(descriptor, "wb") as stream:
                     stream.write(raw)
+            self._guide_data[source["id"]] = programmes
+            self._guide_index[source["id"]] = GuideIndex(programmes)
+            self._refresh_live_cards()
+            if self.library_pages.currentWidget() is self.guide_view:
+                self.refresh_guide_view()
             self.update_guide()
-            self.status(f"Program rehberi hazır · {len(programmes):,} program.".replace(",", "."))
+            if not quiet:
+                self.status(
+                    f"Program rehberi hazır · {len(programmes):,} program.".replace(",", ".")
+                )
+            finish(True, changed)
+
+        def failed(error):
+            if quiet:
+                self.toast.show_message(error)
+            else:
+                self.status(error, lambda: self.load_guide(source))
+            finish(False)
 
         self.run_task(
-            read, done, "Program rehberi okunuyor…", lambda: self.load_guide(source), busy=False
+            read,
+            done,
+            None if quiet else "Program rehberi okunuyor…",
+            None if quiet else lambda: self.load_guide(source),
+            busy=quiet,
+            failure=failed,
         )
 
     def _add_reminder_menu(self, menu, channel):
@@ -2371,6 +2499,7 @@ class MainWindow(QMainWindow):
         self.idle_inhibit.close()
         self.mpris.close()
         self.reminder_service.close()
+        self.refresh_scheduler.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()
