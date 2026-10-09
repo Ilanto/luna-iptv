@@ -180,14 +180,19 @@ def test_channel_lock_survives_provider_id_reconciliation(store, legacy):
     assert store.locked_channels() == set()
 
 
-def test_secrets_and_locks_persist_but_never_participate_in_backups(store):
+def test_locks_participate_in_backups_without_secrets(store):
     assert store.pin_hash() is None
     store.set_pin_hash("test-hash")
     store.set_channel_locked("home:one", True)
     store.set_group_locked("home", "XXX", False)
     store.set_group_locked("home", "Adult", True)
     data = export_backup(store, include_credentials=True)
-    assert not {"secrets", "group_locks", "channel_locks"} & data.keys()
+    assert "secrets" not in data
+    assert data["channel_locks"] == ["home:one"]
+    assert data["group_locks"] == [
+        {"source_id": "home", "group_name": "Adult", "locked": True},
+        {"source_id": "home", "group_name": "XXX", "locked": False},
+    ]
     assert "test-hash" not in str(data)
     apply_backup(store, data)
     assert store.pin_hash() == "test-hash"

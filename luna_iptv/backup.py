@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import tempfile
 import unicodedata
 from dataclasses import dataclass
@@ -12,9 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .accounts import MAX_UNIX_SECONDS
 from .preferences import normalize_preferences
 
 MAX_FILE_SIZE = 32 * 1024 * 1024
+_PIN_FIELDS = {"pin", "pin_hash", "pin_salt", "parental_pin", "secrets"}
 _CONNECTION = {"location", "username", "password", "epg_url"}
 _SOURCE_FIELDS = {"id", "name", "type", *_CONNECTION, "credentials_omitted"}
 _CHANNEL_FIELDS = {"id", "source_id", "name", "kind", "series_id", "provider_key"}
@@ -31,6 +34,9 @@ _ROOT_FIELDS = {
     "history",
 }
 
+_V2_FIELDS = {"profiles", "profile_data", "backup_profile_id", "group_locks", "channel_locks"}
+_PERSONAL_FIELDS = {"favorites", "favorite_folders", "history", "reminders", "category_prefs"}
+
 
 @dataclass(frozen=True)
 class BackupSummary:
@@ -43,6 +49,11 @@ class BackupSummary:
     history: int
     credentials_present: bool
     incomplete_sources: int
+    profiles: int = 0
+    reminders: int = 0
+    category_prefs: int = 0
+    group_locks: int = 0
+    channel_locks: int = 0
 
 
 def source_incomplete(source: dict) -> bool:
@@ -80,10 +91,22 @@ def _redact_settings(value):
     return value
 
 
+def _without_pin_settings(value):
+    if isinstance(value, dict):
+        return {
+            key: _without_pin_settings(item)
+            for key, item in value.items()
+            if key.casefold() not in _PIN_FIELDS
+        }
+    if isinstance(value, list):
+        return [_without_pin_settings(item) for item in value]
+    return value
+
+
 def export_backup(store, *, include_credentials=False, include_history=True) -> dict:
     data = store.backup_records(include_history=include_history)
     data.update(
-        format="luna-iptv-backup", version=1, created=datetime.now(timezone.utc).isoformat()
+        format="luna-iptv-backup", version=2, created=datetime.now(timezone.utc).isoformat()
     )
     for source in data["sources"]:
         omitted = []
@@ -95,6 +118,7 @@ def export_backup(store, *, include_credentials=False, include_history=True) -> 
                     source[field] = ""
                     omitted.append(field)
         source["credentials_omitted"] = omitted
+    data["app_settings"] = _without_pin_settings(data["app_settings"])
     if not include_credentials:
         data["app_settings"] = _redact_settings(data["app_settings"])
     validate_backup(data)
@@ -177,11 +201,11 @@ def validate_backup(data) -> BackupSummary:
 
 
 def _validate_backup(data) -> BackupSummary:
-    _require(isinstance(data, dict) and set(data) == _ROOT_FIELDS)
+    _require(isinstance(data, dict))
+    version = data.get("version")
+    _require(set(data) == (_ROOT_FIELDS | _V2_FIELDS if version == 2 else _ROOT_FIELDS))
     _require(data["format"] == "luna-iptv-backup", "Bu dosya bir Luna IPTV yedeği değil.")
-    _require(
-        type(data["version"]) is int and data["version"] == 1, "Bu yedek sürümü desteklenmiyor."
-    )
+    _require(type(version) is int and version in (1, 2), "Bu yedek sürümü desteklenmiyor.")
     _json_tree(data)
     _require(
         len(json.dumps(data, ensure_ascii=False).encode("utf-8")) <= MAX_FILE_SIZE,
@@ -217,6 +241,43 @@ def _validate_backup(data) -> BackupSummary:
             _require(key not in provider_keys)
             provider_keys.add(key)
     channel_ids = {item["id"] for item in channels}
+    preferences = data["playback_preferences"]
+    _require(isinstance(preferences, dict) and set(preferences) <= source_ids)
+    for value in preferences.values():
+        _require(
+            isinstance(value, dict)
+            and json.dumps(normalize_preferences(value), sort_keys=True)
+            == json.dumps(value, sort_keys=True),
+            "Yedekteki oynatma tercihleri geçersiz.",
+        )
+    _require(isinstance(data["app_settings"], dict))
+    _require(
+        data["app_settings"] == _without_pin_settings(data["app_settings"]),
+        "Yedek PIN veya gizli ayarlar içeremez.",
+    )
+    for key in data["app_settings"]:
+        _text(key, nonempty=True, limit=512)
+    if version == 1:
+        referenced, counts = _validate_personal(data, channel_ids)
+        extras = (0, 0, 0, 0, 0)
+    else:
+        referenced, counts, extras = _validate_v2(data, channel_ids, source_ids)
+    _require(channel_ids == referenced, "Yedek yalnızca kişisel kanal başvuruları içermeli.")
+    return BackupSummary(
+        len(sources),
+        counts[0],
+        counts[1],
+        counts[2],
+        len(preferences),
+        len(data["app_settings"]),
+        counts[3],
+        _has_credentials(data),
+        sum(bool(source_incomplete(source)) for source in sources),
+        *extras,
+    )
+
+
+def _validate_personal(data, channel_ids):
     _ids(data["favorites"], channel_ids)
     favorite_ids = set(data["favorites"])
     folders = _records(data, "favorite_folders", {"id", "name", "position", "members"})
@@ -229,18 +290,6 @@ def _validate_backup(data) -> BackupSummary:
         _require(name not in folder_names)
         folder_names.add(name)
         _ids(folder["members"], favorite_ids)
-    preferences = data["playback_preferences"]
-    _require(isinstance(preferences, dict) and set(preferences) <= source_ids)
-    for value in preferences.values():
-        _require(
-            isinstance(value, dict)
-            and json.dumps(normalize_preferences(value), sort_keys=True)
-            == json.dumps(value, sort_keys=True),
-            "Yedekteki oynatma tercihleri geçersiz.",
-        )
-    _require(isinstance(data["app_settings"], dict))
-    for key in data["app_settings"]:
-        _text(key, nonempty=True, limit=512)
     history = data["history"]
     if history is not None:
         history = _records(
@@ -261,18 +310,106 @@ def _validate_backup(data) -> BackupSummary:
                 _require(type(item[key]) in (int, float) and item[key] >= 0)
             _require(type(item["updated_at"]) is int and item["updated_at"] >= 0)
             _require(type(item["history_hidden"]) is bool)
-    referenced = favorite_ids | {item["channel_id"] for item in history or []}
-    _require(channel_ids == referenced, "Yedek yalnızca kişisel kanal başvuruları içermeli.")
-    return BackupSummary(
-        len(sources),
-        len(data["favorites"]),
-        len(folders),
-        sum(len(item["members"]) for item in folders),
-        len(preferences),
-        len(data["app_settings"]),
-        len(history or []),
-        _has_credentials(data),
-        sum(bool(source_incomplete(source)) for source in sources),
+    return (
+        favorite_ids | {item["channel_id"] for item in history or []},
+        (
+            len(favorite_ids),
+            len(folders),
+            sum(len(f["members"]) for f in folders),
+            len(history or []),
+        ),
+    )
+
+
+def _compound_records(items, fields, identity):
+    _require(isinstance(items, list))
+    seen = set()
+    for item in items:
+        _require(isinstance(item, dict) and set(item) == fields)
+        key = tuple(item[field] for field in identity)
+        _require(all(type(value) in (str, int) for value in key))
+        _require(key not in seen, "Yedek dosyasında yinelenen kayıt var.")
+        seen.add(key)
+    return items
+
+
+def _validate_v2(data, channel_ids, source_ids):
+    profiles = data["profiles"]
+    _require(isinstance(profiles, list) and 0 < len(profiles) <= 10000)
+    profile_ids, names = set(), set()
+    fields = {"id", "name", "color", "kids", "protected", "position"}
+    for profile in profiles:
+        _require(isinstance(profile, dict) and set(profile) in (fields, fields | {"avatar"}))
+        identity = profile["id"]
+        _require(type(identity) is int and identity > 0 and identity not in profile_ids)
+        profile_ids.add(identity)
+        _text(profile["name"], nonempty=True, limit=40)
+        name = profile["name"].strip().casefold()
+        _require(name not in names)
+        names.add(name)
+        _text(profile["color"], limit=7)
+        _require(re.fullmatch(r"#[0-9a-fA-F]{6}", profile["color"]) is not None)
+        for flag in ("kids", "protected"):
+            _require(type(profile[flag]) is bool)
+        _require(type(profile["position"]) is int and profile["position"] >= 0)
+        if "avatar" in profile:
+            _text(profile["avatar"], limit=512)
+    personal = data["profile_data"]
+    _require(isinstance(personal, dict) and set(personal) == {str(i) for i in profile_ids})
+    active = data["backup_profile_id"]
+    _require(type(active) is int and active in profile_ids)
+    referenced, counts, reminder_count, category_count = set(), [0, 0, 0, 0], 0, 0
+    for records in personal.values():
+        _require(isinstance(records, dict) and set(records) == _PERSONAL_FIELDS)
+        refs, totals = _validate_personal(records, channel_ids)
+        referenced.update(refs)
+        counts = [a + b for a, b in zip(counts, totals, strict=True)]
+        reminders = _compound_records(
+            records["reminders"],
+            {"channel_id", "title", "start", "end", "notified", "lead_minutes"},
+            ("channel_id", "start"),
+        )
+        for item in reminders:
+            _require(item["channel_id"] in channel_ids)
+            _text(item["title"], nonempty=True, limit=512)
+            for field in ("start", "end"):
+                _require(type(item[field]) is int and 0 <= item[field] <= MAX_UNIX_SECONDS)
+            _require(item["end"] > item["start"])
+            _require(type(item["notified"]) is bool)
+            _require(type(item["lead_minutes"]) in (int, float) and item["lead_minutes"] >= 0)
+            referenced.add(item["channel_id"])
+        categories = _compound_records(
+            records["category_prefs"],
+            {"source_id", "kind", "group_name", "hidden", "position"},
+            ("source_id", "kind", "group_name"),
+        )
+        for item in categories:
+            _require(item["source_id"] in source_ids)
+            _require(item["kind"] in {"live", "movie", "series"})
+            _text(item["group_name"], limit=512)
+            _require(type(item["hidden"]) is bool)
+            _require(
+                item["position"] is None
+                or (type(item["position"]) is int and item["position"] >= 0)
+            )
+        reminder_count += len(reminders)
+        category_count += len(categories)
+    _validate_personal(data, channel_ids)
+    for field in ("favorites", "favorite_folders", "history"):
+        _require(data[field] == personal[str(active)][field])
+    groups = _compound_records(
+        data["group_locks"], {"source_id", "group_name", "locked"}, ("source_id", "group_name")
+    )
+    for item in groups:
+        _require(item["source_id"] in source_ids)
+        _text(item["group_name"], limit=512)
+        _require(type(item["locked"]) is bool)
+    _ids(data["channel_locks"], channel_ids)
+    referenced.update(data["channel_locks"])
+    return (
+        referenced,
+        counts,
+        (len(profiles), reminder_count, category_count, len(groups), len(data["channel_locks"])),
     )
 
 

@@ -1,7 +1,15 @@
 """Application settings that apply as soon as a choice changes."""
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QVBoxLayout
+from PySide6.QtCore import Qt, QTime, Signal
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QTimeEdit,
+    QVBoxLayout,
+)
 
 from . import theme
 from .dialogs import text_label
@@ -12,12 +20,16 @@ from .settings import (
     AUTOPLAY_CHOICES,
     BASE_THEME_CHOICES,
     MOTION_CHOICES,
+    REFRESH_CHOICES,
     STARTUP_CHOICES,
+    refresh_time,
     selected_setting,
 )
 
 
 class SettingsDialog(QDialog):
+    refresh_changed = Signal()
+
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.store = store
@@ -60,6 +72,27 @@ class SettingsDialog(QDialog):
 
         startup = self._section(layout, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
+        updates = self._section(layout, "GÜNCELLEME")
+        self.refresh_combo = self._choice(
+            updates, "Kaynakları ve rehberi otomatik yenile", "auto_refresh", REFRESH_CHOICES
+        )
+        row = QHBoxLayout()
+        label = text_label("Saat", "muted")
+        self.refresh_time = QTimeEdit(QTime.fromString(refresh_time(store), "HH:mm"))
+        self.refresh_time.setDisplayFormat("HH:mm")
+        self.refresh_time.setAccessibleName("Saat")
+        label.setBuddy(self.refresh_time)
+        self.refresh_time.setEnabled(self.refresh_combo.currentData() == "daily")
+        self.refresh_time.timeChanged.connect(
+            lambda value: self._save("auto_refresh_time", value.toString("HH:mm"))
+        )
+        self.refresh_combo.currentIndexChanged.connect(
+            lambda _: self.refresh_time.setEnabled(self.refresh_combo.currentData() == "daily")
+        )
+        row.addWidget(label)
+        row.addStretch()
+        row.addWidget(self.refresh_time)
+        updates.addLayout(row)
         layout.addStretch()
         footer = QHBoxLayout()
         footer.addWidget(text_label("Değişiklikler anında kaydedilir.", "faint"))
@@ -100,6 +133,8 @@ class SettingsDialog(QDialog):
 
     def _save(self, key, value):
         self.store.set_setting(key, value)
+        if key in {"auto_refresh", "auto_refresh_time"}:
+            self.refresh_changed.emit()
         if key == "motion_level":
             set_motion_level(value)
         elif key in ("accent", "base_theme"):

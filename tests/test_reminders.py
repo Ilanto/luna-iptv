@@ -466,3 +466,157 @@ def test_readding_cancelled_programme_ignores_its_old_async_reply(service, store
     sender.callbacks[1](2)
     sender.action_invoked.emit(2, "watch")
     assert played == [channel.id]
+
+
+def test_all_profiles_are_scheduled_but_dialog_stays_scoped(service, store):
+    value, sender, clock, _, _ = service
+    home = store.profile_id
+    ece = store.create_profile("Ece", "#aa5577")
+    store.use_profile(ece)
+    other = value.add(store.channels()[0], programme(title="Ece'nin filmi"))
+    store.use_profile(home)
+    value.reload()
+    assert value._timer.interval() == 300_000
+    assert value.reminders() == []
+    dialog = RemindersDialog(value, store)
+    try:
+        assert not any("Ece'nin filmi" in label.text() for label in dialog.findChildren(QLabel))
+        clock[0] = NOW + 301
+        value._due()
+        value._due()
+        assert len(sender.sent) == 1
+        assert sender.sent[0][1].startswith("Ece için: Ay TV · Ece'nin filmi,")
+        assert store.profile_id == home
+        assert store.all_reminders()[0]["profile_id"] == ece
+        assert store.all_reminders()[0]["notified"] == 1
+        # Active-profile removal must not cancel another profile's reminder.
+        value.remove(other)
+        assert len(store.all_reminders()) == 1
+    finally:
+        dialog.close()
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_profile_reload_preserves_valid_notification_actions(qt_app, store, deferred):
+    home = store.profile_id
+    ece = store.create_profile("Ece", "#aa5577")
+    sender = RecordingNotifications()
+    sender.defer = deferred
+    played = []
+
+    def switch(profile_id):
+        store.use_profile(profile_id)
+        value.reload()
+        return True
+
+    value = ReminderService(
+        store,
+        lambda channel: played.append((store.profile_id, channel)),
+        lambda _: None,
+        sender=sender,
+        clock=lambda: NOW,
+        switch_profile=switch,
+    )
+    try:
+        reminder = value.add(store.channels()[0], programme(NOW + 100))
+        value._due()
+        store.use_profile(ece)
+        value.reload()
+        value.remove(reminder)  # A different profile cannot invalidate this action.
+        if deferred:
+            sender.callbacks[0](1)
+        sender.action_invoked.emit(1, "watch")
+        assert played == [(home, "home:tv")]
+    finally:
+        value.close()
+
+
+def test_startup_cleans_missed_deadlines_for_other_profiles(qt_app, store):
+    home = store.profile_id
+    ece = store.create_profile("Ece", "#aa5577")
+    store.use_profile(ece)
+    store.add_reminder("home:tv", "Kaçtı", NOW + 30, NOW + 500)
+    pending = store.add_reminder("home:tv", "Sonra", NOW + 600, NOW + 900)
+    store.use_profile(home)
+    value = ReminderService(
+        store, lambda _: None, lambda _: None, sender=RecordingNotifications(), clock=lambda: NOW
+    )
+    try:
+        store.use_profile(ece)
+        assert [item["id"] for item in store.reminders()] == [pending]
+        assert value._timer.interval() == 300_000
+    finally:
+        value.close()
+
+
+@pytest.mark.parametrize("allow_pin", [False, True])
+def test_other_profile_watch_uses_window_switch_and_respects_pin(
+    qt_app, store, monkeypatch, allow_pin
+):
+    home = store.profile_id
+    ece = store.create_profile("Ece", "#aa5577", protected=True)
+    window = MainWindow(store)
+    played, prompts = [], []
+    monkeypatch.setattr(
+        window, "request_play", lambda channel: played.append((store.profile_id, channel.id))
+    )
+    monkeypatch.setattr(window, "guard", lambda prompt: prompts.append(prompt) or allow_pin)
+    try:
+        value = window.reminder_service
+        value._clock = lambda: NOW
+        store.use_profile(ece)
+        value.add(store.channels()[0], programme(NOW + 100))
+        store.use_profile(home)
+        value.reload()
+        value._due()
+        value._sender.action_invoked.emit(1, "watch")
+        assert len(prompts) == 1
+        assert "Ece" in prompts[0]
+        assert played == ([(ece, "home:tv")] if allow_pin else [])
+        assert store.profile_id == (ece if allow_pin else home)
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize("invalidate", ["remove", "delete_profile", "remove_channel"])
+def test_reload_discards_invalid_outstanding_notifications(service, store, invalidate):
+    value, sender, _, played, _ = service
+    other = store.create_profile("Ece", "#aa5577")
+    store.use_profile(other)
+    reminder = value.add(store.channels()[0], programme(NOW + 100))
+    value._due()
+    if invalidate == "remove":
+        store.remove_reminder(reminder)
+    elif invalidate == "delete_profile":
+        store.delete_profile(other)
+    else:
+        store.remove_source("home")
+    value.reload()
+    sender.action_invoked.emit(1, "watch")
+    assert not played
+
+
+def test_reminder_writes_require_the_matching_profile(store):
+    home = store.profile_id
+    reminder = store.add_reminder("home:tv", "Film", NOW + 100, NOW + 500)
+    ece = store.create_profile("Ece", "#aa5577")
+    store.use_profile(ece)
+    store.mark_reminder_notified(reminder)
+    store.remove_reminder(reminder)
+    assert store.all_reminders()[0]["notified"] == 0
+    store.mark_reminder_notified(reminder, profile_id=home)
+    assert store.all_reminders()[0]["notified"] == 1
+    assert store.profile_id == ece
+    store.remove_reminder(reminder, profile_id=home)
+    assert store.all_reminders() == []
+
+
+def test_cross_profile_watch_without_switch_callback_does_not_play(service, store):
+    value, sender, _, played, _ = service
+    value.add(store.channels()[0], programme(NOW + 100))
+    value._due()
+    ece = store.create_profile("Ece", "#aa5577")
+    store.use_profile(ece)
+    sender.action_invoked.emit(1, "watch")
+    assert played == []
+    assert store.profile_id == ece

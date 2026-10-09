@@ -36,6 +36,13 @@ class BackupDialog(QDialog):
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(16)
         layout.addWidget(text_label("Kişisel kitaplığını yedekle", "heading"))
+        scope = text_label(
+            "Tüm profillerin favorileri, klasörleri, hatırlatıcıları, kategori tercihleri "
+            "ve kilitleri dahil edilir. Ebeveyn PIN’i hiçbir zaman yedeklenmez.",
+            "muted",
+        )
+        scope.setWordWrap(True)
+        layout.addWidget(scope)
         self.credentials = QCheckBox("Hesap bilgilerini de dahil et")
         self.credentials.setChecked(False)
         layout.addWidget(self.credentials)
@@ -101,8 +108,16 @@ def restore_backup_dialog(window):
         summary = validate_backup(data)
         credentials = "Var · düz metin" if summary.credentials_present else "Yok"
         history = str(summary.history) if data["history"] is not None else "Dahil edilmemiş"
+        profile_summary = (
+            f"Profil: {summary.profiles}\n"
+            f"Hatırlatıcı: {summary.reminders}\n"
+            f"Kategori tercihi: {summary.category_prefs}\n"
+            f"Grup / kanal kilidi: {summary.group_locks} / {summary.channel_locks}\n"
+            if data["version"] == 2
+            else "Eski yedek: kişisel kayıtlar seçili profile aktarılır.\n"
+        )
         message = (
-            f"Kaynak: {summary.sources}\n"
+            profile_summary + f"Kaynak: {summary.sources}\n"
             f"Favori: {summary.favorites}\n"
             f"Favori klasörü: {summary.favorite_folders}\n"
             f"Klasör üyeliği: {summary.folder_members}\n"
@@ -113,6 +128,7 @@ def restore_backup_dialog(window):
             f"Bağlantısı eksik kaynak: {summary.incomplete_sources}\n\n"
             "Kayıtlar mevcut verilerle birleştirilecek. Eşleşen kayıtlar güncellenecek; "
             "yedekte bulunmayan veriler silinmeyecek.\n"
+            "PIN yedekten aktarılmaz; bu cihazın mevcut PIN’i korunur.\n"
             "Eksik bağlantıları «Bağlantıyı düzenle» ile tamamlayın; "
             "katalogları «Seçili kaynağı yenile» ile indirin.\n\nGeri yüklensin mi?"
         )
@@ -141,7 +157,8 @@ def restore_backup_dialog(window):
             "Dosya okunamadı veya veriler kaydedilemedi. Mevcut veriler korundu.",
         )
         return
-    window.refresh_library()
+    window.load_profile()
+    window._wake_refresh()
     set_motion_level(selected_setting(window.store, "motion_level", MOTION_CHOICES))
     restored_ids = {source["id"] for source in data["sources"]}
     incomplete = sum(

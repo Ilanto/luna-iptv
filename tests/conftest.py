@@ -107,3 +107,17 @@ def private_reminder_notifications(monkeypatch):
     import luna_iptv.reminders
 
     monkeypatch.setattr(luna_iptv.reminders, "DesktopNotifications", RecordingNotifications)
+
+
+@pytest.fixture(autouse=True)
+def private_auto_refresh(monkeypatch):
+    """Unrelated window tests never launch real background catalogue requests.
+
+    Scheduler tests drive the real service explicitly with controlled workers.
+    Return start so its startup path can also be exercised in isolation.
+    """
+    from luna_iptv.auto_refresh import RefreshScheduler
+
+    start = RefreshScheduler.start
+    monkeypatch.setattr(RefreshScheduler, "start", RefreshScheduler.close)
+    return start
