@@ -48,6 +48,7 @@ from .mini_player import MiniPlayerController
 from .models import Channel, Playlist
 from .motion import set_motion_level
 from .mpris import MprisService
+from .multiview import MultiViewWindow
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
 from .parental_ui import ParentalDialog, ask_pin
 from .playback_dialogs import HistoryDialog, ResumeDialog
@@ -133,6 +134,7 @@ class MainWindow(QMainWindow):
         self._closed = False
         self._quitting = False
         self._buffering = False
+        self.multiview = None
         self._statistics_dialog = None
         self._busy = False
         self._importing = False
@@ -805,6 +807,34 @@ class MainWindow(QMainWindow):
         menu.exec(position)
         menu.deleteLater()
 
+    def open_multiview(self, channel=None):
+        """Open a separate live grid; close_current saves progress before stopping."""
+        if self._closed or (channel is not None and channel.kind != "live"):
+            return None
+        created = self.multiview is None
+        if created:
+            self.multiview = MultiViewWindow(self)
+            self.multiview.closed.connect(self._multiview_closed)
+        view = self.multiview
+        if channel is not None and not view.add_channel(channel):
+            if created and isValid(view):
+                view.close()
+            return None
+        if created and self.current is not None:
+            self.close_current()
+            self.status("Çoklu izleme açıldı; ana oynatıcı bant genişliği için durduruldu.")
+        view.show()
+        view.raise_()
+        view.activateWindow()
+        return view
+
+    def _multiview_closed(self):
+        self.multiview = None
+
+    def close_multiview(self):
+        if self.multiview is not None:
+            self.multiview.close()
+
     def build_channel_menu(self, channel):
         menu = QMenu(self)
         favorite = channel.id in self.store.favorites()
@@ -824,6 +854,8 @@ class MainWindow(QMainWindow):
         folders.addSeparator()
         folders.addAction("Yeni klasör…", lambda: self.create_folder(channel))
         self._add_reminder_menu(menu, channel)
+        if channel.kind == "live":
+            menu.addAction("Çoklu izlemeye ekle", lambda: self.open_multiview(channel))
         if self.store.pin_hash() and not self.kids_profile():
             menu.addSeparator()
             if channel.id in self.store.locked_channels():
@@ -2416,6 +2448,7 @@ class MainWindow(QMainWindow):
                 lambda checked=False, pid=profile["id"]: self.switch_profile(pid)
             )
         menu.addSeparator()
+        menu.addAction("Çoklu izleme", self.open_multiview)
         menu.addAction("İstatistikler", self.open_statistics)
         menu.addAction("Profilleri yönet…", self.open_profiles)
         menu.addAction("Ebeveyn denetimi…", self.open_parental)
@@ -2445,6 +2478,7 @@ class MainWindow(QMainWindow):
 
     def leave_profile(self):
         """Before another profile becomes active: save and stop what this one watches."""
+        self.close_multiview()
         if self._statistics_dialog is not None and isValid(self._statistics_dialog):
             self._statistics_dialog.close()
         self.details.dismiss()  # an open detail card was unlocked for this profile only
@@ -2678,6 +2712,7 @@ class MainWindow(QMainWindow):
         self.close()
 
     def closeEvent(self, event):
+        self.close_multiview()
         if self._closed:
             event.accept()
             return
