@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 from datetime import time as civil_time
 
-from PySide6.QtCore import QObject, Qt, QTimer
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from .backup import source_incomplete
 from .settings import REFRESH_CHOICES, refresh_time, selected_setting
@@ -48,6 +48,8 @@ class RefreshScheduler(QObject):
     Occupied sources wait for wake() from application lifecycle events, not a
     periodic retry timer. Network failures receive a bounded 30 minute backoff.
     """
+
+    refreshed = Signal()
 
     def __init__(self, store, refresh, available, status, parent=None, *, clock=time.time):
         super().__init__(parent)
@@ -115,6 +117,7 @@ class RefreshScheduler(QObject):
                             times[source_id] = self._clock()
                             self._store.set_setting("auto_refresh_last", times)
                         self._retry_after.pop(source_id, None)
+                        self.refreshed.emit()
                     else:
                         self._retry_after[source_id] = self._clock() + 1800
                     if success and changed:

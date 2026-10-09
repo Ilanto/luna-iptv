@@ -1,11 +1,12 @@
 """Profiles: a round avatar in the rail, the 'Kim izliyor?' picker and the profile editor."""
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTime, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QRadialGradient
 from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -13,11 +14,13 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTimeEdit,
     QVBoxLayout,
 )
 
 from . import icons, theme
 from .dialogs import text_label
+from .kids_limits import LIMIT_CHOICES, profile_limits
 
 PROFILE_COLORS = ("#E8B04B", "#7C8CF8", "#4FC3A1", "#F07A8C", "#B48CF2", "#5BB8F0")
 PROFILE_AVATARS = (
@@ -235,6 +238,42 @@ class ProfileEditor(QDialog):
         self.protected.setChecked(bool(profile and profile["protected"]))
         self.protected.toggled.connect(self._preview)
         layout.addWidget(self.protected)
+        self.limits_box = QFrame()
+        limits_layout = QVBoxLayout(self.limits_box)
+        limits_layout.setContentsMargins(0, 0, 0, 0)
+        limits = (
+            profile_limits(store, profile["id"])
+            if profile
+            else {"minutes": 0, "start": None, "end": "07:00"}
+        )
+        limits_layout.addWidget(text_label("Günlük süre", "muted"))
+        self.daily_limit = QComboBox()
+        self.daily_limit.setAccessibleName("Günlük süre")
+        for label, minutes in LIMIT_CHOICES:
+            self.daily_limit.addItem(label, minutes)
+        self.daily_limit.setCurrentIndex(self.daily_limit.findData(limits["minutes"]))
+        limits_layout.addWidget(self.daily_limit)
+        bedtime_row = QHBoxLayout()
+        bedtime_row.addWidget(text_label("Yatma saati", "muted"))
+        self.bedtime = QComboBox()
+        self.bedtime.setAccessibleName("Yatma saati")
+        self.bedtime.addItems(["Yok", "Saat aralığı"])
+        self.bedtime.setCurrentIndex(1 if limits["start"] else 0)
+        bedtime_row.addWidget(self.bedtime)
+        self.bedtime_start = QTimeEdit(QTime.fromString(limits["start"] or "21:00", "HH:mm"))
+        self.bedtime_end = QTimeEdit(QTime.fromString(limits["end"], "HH:mm"))
+        for widget, label in ((self.bedtime_start, "Başlangıç"), (self.bedtime_end, "Bitiş")):
+            widget.setDisplayFormat("HH:mm")
+            widget.setAccessibleName(label)
+            widget.setEnabled(bool(limits["start"]))
+            self.bedtime.currentIndexChanged.connect(
+                lambda index, w=widget: w.setEnabled(index == 1)
+            )
+            bedtime_row.addWidget(widget)
+        limits_layout.addLayout(bedtime_row)
+        layout.addWidget(self.limits_box)
+        self.limits_box.setVisible(self.kids.isChecked())
+        self.kids.toggled.connect(self.limits_box.setVisible)
         if not store.pin_hash():
             hint = text_label(
                 "Kilitler ve PIN koruması için önce Ebeveyn denetimi'nden bir PIN belirle.",
@@ -278,6 +317,11 @@ class ProfileEditor(QDialog):
 
     def save(self):
         values = self.values()
+        start = self.bedtime_start.time().toString("HH:mm") if self.bedtime.currentIndex() else None
+        end = self.bedtime_end.time().toString("HH:mm")
+        if values["kids"] and start == end:
+            self.error.setText("Yatma saatinin başlangıcı ve bitişi farklı olmalı.")
+            return False
         try:
             if self._profile is None:
                 self.profile_id = self._store.create_profile(
@@ -289,6 +333,14 @@ class ProfileEditor(QDialog):
         except ValueError as error:
             self.error.setText(str(error))
             return False
+        self._store.set_setting(
+            f"kids_limits:{self.profile_id}",
+            {
+                "minutes": self.daily_limit.currentData(),
+                "start": start,
+                "end": end,
+            },
+        )
         self.accept()
         return True
 

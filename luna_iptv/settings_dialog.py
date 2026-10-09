@@ -96,6 +96,9 @@ class SettingsDialog(QDialog):
         row.addStretch()
         row.addWidget(self.refresh_time)
         updates.addLayout(row)
+        self.episode_combo = self._choice(
+            updates, "Yeni bölüm bildirimi", "new_episode_notifications", AUTOPLAY_CHOICES
+        )
         self.update_combo = self._choice(
             updates, "Yeni sürümleri denetle", "update_check", UPDATE_CHOICES
         )
