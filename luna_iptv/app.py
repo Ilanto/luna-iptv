@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import __version__
 from .gc_guard import MainThreadCollector
+from .intro import IntroOverlay
 
 
 def main():
@@ -52,6 +53,7 @@ def main():
     theme.apply_theme(app, store)
     window = MainWindow(store, ask_profile=True)
     window.show()
+    IntroOverlay.play(window)  # a moment of the eclipse, with full motion only
     if args.file:
         path = str(Path(args.file).expanduser().resolve())
         QTimer.singleShot(100, lambda: window.add_source(location=path))
