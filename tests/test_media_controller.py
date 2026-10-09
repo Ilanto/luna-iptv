@@ -301,3 +301,15 @@ def test_async_vod_error_preserves_cached_details_and_retry_recovers(
     assert (
         window.store.media_details(film.id, fingerprint)[0].info["description"] == "Refreshed plot"
     )
+
+
+def test_detail_resume_label_reads_store_when_model_has_no_progress(window):
+    film = channel(window, "film")
+    window.store.save_progress(film.id, 3120, 7680)
+    assert film.id not in window.model.progress
+    window.details.open(film)
+    card = window.details.dialog
+    assert card.play_button.text() == "Devam et · 76 dk kaldı"
+    window.requests[0][1](MediaDetails(info={"year": "2026"}))
+    assert card.play_button.text() == "Devam et · 76 dk kaldı"
+    assert window.loads == []
