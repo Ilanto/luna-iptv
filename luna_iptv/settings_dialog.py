@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QLineEdit,
     QSystemTrayIcon,
     QTimeEdit,
     QVBoxLayout,
@@ -17,6 +18,7 @@ from . import theme
 from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
 from .motion import IconButton, set_motion_level
+from .recordings import PADDING_CHOICES, recording_folder
 from .settings import (
     ACCENT_CHOICES,
     AUTOPLAY_CHOICES,
@@ -27,25 +29,32 @@ from .settings import (
     refresh_time,
     selected_setting,
 )
+from .timeshift import TIMESHIFT_CHOICES
 from .updates import UPDATE_CHOICES
 
 
 class SettingsDialog(QDialog):
     refresh_changed = Signal()
+    timeshift_changed = Signal()
 
     def __init__(self, store, parent=None, *, tray_available=None):
         super().__init__(parent)
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Ayarlar")
-        self.resize(500, 470)
-        self.setMinimumWidth(420)
+        self.resize(980, 760)
+        self.setMinimumWidth(900)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(16)
         layout.addWidget(text_label("Ayarlar", "heading"))
 
-        appearance = self._section(layout, "GÖRÜNÜM")
+        columns = QHBoxLayout()
+        left, right = QVBoxLayout(), QVBoxLayout()
+        columns.addLayout(left, 1)
+        columns.addLayout(right, 1)
+        layout.addLayout(columns)
+        appearance = self._section(left, "GÖRÜNÜM")
         self.accent_combo = self._choice(appearance, "Vurgu rengi", "accent", ACCENT_CHOICES)
         self.base_theme_combo = self._choice(appearance, "Tema", "base_theme", BASE_THEME_CHOICES)
         self.motion_combo = self._choice(appearance, "Hareket", "motion_level", MOTION_CHOICES)
@@ -53,7 +62,7 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         appearance.addWidget(note)
 
-        playback = self._section(layout, "OYNATMA TERCİHLERİ")
+        playback = self._section(left, "OYNATMA TERCİHLERİ")
         languages = (("Otomatik", "auto"), *_LANGUAGE_PREFERENCES)
         subtitles = (("Otomatik", "auto"), ("Kapalı", "off"), *_LANGUAGE_PREFERENCES)
         self.audio_combo = self._choice(
@@ -73,9 +82,31 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         playback.addWidget(note)
 
-        startup = self._section(layout, "BAŞLANGIÇ")
+        dvr = self._section(right, "CANLI YAYIN VE KAYIT")
+        self.timeshift_combo = self._choice(
+            dvr, "Canlı geri sarma belleği", "timeshift_minutes", TIMESHIFT_CHOICES
+        )
+        note = text_label(
+            "Süre yaklaşık: yayın bit hızına göre değişir. Bellek sınırı 15 dk başına toplam 900 MB.",
+            "faint",
+        )
+        note.setWordWrap(True)
+        dvr.addWidget(note)
+        self.padding_combo = self._choice(
+            dvr, "Kayıt sonuna ekle", "recording_padding", PADDING_CHOICES
+        )
+        dvr.addWidget(text_label("Planlı kayıtlar 1 dakika erken başlar.", "faint"))
+        dvr.addWidget(text_label("Kayıt klasörü", "muted"))
+        self.recording_folder = QLineEdit(str(recording_folder(store)))
+        self.recording_folder.setAccessibleName("Kayıt klasörü")
+        self.recording_folder.editingFinished.connect(
+            lambda: self._save("recording_folder", self.recording_folder.text().strip())
+        )
+        dvr.addWidget(self.recording_folder)
+
+        startup = self._section(left, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
-        updates = self._section(layout, "GÜNCELLEME")
+        updates = self._section(right, "GÜNCELLEME")
         self.refresh_combo = self._choice(
             updates, "Kaynakları ve rehberi otomatik yenile", "auto_refresh", REFRESH_CHOICES
         )
@@ -155,6 +186,8 @@ class SettingsDialog(QDialog):
 
     def _save(self, key, value):
         self.store.set_setting(key, value)
+        if key == "timeshift_minutes":
+            self.timeshift_changed.emit()
         if key in {"auto_refresh", "auto_refresh_time"}:
             self.refresh_changed.emit()
         if key == "motion_level":

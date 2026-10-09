@@ -12,6 +12,7 @@ from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from .accounts import AccountProfile, normalize_profile
+from .catchup import archive_days
 from .media_details import MediaDetails, normalize_info
 from .models import Channel, Playlist
 from .playlist import parse_m3u, resolve_logo
@@ -115,6 +116,18 @@ class XtreamClient:
             extension = "ts" if kind == "live" else "mp4"
         return f"{self.base}/{kind}/{quote(self.username, safe='')}/{quote(self.password, safe='')}/{quote(str(item_id), safe='')}.{extension}"
 
+    def timeshift_url(self, stream_id, start, duration_minutes):
+        """Build an archive request using the programme's supplied timezone."""
+        if start.utcoffset() is None or duration_minutes <= 0:
+            raise ValueError("Geçerli arşiv zamanı ve süresi gerekli.")
+        user = quote(self.username, safe="")
+        password = quote(self.password, safe="")
+        stream = quote(str(stream_id), safe="")
+        return (
+            f"{self.base}/timeshift/{user}/{password}/{int(duration_minutes)}/"
+            f"{start:%Y-%m-%d:%H-%M}/{stream}.ts"
+        )
+
     def _list(self, action):
         data = self._api(action)
         if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
@@ -174,6 +187,10 @@ class XtreamClient:
                         kind=kind,
                         series_id=str(item_id) if mode == "series" else "",
                         provider_key=provider_key,
+                        tv_archive=mode == "live" and str(row.get("tv_archive")) == "1",
+                        tv_archive_duration=(
+                            archive_days(row.get("tv_archive_duration")) if mode == "live" else 0
+                        ),
                     )
                 )
         return Playlist(
