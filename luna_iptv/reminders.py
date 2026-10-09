@@ -17,6 +17,7 @@ from PySide6.QtDBus import (
 )
 from shiboken6 import getCppPointer
 
+from .i18n import _
 from .mpris import _strings, _variant_map
 
 _BUS = "org.freedesktop.Notifications"
@@ -95,7 +96,7 @@ class DesktopNotifications(QObject):
                 "luna-iptv",
                 title,
                 escape(body),
-                _strings(["watch", "İzle"]),
+                _strings(["watch", _("İzle")]),
                 _variant_map({}),
                 -1,
             ]
@@ -194,10 +195,10 @@ class ReminderService(QObject):
             or not math.isfinite(lead_minutes)
             or lead_minutes < 0
         ):
-            raise ValueError("Geçerli saat dilimi ve hatırlatma süresi gerekli.")
+            raise ValueError(_("Geçerli saat dilimi ve hatırlatma süresi gerekli."))
         start, end = int(programme.start.timestamp()), int(programme.end.timestamp())
         if start <= self._clock() or end <= start:
-            raise ValueError("Hatırlatıcı yalnızca gelecekteki programlar için kurulabilir.")
+            raise ValueError(_("Hatırlatıcı yalnızca gelecekteki programlar için kurulabilir."))
         reminder_id = self._store.add_reminder(
             channel.id, programme.title, start, end, lead_minutes
         )
@@ -251,10 +252,12 @@ class ReminderService(QObject):
                 moment = datetime.fromtimestamp(item["start"]).strftime("%H:%M")
                 body = f"{channels[item['channel_id']]} · {item['title']}, {moment}"
                 if item["profile_id"] != self._store.profile_id:
-                    body = f"{profiles[item['profile_id']]} için: {body}"
+                    body = _("{value} için: {body}").format(
+                        value=profiles[item["profile_id"]], body=body
+                    )
                 self._deliveries[item["id"]] = item
                 self._sender.send(
-                    "Program hatırlatıcısı",
+                    _("Program hatırlatıcısı"),
                     body,
                     lambda notification_id, item=item, body=body: self._sent(
                         item, body, notification_id
@@ -271,7 +274,7 @@ class ReminderService(QObject):
         if not self._valid(item):
             return
         if notification_id is None:
-            self._status(f"Hatırlatıcı: {body}")
+            self._status(_("Hatırlatıcı: {body}").format(body=body))
         else:
             self._notifications[notification_id] = item
 

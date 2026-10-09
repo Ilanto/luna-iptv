@@ -17,9 +17,10 @@ from PySide6.QtWidgets import (
 )
 
 from .dialogs import text_label
+from .i18n import N_, _, format_number
 from .library import search_key
 
-SECTION_LABELS = {"live": "Canlı TV", "movie": "Filmler", "series": "Diziler"}
+SECTION_LABELS = {"live": N_("Canlı TV"), "movie": N_("Filmler"), "series": N_("Diziler")}
 
 
 class CategoryEditor(QDialog):
@@ -27,7 +28,7 @@ class CategoryEditor(QDialog):
 
     def __init__(self, store, source_id, kind, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Kategori düzeni")
+        self.setWindowTitle(_("Kategori düzeni"))
         self.resize(540, 600)
         self._store, self.kind = store, kind
         self._source = None
@@ -53,39 +54,39 @@ class CategoryEditor(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 20)
         layout.setSpacing(12)
-        layout.addWidget(text_label("Kategori düzeni", "heading"))
+        layout.addWidget(text_label(_("Kategori düzeni"), "heading"))
         self.subtitle = text_label("", "muted")
         layout.addWidget(self.subtitle)
         self.source_combo = QComboBox()
-        self.source_combo.setAccessibleName("Düzenlenecek kaynak")
+        self.source_combo.setAccessibleName(_("Düzenlenecek kaynak"))
         for source in store.sources():
             self.source_combo.addItem(source["name"], source["id"])
         self.source_combo.setCurrentIndex(max(0, self.source_combo.findData(source_id)))
         self.source_combo.setVisible(not source_id)
         layout.addWidget(self.source_combo)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Kategori ara…")
-        self.search.setAccessibleName("Kategori ara")
+        self.search.setPlaceholderText(_("Kategori ara…"))
+        self.search.setAccessibleName(_("Kategori ara"))
         self.search.setClearButtonEnabled(True)
         layout.addWidget(self.search)
         note = text_label(
-            "Görmek istediklerini işaretle. Sırayı sürükleyerek değiştirebilirsin.", "muted"
+            _("Görmek istediklerini işaretle. Sırayı sürükleyerek değiştirebilirsin."), "muted"
         )
         note.setWordWrap(True)
         layout.addWidget(note)
         self.list = QListWidget()
         self.list.setObjectName("categoryList")
-        self.list.setAccessibleName("Kategori sırası ve görünürlüğü")
+        self.list.setAccessibleName(_("Kategori sırası ve görünürlüğü"))
         self.list.setDragDropMode(QAbstractItemView.InternalMove)
         self.list.setDefaultDropAction(Qt.MoveAction)
         self.list.setSelectionMode(QAbstractItemView.SingleSelection)
         layout.addWidget(self.list, 1)
         actions = QHBoxLayout()
         for name, label, callback in (
-            ("up_button", "Yukarı", lambda: self.move(-1)),
-            ("down_button", "Aşağı", lambda: self.move(1)),
-            ("show_all_button", "Hepsini göster", self.show_all),
-            ("reset_button", "Sıfırla", self.reset),
+            ("up_button", _("Yukarı"), lambda: self.move(-1)),
+            ("down_button", _("Aşağı"), lambda: self.move(1)),
+            ("show_all_button", _("Hepsini göster"), self.show_all),
+            ("reset_button", _("Sıfırla"), self.reset),
         ):
             button = QPushButton(label)
             button.clicked.connect(callback)
@@ -93,11 +94,11 @@ class CategoryEditor(QDialog):
             actions.addWidget(button)
         layout.addLayout(actions)
         buttons = QDialogButtonBox()
-        self.save_button = buttons.addButton("Kaydet", QDialogButtonBox.AcceptRole)
+        self.save_button = buttons.addButton(_("Kaydet"), QDialogButtonBox.AcceptRole)
         self.save_button.setObjectName("primary")
         self.save_button.clicked.disconnect()
         self.save_button.clicked.connect(self.save)
-        buttons.addButton("Vazgeç", QDialogButtonBox.RejectRole)
+        buttons.addButton(_("Vazgeç"), QDialogButtonBox.RejectRole)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.source_combo.currentIndexChanged.connect(self._load_source)
@@ -117,10 +118,10 @@ class CategoryEditor(QDialog):
         if self._dirty and self._source is not None:
             self._drafts[self._source] = None if self._reset else self.rows()
 
-    def _load_source(self, *_):
+    def _load_source(self, *_args):
         self._stash()
         self._source = self.source_combo.currentData()
-        self.subtitle.setText(f"{self.source_combo.currentText()} · {SECTION_LABELS[self.kind]}")
+        self.subtitle.setText(f"{self.source_combo.currentText()} · {_(SECTION_LABELS[self.kind])}")
         self._dirty = False
         self._reset = self._source in self._drafts and self._drafts[self._source] is None
         groups = self._counts.get(self._source, {})
@@ -145,7 +146,9 @@ class CategoryEditor(QDialog):
         self.list.clear()
         for group, hidden in rows:
             count = self._counts[self._source][group]
-            item = QListWidgetItem(f"{group or 'Kategorisiz'}   {count:,}".replace(",", "."))
+            item = QListWidgetItem(
+                f"{group or _('Kategorisiz')}   {format_number(count, decimals=0, grouping=True)}"
+            )
             item.setData(Qt.UserRole, group)
             item.setFlags(
                 (item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
@@ -165,7 +168,7 @@ class CategoryEditor(QDialog):
         key = search_key(text)
         for row in range(self.list.count()):
             item = self.list.item(row)
-            item.setHidden(key not in search_key(item.data(Qt.UserRole) or "Kategorisiz"))
+            item.setHidden(key not in search_key(item.data(Qt.UserRole) or _("Kategorisiz")))
         self._update_buttons()
 
     def _neighbor(self, step):

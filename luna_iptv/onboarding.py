@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QVBoxLayout
 
 from . import theme
 from .dialogs import text_label
+from .i18n import _
 
 
 class OnboardingCard(QFrame):
@@ -16,13 +17,13 @@ class OnboardingCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
-        layout.addWidget(text_label("Luna'ya yerleşelim", "title"))
+        layout.addWidget(text_label(_("Luna'ya yerleşelim"), "title"))
         self.steps = [
             text_label(text)
             for text in (
-                "1 Kaynağını ekle",
-                "2 Rehberini bağla (isteğe bağlı)",
-                "3 Favorilerini seç",
+                _("1 Kaynağını ekle"),
+                _("2 Rehberini bağla (isteğe bağlı)"),
+                _("3 Favorilerini seç"),
             )
         ]
         for step in self.steps:
@@ -32,12 +33,12 @@ class OnboardingCard(QFrame):
         self.primary_button.setObjectName("primary")
         self.primary_button.clicked.connect(self.activate_step)
         row.addWidget(self.primary_button)
-        self.guide_skip = QPushButton("Rehberi atla")
+        self.guide_skip = QPushButton(_("Rehberi atla"))
         self.guide_skip.setObjectName("ghost")
         self.guide_skip.clicked.connect(self.skip_guide)
         row.addWidget(self.guide_skip)
         row.addStretch()
-        self.skip_button = QPushButton("Geç")
+        self.skip_button = QPushButton(_("Geç"))
         self.skip_button.setObjectName("ghost")
         self.skip_button.setCursor(Qt.PointingHandCursor)
         self.skip_button.clicked.connect(self.skip)
@@ -73,14 +74,16 @@ class OnboardingCard(QFrame):
                 f"color: {color}; font-weight: {'600' if index == self.current_step else '400'};"
             )
             label.setAccessibleDescription(
-                "Tamamlandı"
+                _("Tamamlandı")
                 if completed[index]
-                else "Şimdiki adım"
+                else _("Şimdiki adım")
                 if index == self.current_step
-                else "Sıradaki adım"
+                else _("Sıradaki adım")
             )
         self.primary_button.setText(
-            ("Kaynak ekle", "Rehber bağla", "Favorilerini seç", "Tamamlandı")[self.current_step]
+            (_("Kaynak ekle"), _("Rehber bağla"), _("Favorilerini seç"), _("Tamamlandı"))[
+                self.current_step
+            ]
         )
         self.guide_skip.setVisible(self.current_step == 1)
 
@@ -96,7 +99,7 @@ class OnboardingCard(QFrame):
             self.window.configure_guide()
         elif self.current_step == 2:
             self.window.set_section("live")
-            self.window.status("Sevdiğin yayını seçip yıldız düğmesiyle favorilerine ekle.")
+            self.window.status(_("Sevdiğin yayını seçip yıldız düğmesiyle favorilerine ekle."))
         if not self.window._closed:
             self.refresh()
 

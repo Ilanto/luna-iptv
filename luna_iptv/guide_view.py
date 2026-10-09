@@ -9,10 +9,11 @@ from __future__ import annotations
 import math
 from datetime import datetime, time, timedelta, timezone
 
-from PySide6.QtCore import QElapsedTimer, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QElapsedTimer, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
+    QDateEdit,
     QFrame,
     QHBoxLayout,
     QLineEdit,
@@ -22,7 +23,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .catchup import can_catchup
 from .dialogs import text_label
+from .i18n import _, _n, day_label, format_number, month_name, weekday_name
 from .library import search_key, tile_color
 from .motion import IconButton, motion_level, on_motion_changed
 
@@ -412,8 +415,12 @@ class ProgrammeCard(QFrame):
 
     watch = Signal(object)
     remind = Signal(object, object)
+    record = Signal(object, object)
+    catchup = Signal(object, object)
 
-    def __init__(self, channel, programme, *, can_remind=False, reminded=False, parent=None):
+    def __init__(
+        self, channel, programme, *, can_remind=False, reminded=False, now=None, parent=None
+    ):
         super().__init__(parent, Qt.Popup)
         self.setObjectName("programmeCard")
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -421,20 +428,30 @@ class ProgrammeCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(8)
-        now = datetime.now(timezone.utc)
+        now = now or datetime.now(timezone.utc)
         start, end = programme.start.astimezone(), programme.end.astimezone()
         minutes = round((programme.end - programme.start).total_seconds() / 60)
         state = (
-            "ŞİMDİ YAYINDA"
+            _("ŞİMDİ YAYINDA")
             if programme.start <= now < programme.end
-            else ("BİTTİ" if programme.end <= now else "YAKINDA")
+            else (_("BİTTİ") if programme.end <= now else _("YAKINDA"))
         )
         layout.addWidget(text_label(f"{channel.name.upper()}  ·  {state}", "eyebrow"))
         title = text_label(programme.title, "title")
         title.setWordWrap(True)
         layout.addWidget(title)
         layout.addWidget(
-            text_label(f"{start:%A %d %B · %H:%M} – {end:%H:%M}  ·  {minutes} dk", "facts")
+            text_label(
+                _("{weekday} {day} {month} · {start} – {end}  ·  {minutes} dk").format(
+                    weekday=weekday_name(start, short=False),
+                    day=f"{start.day:02d}",
+                    month=month_name(start),
+                    start=start.strftime("%H:%M"),
+                    end=end.strftime("%H:%M"),
+                    minutes=minutes,
+                ),
+                "facts",
+            )
         )
         if programme.description:
             description = text_label(programme.description, "muted")
@@ -442,7 +459,7 @@ class ProgrammeCard(QFrame):
             layout.addWidget(description)
         actions = QHBoxLayout()
         actions.setSpacing(8)
-        self.watch_button = IconButton("Kanalı aç", "play", label=True, size=16)
+        self.watch_button = IconButton(_("Kanalı aç"), "play", label=True, size=16)
         self.watch_button.setObjectName("primary")
         self.watch_button.setMinimumHeight(38)
         self.watch_button.clicked.connect(self._watch)
@@ -450,7 +467,10 @@ class ProgrammeCard(QFrame):
         self.remind_button = None
         if can_remind and programme.start > now:
             self.remind_button = IconButton(
-                "Hatırlatıcı kurulu" if reminded else "Hatırlat", "recent", label=True, size=16
+                _("Hatırlatıcı kurulu") if reminded else _("Hatırlat"),
+                "recent",
+                label=True,
+                size=16,
             )
             self.remind_button.setObjectName("glass")
             self.remind_button.setMinimumHeight(38)
@@ -459,7 +479,28 @@ class ProgrammeCard(QFrame):
             actions.addWidget(self.remind_button)
         actions.addStretch()
         layout.addLayout(actions)
+        extra = QHBoxLayout()
+        self.record_button = None
+        self.catchup_button = None
+        if channel.kind == "live" and programme.end > now:
+            self.record_button = IconButton(_("Kaydet"), "record", label=True, size=16)
+            self.record_button.clicked.connect(self._record)
+            extra.addWidget(self.record_button)
+        if can_catchup(channel, programme, now):
+            self.catchup_button = IconButton(_("İzle (geçmiş)"), "recent", label=True, size=16)
+            self.catchup_button.clicked.connect(self._catchup)
+            extra.addWidget(self.catchup_button)
+        extra.addStretch()
+        layout.addLayout(extra)
         self.setFixedWidth(420)
+
+    def _record(self):
+        self.record.emit(self.channel, self.programme)
+        self.close()
+
+    def _catchup(self):
+        self.catchup.emit(self.channel, self.programme)
+        self.close()
 
     def _watch(self):
         self.watch.emit(self.channel)
@@ -475,6 +516,8 @@ class GuideView(QWidget):
 
     watch_channel = Signal(object)
     remind_programme = Signal(object, object)
+    record_programme = Signal(object, object)
+    catchup_programme = Signal(object, object)
     add_guide = Signal()
     show_reminders = Signal()
 
@@ -490,20 +533,28 @@ class GuideView(QWidget):
         layout.setSpacing(14)
         header = QHBoxLayout()
         header.setSpacing(12)
-        header.addWidget(text_label("Rehber", "display"))
+        header.addWidget(text_label(_("Rehber"), "display"))
         self.count_label = text_label("", "count")
         self.count_label.setFixedHeight(22)
         header.addWidget(self.count_label, 0, Qt.AlignVCenter)
         header.addStretch()
-        self.reminders_button = IconButton("Hatırlatıcılar", "recent", label=True, size=16)
+        self.reminders_button = IconButton(_("Hatırlatıcılar"), "recent", label=True, size=16)
         self.reminders_button.setObjectName("ghost")
         self.reminders_button.clicked.connect(self.show_reminders)
         self.reminders_button.hide()
         header.addWidget(self.reminders_button)
+        self.archive_date = QDateEdit(QDate.currentDate())
+        self.archive_date.setDisplayFormat(_("dd.MM.yyyy"))
+        self.archive_date.setCalendarPopup(True)
+        self.archive_date.setAccessibleName(_("Geçmiş yayın tarihi"))
+        self.archive_date.setToolTip(_("Geçmiş yayın tarihi"))
+        self.archive_date.dateChanged.connect(lambda value: self.show_day(value.toPython()))
+        self.archive_date.hide()
+        header.addWidget(self.archive_date)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Program ara…")
+        self.search.setPlaceholderText(_("Program ara…"))
         self.search.setClearButtonEnabled(True)
-        self.search.setAccessibleName("Program ara")
+        self.search.setAccessibleName(_("Program ara"))
         self.search.setMaximumWidth(300)
         self.search.textChanged.connect(self._search_changed)
         self.search.returnPressed.connect(self.next_match)
@@ -515,7 +566,7 @@ class GuideView(QWidget):
         today = datetime.now().date()
         for offset in range(-self.DAYS_BACK, self.DAYS_AHEAD + 1):
             day = today + timedelta(days=offset)
-            label = {-1: "Dün", 0: "Bugün", 1: "Yarın"}.get(offset, day.strftime("%a %d"))
+            label = _("Dün") if offset == -1 else day_label(day, today)
             button = QPushButton(label)
             button.setObjectName("chip")
             button.setCheckable(True)
@@ -525,7 +576,7 @@ class GuideView(QWidget):
             days.addWidget(button)
             self.day_buttons[day] = button
         days.addSpacing(8)
-        self.now_button = QPushButton("Şimdi")
+        self.now_button = QPushButton(_("Şimdi"))
         self.now_button.setObjectName("chipMore")
         self.now_button.setFixedHeight(30)
         self.now_button.setCursor(Qt.PointingHandCursor)
@@ -541,14 +592,14 @@ class GuideView(QWidget):
         self.empty.setObjectName("panel")
         empty = QVBoxLayout(self.empty)
         empty.setContentsMargins(28, 28, 28, 28)
-        empty.addWidget(text_label("Program rehberi yok", "title"), 0, Qt.AlignHCenter)
+        empty.addWidget(text_label(_("Program rehberi yok"), "title"), 0, Qt.AlignHCenter)
         note = text_label(
-            "Bir XMLTV rehberi ekle; kanalların saat saat yayın akışı burada görünsün.", "muted"
+            _("Bir XMLTV rehberi ekle; kanalların saat saat yayın akışı burada görünsün."), "muted"
         )
         note.setWordWrap(True)
         note.setAlignment(Qt.AlignCenter)
         empty.addWidget(note)
-        add = IconButton("Rehber ekle", "plus", label=True, size=16)
+        add = IconButton(_("Rehber ekle"), "plus", label=True, size=16)
         add.setObjectName("primary")
         add.setMinimumHeight(40)
         add.clicked.connect(self.add_guide)
@@ -566,10 +617,22 @@ class GuideView(QWidget):
         self.grid.setVisible(has_guide)
         self.empty.setVisible(not has_guide)
         self.reminders_button.setVisible(self.can_remind)
+        archive_days = max((c.tv_archive_duration for c, _ in rows if c.tv_archive), default=0)
+        self.archive_date.blockSignals(True)
+        today = QDate.currentDate()
+        self.archive_date.setDateRange(
+            today.addDays(-max(1, archive_days)), today.addDays(self.DAYS_AHEAD)
+        )
+        self.archive_date.setDate(QDate(self.day.year, self.day.month, self.day.day))
+        self.archive_date.blockSignals(False)
+        self.archive_date.setVisible(archive_days > 1)
         self._apply_search()
 
     def show_day(self, day):
         self.day = day
+        self.archive_date.blockSignals(True)
+        self.archive_date.setDate(QDate(day.year, day.month, day.day))
+        self.archive_date.blockSignals(False)
         for other, button in self.day_buttons.items():
             button.setChecked(other == day)
         self.grid.set_day(day)
@@ -591,7 +654,11 @@ class GuideView(QWidget):
         if not key:
             self.grid.matches = set()
             self.grid.set_rows(self._rows)
-            self.count_label.setText(f"{len(self._rows):,} kanal".replace(",", "."))
+            self.count_label.setText(
+                _n("{count} kanal", "{count} kanallar", len(self._rows)).format(
+                    count=format_number(len(self._rows), decimals=0, grouping=True)
+                )
+            )
             return
         start, end = self.grid.day_start, self.grid.day_end
         rows, matches = [], set()
@@ -604,7 +671,11 @@ class GuideView(QWidget):
                 matches.update(id(p) for p in hits)
         self.grid.matches = matches
         self.grid.set_rows(rows)
-        self.count_label.setText(f"{len(matches):,} program".replace(",", "."))
+        self.count_label.setText(
+            _n("{count} program", "{count} programlar", len(matches)).format(
+                count=format_number(len(matches), decimals=0, grouping=True)
+            )
+        )
 
     def next_match(self, first=False):
         """Bring the next search hit (or the first one) into view."""
@@ -631,6 +702,8 @@ class GuideView(QWidget):
         )
         card.watch.connect(self.watch_channel)
         card.remind.connect(self.remind_programme)
+        card.record.connect(self.record_programme)
+        card.catchup.connect(self.catchup_programme)
         card.move(self.cursor().pos())
         card.show()
         return card

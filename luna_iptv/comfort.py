@@ -2,6 +2,8 @@
 
 import math
 
+from .i18n import _
+
 DEFAULTS = {
     "aspect": "auto",
     "zoom": 0,
@@ -114,16 +116,16 @@ class ComfortPreferences:
         from PySide6.QtGui import QActionGroup
 
         sections = (
-            ("aspect", "Görüntü oranı", ("Otomatik", "16:9", "4:3", "21:9", "Doldur")),
-            ("zoom", "Yakınlaştır", ("0", "+10%", "+20%")),
-            ("brightness", "Parlaklık", ("−20", "−10", "0", "+10", "+20")),
-            ("contrast", "Kontrast", ("−20", "−10", "0", "+10", "+20")),
-            ("boost", "Ses güçlendirme", ("100%", "130%", "160%")),
+            ("aspect", _("Görüntü oranı"), (_("Otomatik"), "16:9", "4:3", "21:9", _("Doldur"))),
+            ("zoom", _("Yakınlaştır"), ("0", "+10%", "+20%")),
+            ("brightness", _("Parlaklık"), ("−20", "−10", "0", "+10", "+20")),
+            ("contrast", _("Kontrast"), ("−20", "−10", "0", "+10", "+20")),
+            ("boost", _("Ses güçlendirme"), ("100%", "130%", "160%")),
         )
         picture = None
         for key, title, labels in sections:
             if key == "brightness":
-                picture = menu.addMenu("Parlaklık/Kontrast")
+                picture = menu.addMenu(_("Parlaklık/Kontrast"))
                 picture.setEnabled(enabled)
             sub = (picture if key in ("brightness", "contrast") else menu).addMenu(title)
             sub.setEnabled(enabled)
@@ -143,7 +145,7 @@ class ComfortPreferences:
                     guard(apply)
 
                 action.triggered.connect(choose)
-        action = menu.addAction("Sesi dengele")
+        action = menu.addAction(_("Sesi dengele"))
         action.setEnabled(enabled)
         action.setCheckable(True)
         action.setChecked(self.values["normalize"])
@@ -151,16 +153,16 @@ class ComfortPreferences:
         def normalize(checked):
             def apply():
                 self.select("normalize", checked)
-                notify("Sesi dengele: " + ("Açık" if checked else "Kapalı"))
+                notify(_("Sesi dengele: ") + (_("Açık") if checked else _("Kapalı")))
 
             guard(apply)
 
         action.triggered.connect(normalize)
-        reset = menu.addAction("Varsayılana dön")
+        reset = menu.addAction(_("Varsayılana dön"))
         reset.setEnabled(enabled)
 
         def restore():
             self.reset()
-            notify("Görüntü ve ses ayarları varsayılana döndü.")
+            notify(_("Görüntü ve ses ayarları varsayılana döndü."))
 
         reset.triggered.connect(lambda: guard(restore))

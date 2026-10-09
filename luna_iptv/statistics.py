@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QWidget
 
 from . import theme
 from .dialogs import text_label
+from .i18n import _, format_date, format_number
 
 
 class WatchTracker:
@@ -59,8 +60,18 @@ def duration_text(seconds):
     minutes = int(seconds // 60)
     hours, minutes = divmod(minutes, 60)
     if hours:
-        return f"{hours} sa {minutes} dk" if minutes else f"{hours} sa"
-    return f"{minutes} dk" if minutes else "1 dk'dan az" if seconds else "0 dk"
+        return (
+            _("{hours} sa {minutes} dk").format(hours=hours, minutes=minutes)
+            if minutes
+            else _("{hours} sa").format(hours=hours)
+        )
+    return (
+        _("{minutes} dk").format(minutes=minutes)
+        if minutes
+        else _("1 dk'dan az")
+        if seconds
+        else _("0 dk")
+    )
 
 
 class WeekChart(QWidget):
@@ -68,7 +79,7 @@ class WeekChart(QWidget):
         super().__init__(parent)
         self.days = days
         self.setMinimumSize(340, 190)
-        self.setAccessibleName("Son 7 günün izleme süreleri")
+        self.setAccessibleName(_("Son 7 günün izleme süreleri"))
         self.setAccessibleDescription("; ".join(f"{day}: {duration_text(s)}" for day, s in days))
 
     def paintEvent(self, event):
@@ -87,12 +98,18 @@ class WeekChart(QWidget):
             )
             painter.setPen(QColor(theme.TEXT_SOFT))
             painter.drawText(
-                QRectF(x, baseline + 5, width, 22), Qt.AlignCenter, day[8:] + "." + day[5:7]
+                QRectF(x, baseline + 5, width, 22),
+                Qt.AlignCenter,
+                format_date(datetime.fromisoformat(day))[:5],
             )
             painter.drawText(
                 QRectF(x, baseline - height - 25, width, 22),
                 Qt.AlignCenter,
-                (f"{seconds / 3600:.1f} sa".replace(".", ",") if seconds >= 60 else ""),
+                (
+                    _("{hours} sa").format(hours=format_number(seconds / 3600))
+                    if seconds >= 60
+                    else ""
+                ),
             )
         painter.end()
 
@@ -101,38 +118,45 @@ class StatisticsDialog(QDialog):
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setWindowTitle("İstatistikler")
+        self.setWindowTitle(_("İstatistikler"))
         self.resize(540, 540)
         stats = store.watch_statistics()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
         profile = store.profile(store.profile_id)
-        layout.addWidget(text_label(f"{profile['name']} · İstatistikler", "heading"))
+        layout.addWidget(
+            text_label(_("{name} · İstatistikler").format(name=profile["name"]), "heading")
+        )
         self.total_label = text_label(
-            f"Bu hafta {stats['week_seconds'] / 3600:.1f} sa izledin".replace(".", ","), "title"
+            _("Bu hafta {hours} sa izledin").format(
+                hours=format_number(stats["week_seconds"] / 3600)
+            ),
+            "title",
         )
         layout.addWidget(self.total_label)
-        layout.addWidget(text_label("Pazartesiden bugüne · gerçek izleme süresi", "muted"))
-        layout.addWidget(text_label("SON 7 GÜN", "eyebrow"))
+        layout.addWidget(text_label(_("Pazartesiden bugüne · gerçek izleme süresi"), "muted"))
+        layout.addWidget(text_label(_("SON 7 GÜN"), "eyebrow"))
         self.chart = WeekChart(stats["days"])
         layout.addWidget(self.chart)
-        layout.addWidget(text_label("BU HAFTA EN ÇOK İZLEDİKLERİN", "eyebrow"))
+        layout.addWidget(text_label(_("BU HAFTA EN ÇOK İZLEDİKLERİN"), "eyebrow"))
         for rank, (name, seconds) in enumerate(stats["top"], 1):
             label = text_label(f"{rank}. {name}  ·  {duration_text(seconds)}", "muted")
             label.setTextFormat(Qt.PlainText)
             label.setWordWrap(True)
             layout.addWidget(label)
         if not stats["top"]:
-            layout.addWidget(text_label("İzledikçe burada birikir.", "muted"))
+            layout.addWidget(text_label(_("İzledikçe burada birikir."), "muted"))
         layout.addWidget(
             text_label(
-                f"Canlı: {duration_text(stats['live_seconds'])}  ·  "
-                f"Film / dizi: {duration_text(stats['vod_seconds'])}",
+                _("Canlı: {live}  ·  Film / dizi: {vod}").format(
+                    live=duration_text(stats["live_seconds"]),
+                    vod=duration_text(stats["vod_seconds"]),
+                ),
                 "title",
             )
         )
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.button(QDialogButtonBox.Close).setText("Kapat")
+        buttons.button(QDialogButtonBox.Close).setText(_("Kapat"))
         buttons.rejected.connect(self.close)
         layout.addWidget(buttons)

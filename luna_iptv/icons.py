@@ -6,10 +6,13 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+from .i18n import N_, _
+
 # Stroked shapes use the line color; elements marked FILL are solid.
 FILL = 'fill="{c}" stroke="none"'
 
 ICONS = {
+    "record": '<circle cx="12" cy="12" r="7" ' + FILL + "/>",
     "home": '<path d="m3 10 9-7 9 7M5 9v11h5v-6h4v6h5V9"/>',
     "live": '<rect x="2.5" y="7" width="19" height="13.5" rx="3"/><path d="M8 2.5 12 7l4-4.5"/>'
     '<circle cx="17.5" cy="11" r="1.2" ' + FILL + "/>",
@@ -99,12 +102,19 @@ GLYPHS = {
     "≫": "forward",
     "☆": "star",
     "★": "star-filled",
-    "Ses": "volume",
-    "Sessiz": "mute",
-    "Mini": "pip",
-    "Geri dön": "pip-exit",
+    N_("Ses"): "volume",
+    N_("Sessiz"): "mute",
+    N_("Mini"): "pip",
+    N_("Geri dön"): "pip-exit",
     "⛶": "fullscreen",
 }
+
+
+def glyph(text, fallback=None):
+    """Resolve text states after language selection, retaining original glyph keys."""
+    if text in GLYPHS:
+        return GLYPHS[text]
+    return next((name for label, name in GLYPHS.items() if _(label) == text), fallback)
 
 
 def svg(name, color):

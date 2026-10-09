@@ -9,7 +9,9 @@ from PySide6.QtCore import QByteArray, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+from .i18n import _
 from .preferences import DEFAULT_TRACK_OPTIONS
+from .timeshift import live_cache_options
 
 _GL_BLEND = 0x0BE2
 
@@ -47,6 +49,7 @@ class Player(QObject):
     )
     OPTIONAL_OBSERVED = (
         "partially-seekable",
+        "demuxer-cache-state",
         "video-dec-params",
         "video-params",
         "video-frame-info/interlaced",
@@ -110,7 +113,9 @@ class Player(QObject):
                     None
                     if self._closed
                     else self.error.emit(
-                        "Video motoru açılamadı. python-mpv ve libmpv2 paketlerini kurup uygulamayı yeniden açın."
+                        _(
+                            "Video motoru açılamadı. python-mpv ve libmpv2 paketlerini kurup uygulamayı yeniden açın."
+                        )
                     )
                 ),
             )
@@ -167,7 +172,7 @@ class Player(QObject):
         error_value = int(detail.error) if detail is not None else 0
         reasons = {0: "eof", 1: "restarted", 2: "stop", 3: "quit", 4: "error", 5: "redirect"}
         reason = "error" if error_value < 0 else reasons.get(reason_value, "unknown")
-        message = "Yayın açılamadı veya bağlantı kesildi." if reason == "error" else ""
+        message = _("Yayın açılamadı veya bağlantı kesildi.") if reason == "error" else ""
         self._dispatch_entry_event(entry_id, "finished", reason, message)
         if self._current_entry_id == entry_id:
             self._current_entry_id = None
@@ -202,6 +207,7 @@ class Player(QObject):
         *,
         token: int | None = None,
         track_options: dict[str, str] | None = None,
+        live_cache_minutes: int = 0,
     ):
         if token is None:
             token = self._reserved_load_token
@@ -215,7 +221,7 @@ class Player(QObject):
                 token,
                 "finished",
                 "invalid",
-                "Geçerli bir yayın adresi seçin.",
+                _("Geçerli bir yayın adresi seçin."),
             )
             return token
         fields = []
@@ -225,7 +231,7 @@ class Player(QObject):
                     token,
                     "finished",
                     "invalid",
-                    "Yayın HTTP başlıkları geçersiz.",
+                    _("Yayın HTTP başlıkları geçersiz."),
                 )
                 return token
             fields.append(f"{name}: {value}")
@@ -237,16 +243,17 @@ class Player(QObject):
                 or any(c in value for c in "\r\n\x00")
             ):
                 self._emit_entry_event(
-                    token, "finished", "invalid", "Oynatma dili tercihleri geçersiz."
+                    token, "finished", "invalid", _("Oynatma dili tercihleri geçersiz.")
                 )
                 return token
             options[name] = value
+        options.update(live_cache_options(live_cache_minutes))
         if self._mpv is None:
             self._emit_entry_event(
                 token,
                 "finished",
                 "engine",
-                "Video motoru açılamadı.",
+                _("Video motoru açılamadı."),
             )
             return token
         if not self._render_ready:
@@ -275,14 +282,14 @@ class Player(QObject):
                 token,
                 "finished",
                 "engine",
-                "Video motoru açılamadı.",
+                _("Video motoru açılamadı."),
             )
             return
         try:
             future = self._mpv.command_async("loadfile", url, "replace", -1, options)
             future.add_done_callback(lambda done: self._load_command_done(token, done))
         except (ValueError, RuntimeError, OSError):
-            self._emit_entry_event(token, "finished", "error", "Yayın açılamadı.")
+            self._emit_entry_event(token, "finished", "error", _("Yayın açılamadı."))
 
     def _load_command_done(self, token: int, future) -> None:
         if self._closed:
@@ -290,7 +297,7 @@ class Player(QObject):
         try:
             result = future.result()
         except Exception:
-            self._emit_entry_event(token, "finished", "error", "Yayın açılamadı.")
+            self._emit_entry_event(token, "finished", "error", _("Yayın açılamadı."))
             return
         try:
             entry_id = int(result["playlist_entry_id"])
@@ -352,7 +359,9 @@ class Player(QObject):
             if current:
                 if message:
                     self.error.emit(
-                        "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
+                        _(
+                            "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
+                        )
                     )
                 self.ended.emit()
             self.playback_finished.emit(token, reason, message)
@@ -368,7 +377,9 @@ class Player(QObject):
             _reason, message = values
             if message:
                 self.error.emit(
-                    "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
+                    _(
+                        "Yayın açılamadı veya bağlantı kesildi. Kaynak adresini ve erişim bilgilerini kontrol edin."
+                    )
                 )
             self.ended.emit()
 
@@ -380,11 +391,13 @@ class Player(QObject):
             future.add_done_callback(self._command_done)
             return future
         except (ValueError, RuntimeError, OSError):
-            self.error.emit("Oynatıcı komutu uygulanamadı.")
+            self.error.emit(_("Oynatıcı komutu uygulanamadı."))
 
     def _command_done(self, future):
         if not self._closed and future.exception():
-            self.error.emit("Oynatıcı komutu uygulanamadı; yayın bu işlemi desteklemiyor olabilir.")
+            self.error.emit(
+                _("Oynatıcı komutu uygulanamadı; yayın bu işlemi desteklemiyor olabilir.")
+            )
 
     def set_property(self, name: str, value: Any):
         if isinstance(value, bool):
@@ -453,7 +466,7 @@ class VideoWidget(QOpenGLWidget):
         except Exception:
             if not self._failed:
                 self._failed = True
-                self.player.error.emit("Arka planda video karesi işlenemedi.")
+                self.player.error.emit(_("Arka planda video karesi işlenemedi."))
         finally:
             self.doneCurrent()
 
@@ -478,7 +491,9 @@ class VideoWidget(QOpenGLWidget):
         ):
             self._failed = True
             self.player.error.emit(
-                "OpenGL bağlamı açılamadı. Grafik sürücünüzü ve Qt Wayland desteğini kontrol edin."
+                _(
+                    "OpenGL bağlamı açılamadı. Grafik sürücünüzü ve Qt Wayland desteğini kontrol edin."
+                )
             )
 
     def initializeGL(self):
@@ -499,7 +514,9 @@ class VideoWidget(QOpenGLWidget):
         except Exception:
             self._failed = True
             self.player.error.emit(
-                "OpenGL video yüzeyi oluşturulamadı. Grafik sürücünüzü ve Qt Wayland desteğini kontrol edin."
+                _(
+                    "OpenGL video yüzeyi oluşturulamadı. Grafik sürücünüzü ve Qt Wayland desteğini kontrol edin."
+                )
             )
 
     def paintGL(self):
@@ -522,7 +539,9 @@ class VideoWidget(QOpenGLWidget):
         except Exception:
             if not self._failed:
                 self._failed = True
-                self.player.error.emit("Video karesi çizilemedi. Grafik sürücünüzü kontrol edin.")
+                self.player.error.emit(
+                    _("Video karesi çizilemedi. Grafik sürücünüzü kontrol edin.")
+                )
 
     @Slot()
     def release_render_context(self):

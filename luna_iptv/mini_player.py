@@ -4,6 +4,8 @@ from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QSizePolicy
 from shiboken6 import isValid
 
+from .i18n import _
+
 
 class MiniPlayerController(QObject):
     """Keep the normal window snapshot while sharing the existing overlay."""
@@ -92,7 +94,7 @@ class MiniPlayerController(QObject):
         if self._closed or generation != self._request_generation or not self.pending:
             return
         self.cancel_pending()
-        self._window.status("Mini oynatıcıya geçilemedi. Yeniden dene.")
+        self._window.status(_("Mini oynatıcıya geçilemedi. Yeniden dene."))
 
     def enter(self, *, normal_geometry=None, normal_maximized=None):
         if self._closed or self.active:
@@ -172,7 +174,7 @@ class MiniPlayerController(QObject):
 
     def _update_button(self):
         button = self._window.mini_button
-        button.setText("Geri dön" if self.active else "Mini")
-        title = "Normal pencereye dön (Esc)" if self.active else "Mini oynatıcıya geç"
+        button.setText(_("Geri dön") if self.active else _("Mini"))
+        title = _("Normal pencereye dön (Esc)") if self.active else _("Mini oynatıcıya geç")
         button.setToolTip(title)
         button.setAccessibleName(title)

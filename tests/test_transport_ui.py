@@ -130,14 +130,23 @@ def test_fullscreen_video_fills_screen_and_keeps_context(qt_app, playing_window)
         assert window.video.parent() is parent
         assert window.video.context() is context
         assert window.player._mpv is backend
-        frame = window.video.grabFramebuffer()
-        assert not frame.isNull()
-        colors = {
-            frame.pixelColor(int(frame.width() * x / 10), int(frame.height() * y / 10)).name()
-            for x in range(1, 9)
-            for y in range(1, 9)
-        }
-        assert len(colors) > 8
+
+        def frame_colors():
+            frame = window.video.grabFramebuffer()
+            if frame.isNull():
+                return 0
+            return len(
+                {
+                    frame.pixelColor(
+                        int(frame.width() * x / 10), int(frame.height() * y / 10)
+                    ).name()
+                    for x in range(1, 9)
+                    for y in range(1, 9)
+                }
+            )
+
+        # The resize recreates the framebuffer; the next mpv frame repaints it.
+        wait(qt_app, lambda: frame_colors() > 8)
     finally:
         window.leave_fullscreen()
     wait(qt_app, lambda: not window.isFullScreen() and window.video.size() != window.size())

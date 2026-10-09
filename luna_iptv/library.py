@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
 from . import icons, theme
 from .card_motion import CardView
+from .i18n import N_, _
 from .motion import animation_ms, motion_level, on_motion_changed
 
 
@@ -42,6 +43,7 @@ def channel_key(name):
 
 PROGRESS_ROLE = Qt.UserRole + 2
 LOCKED_ROLE = Qt.UserRole + 3
+NEW_EPISODES_ROLE = Qt.UserRole + 4
 
 
 def resumable(position, duration):
@@ -62,6 +64,7 @@ class ChannelModel(QAbstractListModel):
         self.search_keys = []
         self.progress = {}
         self.locked = frozenset()  # channel ids behind the parental PIN
+        self.unseen_series = frozenset()
         self._rows = {}
         self._keys = {}  # (name, group) -> search key, reused across resets
 
@@ -85,9 +88,12 @@ class ChannelModel(QAbstractListModel):
             return position / duration if resumable(position, duration) else None
         if role == LOCKED_ROLE:
             return channel.id in self.locked
+        if role == NEW_EPISODES_ROLE:
+            return channel.kind == "series" and channel.id in self.unseen_series
         if role == Qt.AccessibleTextRole:
-            locked = ", kilitli" if channel.id in self.locked else ""
-            return channel.name + ", " + channel.group + locked
+            locked = _(", kilitli") if channel.id in self.locked else ""
+            new = _(", yeni bölüm") if channel.id in self.unseen_series else ""
+            return channel.name + ", " + channel.group + locked + new
 
     def reset(self, channels, favorites, progress=None):
         self.beginResetModel()
@@ -118,6 +124,18 @@ class ChannelModel(QAbstractListModel):
         if self.channels:
             self.dataChanged.emit(
                 self.index(0, 0), self.index(len(self.channels) - 1, 0), [LOCKED_ROLE]
+            )
+
+    def set_unseen_series(self, channel_ids):
+        unseen = frozenset(channel_ids)
+        if unseen == self.unseen_series:
+            return
+        self.unseen_series = unseen
+        if self.channels:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self.channels) - 1, 0),
+                [NEW_EPISODES_ROLE, Qt.AccessibleTextRole],
             )
 
     def replace_progress(self, progress):
@@ -297,7 +315,7 @@ class ChannelFilter(QSortFilterProxyModel):
             self.invalidateFilter()
 
 
-KIND_LABELS = {"live": "Canlı yayın", "movie": "Film / video", "series": "Dizi"}
+KIND_LABELS = {"live": N_("Canlı yayın"), "movie": N_("Film / video"), "series": N_("Dizi")}
 # Night-sky hues behind each logo; a channel name always maps to the same one.
 TILE_HUES = ("#16245a", "#231c55", "#132f4a", "#2c1c48", "#173444", "#1f2452")
 CARD_WIDTH = 228
@@ -618,6 +636,18 @@ class ChannelDelegate(QStyledItemDelegate):
         else:
             self._paint_logo(painter, option, index, channel, card, shape, hovered or selected)
         self._paint_outline(painter, option, card, selected)
+        if index.data(NEW_EPISODES_ROLE):
+            top = card.top() + (42 if index.data(LOCKED_ROLE) else 10)
+            badge = QRectF(card.left() + 10, top, 44, 20)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme.GOLD))
+            painter.drawRoundedRect(badge, 5, 5)
+            font = QFont(option.font)
+            font.setPixelSize(10)
+            font.setWeight(QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.ACCENT_INK))
+            painter.drawText(badge, Qt.AlignCenter, _("YENİ"))
         painter.restore()
 
     def _stage(self, painter, channel, rect, shape, lit):
@@ -735,7 +765,7 @@ class ChannelDelegate(QStyledItemDelegate):
             card,
             art.bottom() + 8,
             channel.name,
-            channel.group or KIND_LABELS.get(channel.kind, ""),
+            channel.group or _(KIND_LABELS.get(channel.kind, "")),
         )
 
     def _paint_logo(self, painter, option, index, channel, card, shape, lit):
@@ -781,7 +811,7 @@ class ChannelDelegate(QStyledItemDelegate):
         painter.restore()
 
         programme = None if locked else self.now_for(channel)
-        kind = KIND_LABELS.get(channel.kind, "")
+        kind = _(KIND_LABELS.get(channel.kind, ""))
         if programme:
             start, end = programme.start.astimezone(), programme.end.astimezone()
             heading, detail_text = (
