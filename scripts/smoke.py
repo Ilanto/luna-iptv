@@ -159,6 +159,7 @@ def main():
 
         # A paused frame can still be on its way to a freshly sized framebuffer.
         wait(lambda: frame_colors() > 8)
+        frame_count = frame_colors()  # the window is gone by the final report
         w.grab().save(str(out / "luna-playing.png"))
         results["checks"].append("single-click native HLS rendering, EPG, favorite, pause, mute")
         w.toggle_fullscreen()
@@ -191,7 +192,7 @@ def main():
         reopened.close()
         results["checks"].append("reopen persistence and orderly renderer shutdown")
         assert not errors, errors
-        results["frame_colors"] = frame_colors()
+        results["frame_colors"] = frame_count
         results["success"] = True
     except Exception as exc:
         results["success"] = False
