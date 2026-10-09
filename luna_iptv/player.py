@@ -10,6 +10,7 @@ from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from .preferences import DEFAULT_TRACK_OPTIONS
+from .timeshift import live_cache_options
 
 _GL_BLEND = 0x0BE2
 
@@ -47,6 +48,7 @@ class Player(QObject):
     )
     OPTIONAL_OBSERVED = (
         "partially-seekable",
+        "demuxer-cache-state",
         "video-dec-params",
         "video-params",
         "video-frame-info/interlaced",
@@ -202,6 +204,7 @@ class Player(QObject):
         *,
         token: int | None = None,
         track_options: dict[str, str] | None = None,
+        live_cache_minutes: int = 0,
     ):
         if token is None:
             token = self._reserved_load_token
@@ -241,6 +244,7 @@ class Player(QObject):
                 )
                 return token
             options[name] = value
+        options.update(live_cache_options(live_cache_minutes))
         if self._mpv is None:
             self._emit_entry_event(
                 token,

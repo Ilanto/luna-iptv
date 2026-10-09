@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QLineEdit,
     QSystemTrayIcon,
     QTimeEdit,
     QVBoxLayout,
@@ -18,6 +19,7 @@ from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
 from .motion import IconButton, set_motion_level
 from .online_settings import OnlineSettings
+from .recordings import PADDING_CHOICES, recording_folder
 from .settings import (
     ACCENT_CHOICES,
     AUTOPLAY_CHOICES,
@@ -28,18 +30,20 @@ from .settings import (
     refresh_time,
     selected_setting,
 )
+from .timeshift import TIMESHIFT_CHOICES
 from .updates import UPDATE_CHOICES
 
 
 class SettingsDialog(QDialog, OnlineSettings):
     refresh_changed = Signal()
+    timeshift_changed = Signal()
 
     def __init__(self, store, parent=None, *, tray_available=None):
         super().__init__(parent)
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Ayarlar")
-        self.resize(1000, 740)
+        self.resize(1000, 760)
         self.setMinimumWidth(920)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
@@ -82,6 +86,28 @@ class SettingsDialog(QDialog, OnlineSettings):
         )
         note.setWordWrap(True)
         playback.addWidget(note)
+
+        dvr = self._section(online, "CANLI YAYIN VE KAYIT")
+        self.timeshift_combo = self._choice(
+            dvr, "Canlı geri sarma belleği", "timeshift_minutes", TIMESHIFT_CHOICES
+        )
+        note = text_label(
+            "Süre yaklaşık: yayın bit hızına göre değişir. Bellek sınırı 15 dk başına toplam 900 MB.",
+            "faint",
+        )
+        note.setWordWrap(True)
+        dvr.addWidget(note)
+        self.padding_combo = self._choice(
+            dvr, "Kayıt sonuna ekle", "recording_padding", PADDING_CHOICES
+        )
+        dvr.addWidget(text_label("Planlı kayıtlar 1 dakika erken başlar.", "faint"))
+        dvr.addWidget(text_label("Kayıt klasörü", "muted"))
+        self.recording_folder = QLineEdit(str(recording_folder(store)))
+        self.recording_folder.setAccessibleName("Kayıt klasörü")
+        self.recording_folder.editingFinished.connect(
+            lambda: self._save("recording_folder", self.recording_folder.text().strip())
+        )
+        dvr.addWidget(self.recording_folder)
 
         startup = self._section(settings, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
@@ -166,6 +192,8 @@ class SettingsDialog(QDialog, OnlineSettings):
 
     def _save(self, key, value):
         self.store.set_setting(key, value)
+        if key == "timeshift_minutes":
+            self.timeshift_changed.emit()
         if key in {"auto_refresh", "auto_refresh_time"}:
             self.refresh_changed.emit()
         if key == "motion_level":

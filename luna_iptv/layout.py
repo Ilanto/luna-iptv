@@ -265,6 +265,8 @@ def build_window(w):
     w.guide_view = GuideView(w.logos)
     w.guide_view.watch_channel.connect(w.request_play)
     w.guide_view.remind_programme.connect(w.remind_programme)
+    w.guide_view.record_programme.connect(w.record_programme)
+    w.guide_view.catchup_programme.connect(w.play_catchup)
     w.guide_view.add_guide.connect(w.configure_guide)
     w.guide_view.show_reminders.connect(w.open_reminders)
     w.library_pages.addWidget(w.guide_view)
@@ -387,7 +389,7 @@ def build_window(w):
     row.setSpacing(2)
     w.seek_back_button = icon_button(
         "−5 sn",
-        lambda: w.transport.seek_relative(-5),
+        lambda: w.transport.seek_relative(-10 if w.transport.live_window else -5),
         "back",
         tip="5 saniye geri (←)",
         caption="5",
@@ -410,7 +412,7 @@ def build_window(w):
     row.addWidget(w.forward_button)
     w.seek_forward_button = icon_button(
         "+5 sn",
-        lambda: w.transport.seek_relative(5),
+        lambda: w.transport.seek_relative(10 if w.transport.live_window else 5),
         "ahead",
         tip="5 saniye ileri (→)",
         caption="5",
@@ -443,6 +445,9 @@ def build_window(w):
     w.rate_button.setMinimumWidth(48)
     w.rate_button.setFixedHeight(26)
     row.addWidget(w.rate_button)
+    w.live_edge_button = button("CANLI’ya dön", w.transport.jump_live, "glass")
+    w.live_edge_button.hide()
+    row.addWidget(w.live_edge_button)
     w.buffer_label = text_label("", "badge")
     w.buffer_label.setAccessibleName("Arabellek durumu")
     w.buffer_label.hide()
@@ -545,8 +550,8 @@ def build_window(w):
         ("F", w.toggle_fullscreen),
         ("M", lambda: w.player.command(["cycle", "mute"])),
         ("Escape", w.leave_fullscreen),
-        ("Right", lambda: w.transport.seek_relative(5)),
-        ("Left", lambda: w.transport.seek_relative(-5)),
+        ("Right", lambda: w.transport.seek_relative(10 if w.transport.live_window else 5)),
+        ("Left", lambda: w.transport.seek_relative(-10 if w.transport.live_window else -5)),
         ("J", lambda: w.transport.cycle(-1)),
         ("L", lambda: w.transport.cycle(1)),
         ("K", w.transport.normal_play),

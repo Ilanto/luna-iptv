@@ -185,6 +185,21 @@ class Store:
             CREATE TABLE IF NOT EXISTS channel_locks (
                 channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS recordings (
+                id INTEGER PRIMARY KEY,
+                channel_id TEXT NOT NULL,
+                channel_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                start INTEGER NOT NULL,
+                end INTEGER NOT NULL,
+                padding INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                path TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL DEFAULT '',
+                authorized INTEGER NOT NULL DEFAULT 0,
+                kids INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(channel_id, start)
+            );
             CREATE TABLE IF NOT EXISTS reminders (
                 id INTEGER PRIMARY KEY,
                 channel_id TEXT NOT NULL,
@@ -218,6 +233,11 @@ class Store:
             self._db.execute(
                 "ALTER TABLE channels ADD COLUMN provider_key TEXT NOT NULL DEFAULT ''"
             )
+        for name in ("tv_archive", "tv_archive_duration"):
+            if name not in channel_columns:
+                self._db.execute(
+                    f"ALTER TABLE channels ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0"
+                )
         self._migrate_profiles()
         self._backfill_all_provider_keys()
         self._db.execute(
@@ -562,6 +582,8 @@ class Store:
                     channel.series_id,
                     json.dumps(channel.headers, ensure_ascii=False, sort_keys=True),
                     channel.provider_key,
+                    int(channel.tv_archive),
+                    channel.tv_archive_duration,
                 )
             )
         return rows
@@ -570,20 +592,23 @@ class Store:
         self._db.executemany(
             """
             INSERT INTO channels(
-                id,source_id,name,url,group_name,tvg_id,logo,kind,series_id,headers,provider_key
+                id,source_id,name,url,group_name,tvg_id,logo,kind,series_id,headers,provider_key,
+                tv_archive,tv_archive_duration
             )
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET source_id=excluded.source_id, name=excluded.name,
               url=excluded.url, group_name=excluded.group_name, tvg_id=excluded.tvg_id,
               logo=excluded.logo, kind=excluded.kind, series_id=excluded.series_id,
-              headers=excluded.headers, provider_key=excluded.provider_key
+              headers=excluded.headers, provider_key=excluded.provider_key,
+              tv_archive=excluded.tv_archive, tv_archive_duration=excluded.tv_archive_duration
             """,
             rows,
         )
 
     def channels(self, source_id: str | None = None) -> list[Channel]:
         sql = (
-            "SELECT id,name,url,group_name,tvg_id,logo,kind,series_id,headers,provider_key "
+            "SELECT id,name,url,group_name,tvg_id,logo,kind,series_id,headers,provider_key, "
+            "tv_archive,tv_archive_duration "
             "FROM channels"
         )
         parameters: tuple[str, ...] = ()
@@ -603,6 +628,8 @@ class Store:
                 series_id=row[7],
                 headers=json.loads(row[8]),
                 provider_key=row[9],
+                tv_archive=bool(row[10]),
+                tv_archive_duration=row[11],
             )
             for row in self._db.execute(sql, parameters)
         ]
@@ -621,6 +648,8 @@ class Store:
                 series_id=row[8],
                 headers=json.loads(row[9]),
                 provider_key=row[10],
+                tv_archive=bool(row[11]),
+                tv_archive_duration=row[12],
             )
             for row in rows
         ]
@@ -821,8 +850,10 @@ class Store:
                     or any(
                         not isinstance(value, str)
                         for key, value in item.items()
-                        if key != "headers"
+                        if key not in {"headers", "tv_archive", "tv_archive_duration"}
                     )
+                    or type(item["tv_archive"]) is not bool
+                    or type(item["tv_archive_duration"]) is not int
                     or not isinstance(item["headers"], dict)
                     or any(
                         not isinstance(key, str) or not isinstance(value, str)
@@ -1726,3 +1757,27 @@ class Store:
     def drop_expired_reminders(self, now: float) -> int:
         with self._db:
             return self._db.execute("DELETE FROM reminders WHERE end<=?", (now,)).rowcount
+
+    def recordings(self):
+        cursor = self._db.execute("SELECT * FROM recordings ORDER BY start DESC, id DESC")
+        names = [column[0] for column in cursor.description]
+        return [dict(zip(names, row, strict=True)) for row in cursor]
+
+    def add_recording(self, channel, title, start, end, padding, *, authorized=False, kids=False):
+        with self._db:
+            self._db.execute(
+                """INSERT OR IGNORE INTO recordings(
+                    channel_id,channel_name,title,start,end,padding,authorized,kids
+                ) VALUES(?,?,?,?,?,?,?,?)""",
+                (channel.id, channel.name, title, start, end, padding, int(authorized), int(kids)),
+            )
+        return self._db.execute(
+            "SELECT id FROM recordings WHERE channel_id=? AND start=?", (channel.id, start)
+        ).fetchone()[0]
+
+    def update_recording(self, identity, status, *, path=None, message=""):
+        with self._db:
+            self._db.execute(
+                "UPDATE recordings SET status=?,path=COALESCE(?,path),message=? WHERE id=?",
+                (status, path, message, identity),
+            )

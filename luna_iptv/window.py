@@ -6,7 +6,7 @@ import math
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
@@ -26,6 +26,7 @@ from shiboken6 import isValid
 from . import __version__, icons, theme
 from .accounts import sanitize_profile
 from .auto_refresh import RefreshScheduler
+from .catchup import can_catchup
 from .category_editor import CategoryEditor
 from .channel_banner import BannerPlacer, ChannelBanner
 from .comfort import ComfortPreferences
@@ -46,7 +47,7 @@ from .library import (
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
-from .models import Channel, Playlist
+from .models import Channel, Playlist, Programme
 from .motion import set_motion_level
 from .mpris import MprisService
 from .multiview import MultiViewWindow
@@ -57,6 +58,8 @@ from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
 from .preferences import TrackPreferences, normalize_preferences
 from .profiles_ui import ProfilePicker, ProfilesDialog
+from .recordings import RecordingService
+from .recordings_dialog import RecordingsDialog
 from .recovery import RecoveryController
 from .reminders import ReminderService
 from .reminders_dialog import RemindersDialog
@@ -67,6 +70,7 @@ from .source_connections import HealthResult, check_connection, validate_candida
 from .statistics import StatisticsDialog, WatchTracker
 from .subtitle_dialog import SubtitleController
 from .tasks import Task
+from .timeshift import cache_minutes
 from .toast import Toast
 from .transport import TransportController
 from .tray import TrayController
@@ -207,6 +211,14 @@ class MainWindow(QMainWindow):
             switch_profile=lambda profile_id: self.switch_profile(profile_id),
         )
         self.reminder_service.changed.connect(self._reminders_changed)
+        self._recordings_dialog = None
+        self.recording_service = RecordingService(
+            self.store,
+            self,
+            is_locked=lambda c: c.id in self.locked_ids(),
+            kids=self.kids_profile,
+            authorize=self.unlock_channel,
+        )
         self.updates = UpdateChecker(self.store, self)
         self.updates.found.connect(self.update_found)
         self.sleep_timer = SleepTimer(self)
@@ -592,7 +604,9 @@ class MainWindow(QMainWindow):
         self.proxy.set_recent_ids(self.store.recent_ids())
         if self.current:
             stored_current = next((c for c in self.model.channels if c.id == self.current.id), None)
-            if stored_current is None:
+            if self.current.parental_id:
+                self._current_persistent = True
+            elif stored_current is None:
                 self._current_persistent = False
                 self.favorite_button.setEnabled(False)
             else:
@@ -1092,6 +1106,7 @@ class MainWindow(QMainWindow):
                 self.store, self, tray_available=self.tray.available
             )
             self._settings_dialog.refresh_changed.connect(self._wake_refresh)
+            self._settings_dialog.timeshift_changed.connect(self._reload_live_cache)
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
@@ -1220,12 +1235,12 @@ class MainWindow(QMainWindow):
             return
         self.dismiss_resume()
         self.save_progress()
-        self.watch_tracker.begin(channel.id)
+        self.watch_tracker.begin(None if channel.parental_id else channel.id)
         self._buffering = False
         if not recovering:
             self.recovery.begin(channel.id, live=channel.kind == "live")
-            self._record_recent = True
-            self._record_progress = True
+            self._record_recent = not bool(channel.parental_id)
+            self._record_progress = not bool(channel.parental_id)
         start = self.resume_position(channel) if start_override is None else start_override
         persist_preferences = preferences is not None
         if preferences is None and self.current is not None and self.current.id == channel.id:
@@ -1256,7 +1271,12 @@ class MainWindow(QMainWindow):
         )
         self._language_notice_timer.stop()
         self.language_notice.hide()
-        self.transport.prepare(live=channel.kind == "live")
+        live_cache = (
+            cache_minutes(self.store.setting("timeshift_minutes", 30))
+            if channel.kind == "live"
+            else 0
+        )
+        self.transport.prepare(live=channel.kind == "live", backbuffer=bool(live_cache))
         self.media_info.begin_load()
         self.refresh_media_info()
         self.info_button.setEnabled(True)
@@ -1264,7 +1284,7 @@ class MainWindow(QMainWindow):
         self.video_badge.setText(
             "CANLI YAYIN" if channel.kind == "live" else channel.group.upper() or "FİLM / VİDEO"
         )
-        self.favorite_button.setEnabled(True)
+        self.favorite_button.setEnabled(not bool(channel.parental_id))
         self.favorite_button.setText("★" if channel.id in self.store.favorites() else "☆")
         self.video_stack.setCurrentIndex(1)
         self.seek.setEnabled(False)
@@ -1282,7 +1302,13 @@ class MainWindow(QMainWindow):
         )
         self.refresh_recovery()
         if self._playback_token is not None:
-            self.player.load(channel.url, channel.headers, start=start, track_options=track_options)
+            self.player.load(
+                channel.url,
+                channel.headers,
+                start=start,
+                track_options=track_options,
+                live_cache_minutes=live_cache,
+            )
         source = self.source_for(channel)
         if source and source.get("epg_url") and source["id"] not in self._guide_data:
             self.load_guide(source)
@@ -1526,6 +1552,8 @@ class MainWindow(QMainWindow):
         ):
             self.status("Yayın oynatılıyor.")
 
+        self.refresh_live_transport()
+
     def save_progress(self):
         if not self._closed:
             self.watch_tracker.flush()
@@ -1580,6 +1608,10 @@ class MainWindow(QMainWindow):
         )
 
     def seek_to_slider(self):
+        if window := self.transport.live_window:
+            start, end = window
+            self.transport.seek_absolute(start + self.seek.value() * (end - start) / 1000)
+            return
         if self._duration > 0 and self._seekable:
             self.transport.cancel(restore_pause=True)
             self.player.command(["seek", self.seek.value() * self._duration / 1000, "absolute"])
@@ -1608,6 +1640,42 @@ class MainWindow(QMainWindow):
         self.rate_button.setEnabled(bool(self.transport.rate))
         if self.transport.rate:
             self.play_button.setText("▶")
+        self.refresh_live_transport()
+
+    def refresh_live_transport(self):
+        window = self.transport.live_window
+        for button, direction in (
+            (self.seek_back_button, "geri"),
+            (self.seek_forward_button, "ileri"),
+        ):
+            button.caption = "10" if window else "5"
+            button.setToolTip(f"{button.caption} saniye {direction}")
+            button.setAccessibleName(button.toolTip())
+            button.update()
+        self.live_edge_button.setVisible(self.transport.behind_live)
+        if not window:
+            self.seek.setToolTip("")
+            if self.current and self.current.kind == "live" and self.transport.timeshift_enabled:
+                changed = self._seekable
+                self._seekable = False
+                self.seek.setEnabled(False)
+                if changed:
+                    self._sync_mpris()
+            return
+        start, end = window
+        changed = self._seekable != self.transport.can_seek
+        self._seekable = self.transport.can_seek
+        if changed:
+            self._sync_mpris()
+        self.seek.setEnabled(self.transport.can_seek)
+        if not self.seek.isSliderDown():
+            self.seek.setValue(round(1000 * (self._position - start) / (end - start)))
+        self.time_label.setText(f"−{clock_text(end - self._position)} / CANLI")
+        self.seek.setToolTip(f"Önbellek: {clock_text(end - start)} · CANLI")
+
+    def _reload_live_cache(self):
+        if self.current and self.current.kind == "live" and self._playback_active:
+            self.play(self.current, start_override=0)
 
     # Watching comforts: next episode, sleep timer, channel numbers.
 
@@ -1989,6 +2057,11 @@ class MainWindow(QMainWindow):
         reset.setEnabled(self.track_preferences.source_id is not None)
         reset.triggered.connect(lambda: guarded(self.track_preferences.reset))
         menu.addSeparator()
+        record = menu.addAction("Kaydet", self.record_current)
+        record.setEnabled(
+            bool(self.current and self.current.kind == "live" and self._playback_active)
+        )
+        menu.addAction("Kayıtlar…", self.open_recordings)
         restart = menu.addAction("Baştan başlat")
         restart.setEnabled(
             self.current is not None and self._current_persistent and self.current.kind != "live"
@@ -2051,6 +2124,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Kısayollar ve hakkında", self.about)
         menu.addAction("Hatırlatıcılar…", self.open_reminders)
+        menu.addAction("Kayıtlar…", self.open_recordings)
         return menu
 
     def export_backup(self):
@@ -2399,6 +2473,100 @@ class MainWindow(QMainWindow):
                 )
         menu.addAction("Hatırlatıcılar…", self.open_reminders)
 
+    def record_current(self):
+        if not self.recording_service.available:
+            self.status("Kayıt için ffmpeg gerekli. ffmpeg kurup yeniden dene.")
+            return
+        if not self.current or self.current.kind != "live" or not self._playback_active:
+            return
+        channel = self.current
+        programme = self.programme_now(channel)
+        if programme is None:
+            minutes, accepted = QInputDialog.getInt(
+                self, "Kaydet", "Kayıt süresi (dakika)", 60, 1, 1440
+            )
+            if not accepted:
+                return
+            now = datetime.now(timezone.utc)
+            programme = Programme(
+                channel.tvg_id, "Canlı yayın", now, now + timedelta(minutes=minutes), ""
+            )
+        self.record_programme(channel, programme)
+
+    def record_programme(self, channel, programme):
+        try:
+            identity = self.recording_service.add(channel, programme)
+        except ValueError as error:
+            self.status(str(error))
+            return None
+        if identity is not None:
+            item = next(r for r in self.store.recordings() if r["id"] == identity)
+            self.status(
+                item["message"]
+                or ("Kayıt başladı." if item["status"] == "running" else "Kayıt planlandı.")
+            )
+        return identity
+
+    def _recording_allowed(self, item, prompt):
+        channel = next((c for c in self.store.channels() if c.id == item["channel_id"]), None)
+        # Missing source metadata cannot safely establish the original lock policy.
+        if channel is None:
+            return not self.kids_profile() and (
+                not prompt or self.guard("Kaydı açmak için PIN gir.")
+            )
+        if prompt:
+            return self.unlock_channel(channel)
+        return not (self.kids_profile() and channel.id in self.model.locked)
+
+    def play_recording(self, item):
+        if not self._recording_allowed(item, True):
+            return
+        path = Path(item["path"])
+        if not path.is_file():
+            self.status("Kayıt dosyası bulunamadı.")
+            return
+        channel = Channel(
+            f"recording:{item['id']}",
+            item["title"],
+            path.resolve().as_uri(),
+            kind="movie",
+            group="Kayıtlar",
+            parental_id=item["channel_id"],
+        )
+        self.request_play(channel, approved=True)
+
+    def open_recordings(self):
+        if self._recordings_dialog is None or not isValid(self._recordings_dialog):
+            self._recordings_dialog = RecordingsDialog(
+                self.recording_service, self.play_recording, self._recording_allowed, self
+            )
+        self._recordings_dialog.refresh()
+        self._recordings_dialog.show()
+        self._recordings_dialog.raise_()
+        self._recordings_dialog.activateWindow()
+        return self._recordings_dialog
+
+    def play_catchup(self, channel, programme):
+        if not can_catchup(channel, programme):
+            self.status("Bu program sağlayıcının geçmiş yayın aralığında değil.")
+            return
+        source = self.source_for(channel)
+        if not source or source["type"] != "xtream" or not self.unlock_channel(channel):
+            return
+        client = XtreamClient(source["location"], source["username"], source["password"])
+        duration = math.ceil((programme.end - programme.start).total_seconds() / 60)
+        url = client.timeshift_url(unquote(channel.provider_key[5:]), programme.start, duration)
+        item = Channel(
+            f"catchup:{channel.id}:{int(programme.start.timestamp())}",
+            programme.title,
+            url,
+            kind="movie",
+            group="Geçmiş yayın",
+            headers=dict(channel.headers),
+            parental_id=channel.id,
+        )
+        self.request_play(item, approved=True)
+
     def remind_programme(self, channel, programme):
         try:
             reminder_id = self.reminder_service.add(channel, programme)
@@ -2450,7 +2618,7 @@ class MainWindow(QMainWindow):
 
     def unlock_channel(self, channel, *, approved=False):
         """May this channel open now? approved: the PIN was just asked for it."""
-        if channel.id not in self.model.locked:
+        if (channel.parental_id or channel.id) not in self.model.locked:
             return True
         if self.kids_profile():
             self.status("Bu içerik bu profilde kapalı.")
@@ -2477,8 +2645,13 @@ class MainWindow(QMainWindow):
             self.filter_changed()
             self._reminders_changed()
             self.refresh_home()
-        if self.current and self.proxy.hide_locked and self.current.id in self.model.locked:
-            self.close_current()
+        if self.current and self.kids_profile():
+            origin = self.current.parental_id or self.current.id
+            missing_origin = self.current.parental_id and not any(
+                c.id == origin for c in self.model.channels
+            )
+            if origin in self.model.locked or missing_origin:
+                self.close_current()
 
     def set_channel_locked(self, channel, locked):
         if not locked and not self.guard(f"“{channel.name}” kilidini kaldırmak için PIN gir."):
@@ -2529,6 +2702,7 @@ class MainWindow(QMainWindow):
         menu.addAction("İstatistikler", self.open_statistics)
         menu.addAction("Profilleri yönet…", self.open_profiles)
         menu.addAction("Ebeveyn denetimi…", self.open_parental)
+        menu.addAction("Kayıtlar…", self.open_recordings)
         return menu
 
     def open_statistics(self):
@@ -2572,6 +2746,9 @@ class MainWindow(QMainWindow):
             self._statistics_dialog.close()
         self.details.dismiss()
         self.reminder_service.reload()
+        self.recording_service.tick()
+        if self._recordings_dialog is not None and isValid(self._recordings_dialog):
+            self._recordings_dialog.refresh()
         self.refresh_library()
         self.refresh_favorites()
         self.refresh_profile_badge()
@@ -2817,6 +2994,7 @@ class MainWindow(QMainWindow):
         self.idle_inhibit.close()
         self.mpris.close()
         self.reminder_service.close()
+        self.recording_service.close()
         self.refresh_scheduler.close()
         self.new_episodes.close()
         self.kids_limits.close()
