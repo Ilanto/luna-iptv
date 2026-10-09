@@ -92,7 +92,7 @@ class WeekChart(QWidget):
             painter.drawText(
                 QRectF(x, baseline - height - 25, width, 22),
                 Qt.AlignCenter,
-                f"{seconds / 3600:.1f} sa",
+                (f"{seconds / 3600:.1f} sa".replace(".", ",") if seconds >= 60 else ""),
             )
         painter.end()
 
@@ -110,7 +110,7 @@ class StatisticsDialog(QDialog):
         profile = store.profile(store.profile_id)
         layout.addWidget(text_label(f"{profile['name']} · İstatistikler", "heading"))
         self.total_label = text_label(
-            f"Bu hafta {stats['week_seconds'] / 3600:.1f} sa izledin", "title"
+            f"Bu hafta {stats['week_seconds'] / 3600:.1f} sa izledin".replace(".", ","), "title"
         )
         layout.addWidget(self.total_label)
         layout.addWidget(text_label("Pazartesiden bugüne · gerçek izleme süresi", "muted"))
