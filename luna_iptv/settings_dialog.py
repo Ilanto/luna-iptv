@@ -43,7 +43,7 @@ class SettingsDialog(QDialog, OnlineSettings):
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Ayarlar")
-        self.resize(1000, 760)
+        self.resize(1000, 720)
         self.setMinimumWidth(920)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
@@ -111,7 +111,7 @@ class SettingsDialog(QDialog, OnlineSettings):
 
         startup = self._section(settings, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
-        updates = self._section(online, "GÜNCELLEME")
+        updates = self._section(settings, "GÜNCELLEME")
         self.refresh_combo = self._choice(
             updates, "Kaynakları ve rehberi otomatik yenile", "auto_refresh", REFRESH_CHOICES
         )
