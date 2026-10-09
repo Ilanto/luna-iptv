@@ -1,7 +1,15 @@
 """Application settings that apply as soon as a choice changes."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QHBoxLayout, QVBoxLayout
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QSystemTrayIcon,
+    QVBoxLayout,
+)
 
 from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
@@ -10,7 +18,7 @@ from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selecte
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, store, parent=None):
+    def __init__(self, store, parent=None, *, tray_available=None):
         super().__init__(parent)
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -50,6 +58,19 @@ class SettingsDialog(QDialog):
 
         startup = self._section(layout, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
+        self.close_to_tray = QCheckBox("Kapatınca tepsiye küçült")
+        self.close_to_tray.setChecked(store.setting("close_to_tray", False) is True)
+        available = (
+            QSystemTrayIcon.isSystemTrayAvailable() if tray_available is None else tray_available
+        )
+        self.close_to_tray.setEnabled(available)
+        self.close_to_tray.toggled.connect(lambda value: self._save("close_to_tray", value))
+        startup.addWidget(self.close_to_tray)
+        if not available:
+            hint = text_label("Bu masaüstünde sistem tepsisi kullanılamıyor.", "faint")
+            hint.setWordWrap(True)
+            startup.addWidget(hint)
+            self.close_to_tray.setToolTip(hint.text())
         layout.addStretch()
         footer = QHBoxLayout()
         footer.addWidget(text_label("Değişiklikler anında kaydedilir.", "faint"))

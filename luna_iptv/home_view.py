@@ -29,6 +29,7 @@ from .library import (
 )
 from .logos import LogoViewportController
 from .motion import IconButton
+from .onboarding import OnboardingCard
 
 
 def greeting(hour):
@@ -215,6 +216,8 @@ class HomeView(QWidget):
         header.addWidget(self.heading)
         header.addWidget(self.summary)
         body.addLayout(header)
+        self.onboarding = OnboardingCard(window)
+        body.addWidget(self.onboarding)
         self.hero = HomeHero(window.posters, window.logos, window.programme_now)
         self.hero.play.connect(lambda channel: window.request_play(channel))
         self.hero.details.connect(lambda channel: window.open_channel(channel))
@@ -267,6 +270,7 @@ class HomeView(QWidget):
     def refresh(self):
         """One catalogue pass, bulk history, and bounded top-twenty selections."""
         window = self.window_ref
+        self.onboarding.refresh()
         model = window.model
         profile = window.store.profile(window.store.profile_id)
         self.heading.setText(f"{greeting(self.clock().hour)}, {profile['name']}")
@@ -318,7 +322,9 @@ class HomeView(QWidget):
             elif key == "favorite_live":
                 live_ids = ids
         self._feature(resume_ids, live_ids)
-        self.empty.setVisible(all(row.isHidden() for row in self.rows.values()))
+        self.empty.setVisible(
+            self.onboarding.isHidden() and all(row.isHidden() for row in self.rows.values())
+        )
         self.live_button.setVisible(bool(sum(counts.values())))
 
     def _feature(self, resume_ids, live_ids):
