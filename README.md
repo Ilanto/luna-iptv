@@ -13,6 +13,33 @@ luna-iptv
 
 Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlılıkları: Python >=3.11, python3-pyside6 >=6.8, python3-python-mpv >=1.0.8 libmpv2 ve python3-dbus-python. PySide6 ve python-mpv üst sınırları pyproject/spec içinde sabittir. RPM yerel geliştirme çıktısıdır, dağıtım deposu imzası içermez. openSUSE Tumbleweed üzerinde üretilir; Leap uyumluluğu ayrıca doğrulanmamıştır. Kurulum yönetici yetkisi gerektirir; geliştirme sırasında sistem paketleri değiştirilmez.
 
+## Flatpak kurulumu (Linux dağıtımları)
+
+Flatpak kurulu bir Linux sisteminde, [GitHub sürümlerinden](https://github.com/Ilanto/luna-iptv/releases)
+indirdiğiniz `luna-iptv.flatpak` dosyasını kullanıcı hesabınıza kurun:
+
+```bash
+flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install --user luna-iptv.flatpak
+flatpak run io.github.ilanto.LunaIPTV
+```
+
+Paket şu anda x86_64 için üretilir. KDE 6.8 çalışma ortamı, PySide6 BaseApp ve
+FFmpeg kodek uzantısıyla dağıtımın Python/Qt paketlerinden bağımsız çalışır.
+Veriler `~/.var/app/io.github.ilanto.LunaIPTV/data/luna-iptv/` altında tutulur;
+RPM kurulumunun kütüphanesi ayrı kalır. Yerel liste, video ve yedek dosyalarını
+uygulamanın dosya seçicisi üzerinden açın: masaüstü portalı yalnızca seçtiğiniz
+dosyalara erişim verir. Yerel M3U içindeki başka video dosyaları için ayrıca erişim
+gerekebilir. Kayıtlar için yalnızca Videolar klasöründeki `Luna/` alt dizinine izin
+verilir; ev dizinine veya İndirilenler klasörünün tamamına erişim verilmez.
+
+`.github/workflows/flatpak.yml`, elle başlatıldığında ve `v*` etiketlerinde paketi
+derler, sandbox içinde pencere açmadan bağımlılıkları ve başlatıcıyı denetler.
+Başarılı paketi Actions çıktılarından indirebilirsiniz; etiket derlemelerinde
+RPM iş akışının oluşturduğu GitHub sürümüne de eklenir. Manifest ve AppStream
+bilgileri `packaging/flatpak/` altındadır. AppStream ekran görüntüsü bağlantıları
+yer tutucudur; mağaza başvurusundan önce gerçek görüntülerle tamamlanmalıdır.
+
 ## Kullanım
 
 “Kaynak ekle” ile yerel/uzak M3U, Xtream hesabı veya tek yayın/video dosyası açın. Solda kaynak, içerik türü ve kategori seçin; arayın ve bir yayına tıklayın. Canlı kanallar doğrudan açılır; film ve diziler önce ayrıntı kartını gösterir. Yıldız favoriye ekler. Kaynak menüsünden seçili kaynağı yeniden adlandırabilir, bağlantısını düzenleyebilir, yenileyebilir, kontrol edebilir veya kaldırabilirsiniz. XMLTV adresini M3U ile birlikte ya da “Rehber ekle” üzerinden bağlayın; kanal eşleştirmesi `tvg-id` ile yapılır. M3U'daki `url-tvg` ve `x-tvg-url` rehberleri otomatik algılanır.

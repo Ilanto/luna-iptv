@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ilanto.LunaIPTV</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Luna IPTV</name>
+  <summary>Kişisel IPTV istemcisi</summary>
+  <developer id="io.github.ilanto">
+    <name>Luna IPTV contributors</name>
+  </developer>
+  <description>
+    <p>Linux için sakin, yerel bir IPTV deneyimi. Gece Ayı temasıyla canlı yayınları,
+    filmleri ve dizileri tek bir kütüphanede izleyin. Kendi M3U listelerinizi ve
+    Xtream hesaplarınızı ekleyin; uygulama yayın veya abonelik sağlamaz.</p>
+    <ul>
+      <li>XMLTV yayın rehberi, program hatırlatıcıları ve favoriler</li>
+      <li>Ayrı profiller, izleme geçmişi ve kaldığınız yerden devam etme</li>
+      <li>Ses ve altyazı seçimi, tam ekran ve mini oynatıcı</li>
+      <li>Masaüstü medya tuşları ve sistem tepsisi desteği</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.ilanto.LunaIPTV.desktop</launchable>
+  <url type="homepage">https://github.com/Ilanto/luna-iptv</url>
+  <url type="bugtracker">https://github.com/Ilanto/luna-iptv/issues</url>
+  <screenshots>
+    <!-- Placeholders: add these screenshots to the repository before store submission. -->
+    <screenshot type="default">
+      <caption>Gece Ayı temasıyla ana sayfa</caption>
+      <image type="source">https://raw.githubusercontent.com/Ilanto/luna-iptv/main/docs/screenshots/home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Canlı yayın ve program rehberi</caption>
+      <image type="source">https://raw.githubusercontent.com/Ilanto/luna-iptv/main/docs/screenshots/guide.png</image>
+    </screenshot>
+  </screenshots>
+  <!-- Unspecified OARS attributes mean none; user-supplied streams are not bundled. -->
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.19.0" date="2026-10-09">
+      <description>
+        <p>Görüntü ve ses seçenekleri, sistem tepsisi, izleme istatistikleri ve ilk açılış
+        rehberi eklendi. Vurgu renkleri, OLED teması, profil avatarları ve rehber çizgisi
+        yenilendi. Otomatik yenileme, tüm profiller için hatırlatıcılar, yedek biçimi 2,
+        sinematik ayrıntı penceresi, program araması ve alternatif kaynağa geçiş geldi.
+        Sürüm bildirimi, büyük katalog performansı ve ana iş parçacığında çöp toplama
+        iyileştirildi.</p>
+      </description>
+    </release>
+    <release version="0.18.0" date="2026-10-08">
+      <description>
+        <p>Ana sayfa vitrini, gizlenen boş oynatıcı paneli, bildirimler ve sayfa geçişleri
+        yenilendi. Kanal bandı, saydam tam ekran kontrolleri, kart hareketleri, afiş
+        geçişleri ve yükleme yer tutucuları eklendi.</p>
+      </description>
+    </release>
+    <release version="0.17.0" date="2026-10-08">
+      <description>
+        <p>Ana sayfaya izlemeye devam et, yayındaki favoriler ve son kanallar eklendi.
+        Uyku zamanlayıcısı, sonraki bölüm sayacı, klavyeden kanal numarası seçimi ve
+        profil, kaynak ve bölüme göre kategori gizleme ve sıralama geldi.</p>
+      </description>
+    </release>
+  </releases>
+</component>

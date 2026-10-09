@@ -1,0 +1,95 @@
+name: Flatpak
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "packaging/flatpak/**"
+      - ".github/workflows/flatpak.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Flatpak paketi ve sandbox denetimi
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Paketleme dosyalarını denetle
+        run: |
+          python3 -m venv /tmp/luna-packaging-check
+          /tmp/luna-packaging-check/bin/pip install pytest PyYAML
+          env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen \
+            /tmp/luna-packaging-check/bin/python -m pytest -q -p no:cacheprovider \
+            --noconftest tests/test_packaging_files.py
+      - name: Flatpak oluştur
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.ilanto.LunaIPTV.yml
+          bundle: luna-iptv.flatpak
+          cache: true
+          upload-artifact: false
+      - name: Paketi kur ve pencere açmadan denetle
+        run: |
+          flatpak install --user --noninteractive luna-iptv.flatpak
+          env -u DISPLAY -u WAYLAND_DISPLAY \
+            flatpak run --env=QT_QPA_PLATFORM=offscreen io.github.ilanto.LunaIPTV --version
+          env -u DISPLAY -u WAYLAND_DISPLAY \
+            flatpak run --env=QT_QPA_PLATFORM=offscreen --command=python3 \
+            io.github.ilanto.LunaIPTV -c '
+          import os
+          from pathlib import Path
+          import dbus
+          import mpv
+          import PySide6
+          from PySide6 import QtDBus, QtOpenGLWidgets, QtWidgets
+          assert (6, 8) <= tuple(map(int, PySide6.__version__.split("."))) < (6, 12)
+          assert "/.var/app/io.github.ilanto.LunaIPTV/" in os.environ["XDG_DATA_HOME"]
+          assert Path("/app/lib/libmpv.so.2").is_file()
+          player = mpv.MPV(vo="null", ao="null", idle=True)
+          player.terminate()
+          print("PySide6, D-Bus, libmpv ve uygulama veri yolu doğrulandı.")'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luna-iptv-flatpak
+          path: luna-iptv.flatpak
+          if-no-files-found: error
+
+  release:
+    name: Flatpak dosyasını sürüme ekle
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: luna-iptv-flatpak
+          path: dist
+      - name: RPM iş akışının açtığı sürümü bekle ve yükle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          # release.yml owns release creation; either workflow may finish first.
+          for attempt in $(seq 1 60); do
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              gh release upload "$RELEASE_TAG" dist/luna-iptv.flatpak --clobber
+              exit 0
+            fi
+            echo "Sürüm henüz hazır değil ($attempt/60); 30 saniye beklenecek."
+            sleep 30
+          done
+          echo "Sürüm bulunamadı; release.yml sonucunu kontrol edin." >&2
+          exit 1
