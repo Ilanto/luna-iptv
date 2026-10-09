@@ -81,7 +81,9 @@ class MediaDetailController(QObject):
                 self.window.store.path, self, size=QSize(240, 360), cache_suffix=".posters"
             )
         dialog = MediaDetailDialog(channel, self.posters, self.window)
-        dialog.set_progress_lookup(lambda cid: self.window.model.progress.get(cid))
+        dialog.set_progress_lookup(
+            lambda cid: self.window.model.progress.get(cid) or self.window.store.progress(cid)
+        )
         self.dialog = dialog
         dialog.play_requested.connect(self._play)
         dialog.favorite_requested.connect(self._favorite)

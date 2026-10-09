@@ -1,8 +1,20 @@
 """On-demand catalogue details; playback remains an explicit owner action."""
 
+import math
 import re
 
-from PySide6.QtCore import QPointF, QRectF, QSignalBlocker, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import (
+    QPoint,
+    QPointF,
+    QRect,
+    QRectF,
+    QSignalBlocker,
+    QSize,
+    Qt,
+    QUrl,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -11,7 +23,6 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
-    QRadialGradient,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -20,6 +31,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QLabel,
+    QLayout,
     QListView,
     QScrollArea,
     QSizePolicy,
@@ -32,8 +45,9 @@ from PySide6.QtWidgets import (
 
 from . import icons, theme
 from .dialogs import text_label
+from .home_hero import HomeHero
 from .imdb import clean_title
-from .library import resumable
+from .library import cover_source, resumable, tile_color
 from .media_details import MediaDetails
 from .models import Channel
 from .motion import IconButton
@@ -148,22 +162,134 @@ def rounded(pixmap, radius):
     return result
 
 
-class PosterBackdrop(QWidget):
-    """The card's hero background: the poster blurred into a soft, dark wash.
+class ChipLayout(QLayout):
+    """Wrap genre pills to the available width, including on small cards."""
 
-    Blurring is a down-scale to a few pixels drawn back up with smoothing: one
-    tiny image per poster, no per-frame filtering.
-    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(6)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < self.count() else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < self.count() else None
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._place(QRect(0, 0, width, 0))
+
+    def minimumSize(self):
+        return QSize(0, max((item.sizeHint().height() for item in self._items), default=0))
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._place(rect, apply=True)
+
+    def _place(self, rect, apply=False):
+        x, y, height = rect.x(), rect.y(), 0
+        for item in self._items:
+            size = item.sizeHint()
+            size.setWidth(min(size.width(), rect.width()))
+            if x > rect.x() and x + size.width() > rect.right() + 1:
+                x, y, height = rect.x(), y + height + self.spacing(), 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), size))
+            x += size.width() + self.spacing()
+            height = max(height, size.height())
+        return y + height - rect.y()
+
+
+class PlotLabel(QLabel):
+    """Keep the complete accessible text while showing at most four lines."""
+
+    overflow_changed = Signal(bool)
+
+    def __init__(self):
+        super().__init__()
+        self.expanded = False
+        self.setTextFormat(Qt.PlainText)
+        self.setObjectName("lead")
+        self.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+    def setText(self, text):
+        super().setText(text)
+        self._measure()
+
+    def set_expanded(self, expanded):
+        self.expanded = expanded
+        self._measure()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._measure()
+
+    def _measure(self):
+        metrics = self.fontMetrics()
+        full = metrics.boundingRect(
+            QRect(0, 0, max(1, self.width()), 100000), Qt.TextWordWrap, self.text()
+        ).height()
+        limit = metrics.lineSpacing() * 4
+        self.setFixedHeight(full if self.expanded else min(full, limit))
+        self.overflow_changed.emit(full > limit)
+
+
+class PosterLabel(QLabel):
+    """Fit cached artwork into a smaller frame without discarding its pixels."""
+
+    name = "Luna"
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        shape = QPainterPath()
+        shape.addRoundedRect(rect, 14, 14)
+        painter.setClipPath(shape)
+        pixmap = self.pixmap()
+        if not pixmap.isNull():
+            painter.drawPixmap(rect, pixmap, cover_source(pixmap, rect))
+        else:
+            base = QColor(tile_color(self.name))
+            glow = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            glow.setColorAt(0, base.lighter(160))
+            glow.setColorAt(1, base)
+            painter.fillRect(rect, glow)
+            painter.setPen(QColor(theme.TEXT_SOFT))
+            painter.drawText(rect, Qt.AlignCenter, self.text())
+        painter.setClipping(False)
+        painter.setPen(QColor(255, 213, 138, 110))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(shape)
+
+
+class PosterBackdrop(QWidget):
+    """A poster wash and night shade matching the home hero."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._wash = None
+        self.name = "Luna"
+        self.setMinimumHeight(240)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
 
     def set_poster(self, pixmap):
         self._wash = (
-            pixmap.scaled(12, 18, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
-            if pixmap is not None and not pixmap.isNull()
-            else None
+            HomeHero._blurred(pixmap) if pixmap is not None and not pixmap.isNull() else None
         )
         self.update()
 
@@ -172,26 +298,19 @@ class PosterBackdrop(QWidget):
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         rect = QRectF(self.rect())
         if self._wash is not None:
-            side = max(rect.width(), rect.height() * 1.5)
-            painter.setOpacity(0.55)
-            painter.drawPixmap(
-                QRectF(
-                    rect.center().x() - side / 2, rect.center().y() - side * 0.75, side, side * 1.5
-                ),
-                self._wash,
-                QRectF(self._wash.rect()),
-            )
-            painter.setOpacity(1.0)
+            painter.drawPixmap(rect, self._wash, cover_source(self._wash, rect))
         else:
-            glow = QRadialGradient(QPointF(rect.width() * 0.7, 0), rect.width() * 0.8)
-            glow.setColorAt(0.0, QColor("#1a2350"))
-            glow.setColorAt(1.0, QColor(theme.NIGHT))
+            base = QColor(tile_color(self.name))
+            glow = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            glow.setColorAt(0, base.lighter(150))
+            glow.setColorAt(0.55, base)
+            glow.setColorAt(1, QColor(theme.NIGHT))
             painter.fillRect(rect, glow)
-        shade = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        top = QColor(theme.NIGHT)
-        top.setAlphaF(0.35)
-        shade.setColorAt(0.0, top)
-        shade.setColorAt(1.0, QColor(theme.NIGHT))
+        shade = QLinearGradient(rect.topLeft(), rect.topRight())
+        night = QColor(theme.NIGHT)
+        for stop, alpha in ((0.0, 30), (0.3, 70), (0.55, 165), (1.0, 225)):
+            night.setAlpha(alpha)
+            shade.setColorAt(stop, QColor(night))
         painter.fillRect(rect, shade)
 
 
@@ -242,10 +361,11 @@ class MediaDetailDialog(QDialog):
         # Hero: the poster, blurred and darkened, behind the poster itself.
         self.hero = PosterBackdrop()
         columns = QHBoxLayout(self.hero)
-        columns.setContentsMargins(32, 32, 32, 28)
-        columns.setSpacing(28)
-        self.poster_label = text_label("Afiş yok", "poster")
-        self.poster_label.setFixedSize(POSTER_SIZE)
+        columns.setContentsMargins(28, 20, 28, 20)
+        columns.setSpacing(24)
+        self.poster_label = PosterLabel("Afiş yok")
+        self.poster_label.setTextFormat(Qt.PlainText)
+        self.poster_label.setFixedSize(160, 240)
         self.poster_label.setAlignment(Qt.AlignCenter)
         self.poster_label.setAccessibleName("İçerik afişi")
         artwork = QVBoxLayout()
@@ -254,15 +374,17 @@ class MediaDetailDialog(QDialog):
         self.poster_scope_label = text_label("", "faint")
         self.poster_scope_label.setWordWrap(True)
         self.poster_scope_label.setMaximumWidth(POSTER_SIZE.width())
+        self.poster_scope_label.hide()
         artwork.addWidget(self.poster_scope_label)
         artwork.addStretch()
         columns.addLayout(artwork)
 
         content = QVBoxLayout()
-        content.setSpacing(10)
+        content.setSpacing(6)
+        content.setAlignment(Qt.AlignVCenter)
         self.kind_label = text_label("DİZİ" if self._series else "FİLM", "eyebrow")
         content.addWidget(self.kind_label)
-        self.title_label = text_label(channel.name, "display")
+        self.title_label = text_label(channel.name, "heroTitle")
         self.title_label.setWordWrap(True)
         self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         content.addWidget(self.title_label)
@@ -270,13 +392,25 @@ class MediaDetailDialog(QDialog):
         self.facts_label.setWordWrap(True)
         self.facts_label.setAccessibleName("Künye")
         content.addWidget(self.facts_label)
-        self.description_label = text_label("Açıklama bulunmuyor.", "lead")
+        self.genre_chips = QWidget()
+        self.genre_chips.setAccessibleName("Türler")
+        self.genre_layout = ChipLayout(self.genre_chips)
+        content.addWidget(self.genre_chips)
+        self.description_label = PlotLabel()
+        self.description_label.setStyleSheet("font-size: 13px;")
         self.description_label.setWordWrap(True)
         self.description_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.description_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         content.addWidget(self.description_label)
-        content.addSpacing(6)
-        actions = QHBoxLayout()
+        self.plot_toggle = IconButton("Devamı", "plus", label=True, size=12)
+        self.plot_toggle.setObjectName("ghost")
+        self.plot_toggle.setFixedHeight(26)
+        self.plot_toggle.setAccessibleName("Konunun devamını göster")
+        self.plot_toggle.setCheckable(True)
+        self.plot_toggle.toggled.connect(self._toggle_plot)
+        self.description_label.overflow_changed.connect(self.plot_toggle.setVisible)
+        content.addWidget(self.plot_toggle, 0, Qt.AlignLeft)
+        actions = self.hero_actions = QHBoxLayout()
         actions.setSpacing(10)
         self.play_button = IconButton("Oynat", "play", label=True, size=18)
         self.play_button.setObjectName("primary")
@@ -289,21 +423,22 @@ class MediaDetailDialog(QDialog):
         self.set_favorite(False)
         self.imdb_button = IconButton("IMDb'de aç", "external", label=True, size=16)
         self.imdb_button.setObjectName("glass")
-        self.imdb_button.setMinimumHeight(46)
+        self.imdb_button.setMinimumHeight(44)
         self.imdb_button.setAccessibleName("IMDb sayfasını tarayıcıda aç")
         self.imdb_button.clicked.connect(self._open_imdb)
         self.imdb_button.hide()
+        actions.addWidget(self.play_button)
+        actions.addWidget(self.favorite_button)
         actions.addWidget(self.imdb_button)
         actions.addStretch()
         content.addLayout(actions)
-        content.addStretch()
         columns.addLayout(content, 1)
         body_layout.addWidget(self.hero)
 
         details = QWidget()
         details_layout = QVBoxLayout(details)
-        details_layout.setContentsMargins(32, 10, 32, 24)
-        details_layout.setSpacing(16)
+        details_layout.setContentsMargins(28, 16, 28, 12)
+        details_layout.setSpacing(12)
 
         self.selectors = QFrame()
         self.selectors.setObjectName("panel")
@@ -337,7 +472,8 @@ class MediaDetailDialog(QDialog):
         self.episode_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.episode_list.setVerticalScrollMode(QListView.ScrollPerPixel)
         self.episode_list.setMouseTracking(True)
-        self.episode_list.setFixedHeight(EPISODE_ROW_HEIGHT)
+        self.episode_list.setMinimumHeight(EPISODE_ROW_HEIGHT)
+        self.episode_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         selector_layout.addWidget(self.episode_list)
         self.season_tabs.currentChanged.connect(self.season_combo.setCurrentIndex)
         self.episode_list.selectionModel().currentChanged.connect(self._select_episode)
@@ -355,12 +491,12 @@ class MediaDetailDialog(QDialog):
         self.selectors.setVisible(self._series)
         self.season_combo.setEnabled(False)
         self.episode_combo.setEnabled(False)
-        details_layout.addWidget(self.selectors)
 
         status_row = QHBoxLayout()
         self.status_label = text_label("", "muted")
         self.status_label.setWordWrap(True)
         self.status_label.setAccessibleName("Ayrıntı durumu")
+        self.status_label.hide()
         self.retry_button = IconButton("Yeniden dene", "retry", label=True, size=16)
         self.retry_button.setObjectName("ghost")
         self.retry_button.clicked.connect(self.retry_requested)
@@ -369,39 +505,50 @@ class MediaDetailDialog(QDialog):
         status_row.addWidget(self.retry_button)
         details_layout.addLayout(status_row)
 
-        about = QFrame()
-        about.setObjectName("panel")
+        about = self.about = QFrame()
         about_layout = QVBoxLayout(about)
-        about_layout.setContentsMargins(18, 14, 18, 16)
-        about_layout.setSpacing(10)
-        about_layout.addWidget(text_label("KÜNYE", "eyebrow"))
+        about_layout.setContentsMargins(0, 0, 0, 4)
+        about_layout.setSpacing(8)
+        about_layout.addWidget(text_label("Künye", "title"))
         self.metadata = QFormLayout()
         self.metadata.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.metadata.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.metadata.setHorizontalSpacing(18)
-        self.metadata.setVerticalSpacing(8)
+        self.metadata.setVerticalSpacing(4)
         about_layout.addLayout(self.metadata)
         details_layout.addWidget(about)
+        details_layout.addWidget(self.selectors, 1 if self._series else 0)
 
         self.series_section = QFrame()
         self.series_section.setObjectName("panel")
         series_layout = QVBoxLayout(self.series_section)
-        series_layout.setContentsMargins(18, 14, 18, 16)
+        series_layout.setContentsMargins(18, 8, 18, 8)
         series_layout.setSpacing(10)
-        series_layout.addWidget(text_label("DİZİ BİLGİLERİ", "eyebrow"))
+        self.series_info_toggle = IconButton("Dizi bilgileri", "info", label=True, size=15)
+        self.series_info_toggle.setObjectName("ghost")
+        self.series_info_toggle.setFixedHeight(28)
+        self.series_info_toggle.setCheckable(True)
+        series_layout.addWidget(self.series_info_toggle, 0, Qt.AlignLeft)
+        self.series_info_body = QWidget()
+        series_body_layout = QVBoxLayout(self.series_info_body)
+        series_body_layout.setContentsMargins(0, 0, 0, 0)
+        series_body_layout.setSpacing(8)
+        series_layout.addWidget(self.series_info_body)
+        self.series_info_body.hide()
+        self.series_info_toggle.toggled.connect(self.series_info_body.setVisible)
         self.series_title_label = text_label("", "title")
         self.series_description_label = text_label("Açıklama bulunmuyor.")
         for label in (self.series_title_label, self.series_description_label):
             label.setWordWrap(True)
             label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            series_layout.addWidget(label)
+            series_body_layout.addWidget(label)
         self.series_metadata = QFormLayout()
         self.series_metadata.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.series_metadata.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.series_metadata.setHorizontalSpacing(18)
         self.series_metadata.setVerticalSpacing(8)
-        series_layout.addLayout(self.series_metadata)
+        series_body_layout.addLayout(self.series_metadata)
         series_actions = QHBoxLayout()
         series_actions.setSpacing(8)
         self.series_imdb_button = IconButton("Diziyi IMDb'de aç", "external", label=True, size=15)
@@ -415,16 +562,27 @@ class MediaDetailDialog(QDialog):
         series_actions.addWidget(self.series_imdb_button)
         series_actions.addWidget(self.series_favorite_button)
         series_actions.addStretch()
-        series_layout.addLayout(series_actions)
+        series_body_layout.addLayout(series_actions)
         self.series_section.setVisible(self._series)
         details_layout.addWidget(self.series_section)
 
-        preferences = QFrame()
+        preferences = self.preferences_panel = QFrame()
         preferences.setObjectName("panel")
         preference_layout = QVBoxLayout(preferences)
-        preference_layout.setContentsMargins(18, 14, 18, 16)
+        preference_layout.setContentsMargins(18, 10, 18, 10)
         preference_layout.setSpacing(10)
-        preference_layout.addWidget(text_label("OYNATMA TERCİHLERİ", "eyebrow"))
+        self.preferences_toggle = IconButton("Oynatma tercihleri", "sliders", label=True, size=15)
+        self.preferences_toggle.setObjectName("ghost")
+        self.preferences_toggle.setFixedHeight(28)
+        self.preferences_toggle.setCheckable(True)
+        self.preferences_toggle.setChecked(True)
+        preference_layout.addWidget(self.preferences_toggle, 0, Qt.AlignLeft)
+        self.preferences_body = QWidget()
+        preference_body_layout = QVBoxLayout(self.preferences_body)
+        preference_body_layout.setContentsMargins(0, 0, 0, 0)
+        preference_body_layout.setSpacing(10)
+        preference_layout.addWidget(self.preferences_body)
+        self.preferences_toggle.toggled.connect(self.preferences_body.setVisible)
         preference_row = QHBoxLayout()
         preference_row.setSpacing(10)
         self.audio_combo = QComboBox()
@@ -437,23 +595,23 @@ class MediaDetailDialog(QDialog):
             label.setBuddy(combo)
             combo.setAccessibleName(label_text)
             combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(12)
+            combo.setMinimumContentsLength(8)
             preference_row.addWidget(label)
             preference_row.addWidget(combo, 1)
-        preference_layout.addLayout(preference_row)
+        preference_body_layout.addLayout(preference_row)
         self.remember_checkbox = QCheckBox("Bu kaynak için hatırla")
-        preference_layout.addWidget(self.remember_checkbox)
+        preference_body_layout.addWidget(self.remember_checkbox)
         self.preference_note = text_label(
-            "Bunlar dil tercihleridir; kullanılabilir ses ve altyazı parçaları "
-            "oynatma başlayınca öğrenilir. Önceden ikinci bir yayın bağlantısı açılmaz. "
-            "Tercihler yalnızca Oynat ve varsa devam seçimi onaylandığında uygulanır.",
+            "Seçtiğin diller yayında mevcutsa kullanılır. "
+            "Tercihler Oynat ve varsa devam seçimi onaylandığında uygulanır.",
             "faint",
         )
         self.preference_note.setWordWrap(True)
         self.preference_note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        preference_layout.addWidget(self.preference_note)
+        preference_body_layout.addWidget(self.preference_note)
         details_layout.addWidget(preferences)
-        details_layout.addStretch()
+        if not self._series:
+            details_layout.addStretch()
         body_layout.addWidget(details, 1)
         self.set_playback_preferences({})
         self.scroll.setWidget(body)
@@ -461,12 +619,9 @@ class MediaDetailDialog(QDialog):
 
         footer = QFrame()
         footer.setObjectName("cardFooter")
-        footer_layout = QHBoxLayout(footer)
+        footer_layout = self.footer_actions = QHBoxLayout(footer)
         footer_layout.setContentsMargins(24, 12, 24, 14)
         footer_layout.setSpacing(10)
-        # Play and favorite live in the always-visible bar, never behind scrolling.
-        footer_layout.addWidget(self.play_button)
-        footer_layout.addWidget(self.favorite_button)
         footer_layout.addStretch()
         self.close_button = IconButton("Kapat", "close", label=True, size=15)
         self.close_button.setObjectName("ghost")
@@ -475,6 +630,9 @@ class MediaDetailDialog(QDialog):
         layout.addWidget(footer)
         # Enter must not unexpectedly start playback while browsing metadata.
         for button in (
+            self.series_info_toggle,
+            self.preferences_toggle,
+            self.plot_toggle,
             self.play_button,
             self.favorite_button,
             self.close_button,
@@ -484,24 +642,76 @@ class MediaDetailDialog(QDialog):
             self.series_favorite_button,
         ):
             button.setAutoDefault(False)
-        self.setTabOrder(self.scroll, self.imdb_button)
-        self.setTabOrder(self.imdb_button, self.series_imdb_button)
+        self.setTabOrder(self.scroll, self.plot_toggle)
+        self.setTabOrder(self.plot_toggle, self.play_button)
+        self.setTabOrder(self.play_button, self.favorite_button)
+        self.setTabOrder(self.favorite_button, self.imdb_button)
+        self.setTabOrder(self.imdb_button, self.season_tabs)
+        self.setTabOrder(self.season_tabs, self.episode_list)
+        self.setTabOrder(self.episode_list, self.series_info_toggle)
+        self.setTabOrder(self.series_info_toggle, self.series_imdb_button)
         self.setTabOrder(self.series_imdb_button, self.series_favorite_button)
-        self.setTabOrder(self.series_favorite_button, self.audio_combo)
+        self.setTabOrder(self.series_favorite_button, self.preferences_toggle)
+        self.setTabOrder(self.preferences_toggle, self.audio_combo)
         self.setTabOrder(self.audio_combo, self.subtitle_combo)
         self.setTabOrder(self.subtitle_combo, self.remember_checkbox)
-        self.setTabOrder(self.remember_checkbox, self.season_tabs)
-        self.setTabOrder(self.season_tabs, self.episode_list)
-        self.setTabOrder(self.episode_list, self.retry_button)
-        self.setTabOrder(self.retry_button, self.play_button)
-        self.setTabOrder(self.play_button, self.favorite_button)
-        self.setTabOrder(self.favorite_button, self.close_button)
+        self.setTabOrder(self.remember_checkbox, self.retry_button)
+        self.setTabOrder(self.retry_button, self.close_button)
         self.close_button.setFocus()
         # A QObject-bound slot gives Qt a receiver context: destroying the card
         # automatically disconnects it even while the shared cache is working.
         poster_cache.ready.connect(self._poster_ready)
         self.finished.connect(self._release_poster)
         self.set_series_channel(self._series_channel)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        compact = self.width() < 800
+        target = self.footer_actions if compact else self.hero_actions
+        if target.indexOf(self.play_button) < 0:
+            for index, button in enumerate((self.play_button, self.favorite_button)):
+                target.insertWidget(index, button)
+                button.show()
+        self.poster_label.setFixedSize(QSize(112, 168) if compact else QSize(160, 240))
+        self.poster_scope_label.setMaximumWidth(self.poster_label.width())
+
+    def _toggle_plot(self, expanded):
+        self.description_label.set_expanded(expanded)
+        self.plot_toggle.setText("Daha az" if expanded else "Devamı")
+        self.plot_toggle.set_icon_name("close" if expanded else "plus")
+        self.plot_toggle.setAccessibleName(
+            "Konuyu kısalt" if expanded else "Konunun devamını göster"
+        )
+
+    def _set_genres(self, info):
+        while self.genre_layout.count():
+            chip = self.genre_layout.takeAt(0).widget()
+            chip.hide()
+            chip.setParent(None)
+            chip.deleteLater()
+        genres = list(
+            dict.fromkeys(
+                part.strip() for part in re.split(r"[,/;|]", info.get("genre", "")) if part.strip()
+            )
+        )
+        for genre in genres:
+            chip = text_label(genre)
+            chip.setStyleSheet(
+                f"background: {theme.ACCENT_TINT}; color: {theme.ACCENT_STRONG}; "
+                "border-radius: 10px; padding: 3px 10px; font-size: 11px;"
+            )
+            chip.setToolTip(genre)
+            self.genre_layout.addWidget(chip)
+        self.genre_chips.setVisible(bool(genres))
+        return genres
+
+    def _refresh_play_label(self):
+        channel = self.selected_channel()
+        saved = self._progress_lookup(channel.id) if channel and self._progress_lookup else None
+        label = "Oynat"
+        if not self._series and saved and resumable(*saved):
+            label = f"Devam et · {max(1, math.ceil((saved[1] - saved[0]) / 60))} dk kaldı"
+        self.play_button.setText(label)
 
     def set_playback_preferences(self, preferences):
         """Seed this card without changing playback or saving preferences."""
@@ -552,6 +762,8 @@ class MediaDetailDialog(QDialog):
             ("duration", "Süre"),
             ("director", "Yönetmen"),
             ("cast", "Oyuncular"),
+            ("country", "Ülke"),
+            ("language", "Dil"),
             (
                 "rating",
                 "IMDb puanı" if info.get("rating_source", "").casefold() == "imdb" else "Puan",
@@ -565,12 +777,17 @@ class MediaDetailDialog(QDialog):
                 label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
                 label.setAccessibleName(title)
                 label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                layout.addRow(text_label(title, "muted"), label)
+                caption = text_label(title, "muted")
+                layout.addRow(caption, label)
+                # Essentials already live in the hero; retain the form's public rows.
+                if key in {"year", "genre", "duration", "rating"} or not value:
+                    caption.hide()
+                    label.hide()
 
     @staticmethod
     def _facts(info):
-        """One line of the essentials: year · genre · duration · ★ rating."""
-        parts = [info.get(key, "") for key in ("year", "genre", "duration")]
+        """One line of the essentials: year · duration · ★ rating."""
+        parts = [info.get(key, "") for key in ("year", "duration")]
         if info.get("rating"):
             parts.append(f"★ {info['rating']}")
         return "   ·   ".join(part for part in parts if part)
@@ -590,7 +807,10 @@ class MediaDetailDialog(QDialog):
 
     def set_details(self, details: MediaDetails):
         selected_id = self._identity(self._current_channel())
+        first_details = self._details is None
         self._details = details
+        if self._series and first_details and details.episodes:
+            self.preferences_toggle.setChecked(False)
         if self._series:
             self._refresh_series_info()
         previous_season = self.season_combo.currentData()
@@ -652,6 +872,7 @@ class MediaDetailDialog(QDialog):
         """Use the owner's saved positions; None clears watched indicators."""
         self._progress_lookup = fn
         self._refresh_episode_rows()
+        self._refresh_play_label()
 
     def _refresh_episode_rows(self):
         count = self.episode_combo.count()
@@ -679,7 +900,7 @@ class MediaDetailDialog(QDialog):
                 (Qt.ToolTipRole, description),
             ):
                 self.episode_combo.setItemData(row, value, role)
-        self.episode_list.setFixedHeight(max(1, min(count, 5)) * EPISODE_ROW_HEIGHT)
+        self.episode_list.setMinimumHeight(max(1, min(count, 2)) * EPISODE_ROW_HEIGHT)
         self.episode_list.setEnabled(count > 0)
         self.episode_list.viewport().update()
 
@@ -722,15 +943,21 @@ class MediaDetailDialog(QDialog):
         title = channel.name if channel else "Bölüm seçilmedi"
         self.title_label.setText(title)
         self.setWindowTitle(title)
+        if changed:
+            self.plot_toggle.setChecked(False)
         self.description_label.setText(info.get("description") or "Açıklama bulunmuyor.")
+        genres = self._set_genres(info)
         self.facts_label.setText(self._facts(info))
         self.facts_label.setVisible(bool(self.facts_label.text()))
-        kind = "BÖLÜM" if self._series else "FİLM"
-        group = channel.group if channel and not self._series else ""
+        kind = "DİZİ" if self._series else "FİLM"
+        group = genres[0] if genres else channel.group if channel and not self._series else ""
         # Turkish capitals: i → İ (str.upper() alone would give a dotless I).
         group = group.replace("i", "İ").upper()
         self.kind_label.setText(f"{kind}  ·  {group}" if group else kind)
         self._fill_metadata(self.metadata, info, show_missing=self._series)
+        self.about.setVisible(
+            any(info.get(key) for key in ("director", "cast", "country", "language"))
+        )
         self._imdb_url = self._imdb_link(info)
         # A film without an IMDb id can still be looked up by its title. Episodes
         # never borrow the series here; the series section offers that lookup.
@@ -754,9 +981,12 @@ class MediaDetailDialog(QDialog):
         elif not self._series:
             poster = poster or self._channel.logo
         self.poster_scope_label.setText(scope if poster and self._series else "")
+        self.poster_scope_label.setVisible(bool(self.poster_scope_label.text()))
+        self.hero.name = self.poster_label.name = title
         self.poster_label.setAccessibleName(scope)
         self._set_poster(poster)
         self.play_button.setEnabled(self.selected_channel() is not None)
+        self._refresh_play_label()
         self.favorite_button.setEnabled(self.favorite_channel() is not None)
         if changed:
             self.set_favorite(False)
@@ -821,6 +1051,7 @@ class MediaDetailDialog(QDialog):
 
     def set_status(self, text, retry=False):
         self.status_label.setText(text)
+        self.status_label.setVisible(bool(text))
         self.retry_button.setVisible(retry)
 
     def _open_imdb(self):
@@ -851,9 +1082,7 @@ class MediaDetailDialog(QDialog):
         pixmap = self._poster_cache.prepared_logo(url)
         if pixmap is not None and not pixmap.isNull():
             ratio = self.devicePixelRatioF()
-            scaled = pixmap.scaled(
-                self.poster_label.size() * ratio, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
+            scaled = pixmap.scaled(POSTER_SIZE * ratio, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scaled.setDevicePixelRatio(ratio)
             self.poster_label.setPixmap(rounded(scaled, 14))
             self.hero.set_poster(pixmap)

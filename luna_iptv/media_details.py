@@ -80,6 +80,8 @@ def normalize_info(*records: object, base_url: str = "") -> dict[str, str]:
         "duration": ("duration", "runtime", "episode_run_time"),
         "director": ("director",),
         "cast": ("cast", "actors"),
+        "country": ("country", "countries"),
+        "language": ("language", "languages"),
         "year": ("year", "releasedate", "release_date", "releaseDate", "air_date"),
         "imdb_id": ("imdb_id", "imdb", "imdb_url"),
         "poster": ("poster", "movie_image", "cover_big", "cover", "stream_icon"),
@@ -92,7 +94,11 @@ def normalize_info(*records: object, base_url: str = "") -> dict[str, str]:
                 continue
             for alias in aliases:
                 value = record.get(alias)
-                text = _names(value) if target in {"genre", "director", "cast"} else _text(value)
+                text = (
+                    _names(value)
+                    if target in {"genre", "director", "cast", "country", "language"}
+                    else _text(value)
+                )
                 if target == "imdb_id":
                     text = _imdb_id(value)
                 elif target == "year":
