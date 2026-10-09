@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from . import __version__
+from .gc_guard import MainThreadCollector
 
 
 def main():
@@ -25,6 +26,8 @@ def main():
     if "QT_QPA_PLATFORM" not in os.environ and os.environ.get("WAYLAND_DISPLAY"):
         os.environ["QT_QPA_PLATFORM"] = "wayland"
     app = QApplication([])
+    # Qt objects in Python garbage must die on this thread, not in a download worker.
+    collector = MainThreadCollector(app)  # noqa: F841 - lives as long as the app
     # Ignored close events hide to tray; accepted closes still exit normally.
     app.setQuitOnLastWindowClosed(True)
     app.setApplicationName("Luna IPTV")

@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSlider,
@@ -65,6 +66,7 @@ from .tasks import Task
 from .toast import Toast
 from .transport import TransportController
 from .tray import TrayController
+from .updates import UpdateChecker
 from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
 
@@ -199,6 +201,8 @@ class MainWindow(QMainWindow):
             switch_profile=lambda profile_id: self.switch_profile(profile_id),
         )
         self.reminder_service.changed.connect(self._reminders_changed)
+        self.updates = UpdateChecker(self.store, self)
+        self.updates.found.connect(self.update_found)
         self.sleep_timer = SleepTimer(self)
         self.sleep_timer.changed.connect(self.refresh_sleep_button)
         self.sleep_timer.expired.connect(self.sleep_expired)
@@ -1919,6 +1923,11 @@ class MainWindow(QMainWindow):
         source_id = self.source_combo.currentData()
         source = next((s for s in self.store.sources() if s["id"] == source_id), None)
         menu = QMenu(self)
+        if self.updates.available:
+            menu.addAction(
+                f"Yeni sürüm: Luna {self.updates.available[0]} · İndir", self.open_update_page
+            )
+            menu.addSeparator()
         rename = menu.addAction("Seçili kaynağı yeniden adlandır")
         rename.setEnabled(source is not None and not self._busy)
         rename.triggered.connect(lambda: self.rename_source(source))
@@ -2461,6 +2470,15 @@ class MainWindow(QMainWindow):
             return
         self.choose_profile_at_start()
         self.restore_last_channel()
+        # Only the real app asks GitHub; tests build windows without a session.
+        QTimer.singleShot(20000, self.updates.check)
+
+    def update_found(self, version, page):
+        self.status(f"Luna {version} çıktı. Kaynak menüsünden indirebilirsin.")
+
+    def open_update_page(self):
+        if self.updates.available:
+            QDesktopServices.openUrl(QUrl(self.updates.available[1]))
 
     def choose_profile_at_start(self):
         """'Kim izliyor?' when there is more than one profile; protected ones need the PIN."""

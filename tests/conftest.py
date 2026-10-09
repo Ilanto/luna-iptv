@@ -1,11 +1,26 @@
 """Keep one QApplication alive across all Qt/player tests in this process."""
 
+import gc
 import os
 import threading
 
 import pytest
 
 _qt_application = None
+
+
+# Like the app (luna_iptv.gc_guard): never let a worker thread (the test HTTP servers, logo
+# downloads) run the cyclic collector over Qt objects; collect on the main thread instead.
+gc.disable()
+_tests_run = 0
+
+
+@pytest.fixture(autouse=True)
+def _collect_on_main_thread():
+    global _tests_run
+    yield
+    _tests_run += 1
+    gc.collect(2 if _tests_run % 50 == 0 else 1)
 
 
 @pytest.fixture(scope="session")

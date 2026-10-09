@@ -27,6 +27,7 @@ from .settings import (
     refresh_time,
     selected_setting,
 )
+from .updates import UPDATE_CHOICES
 
 
 class SettingsDialog(QDialog):
@@ -95,6 +96,9 @@ class SettingsDialog(QDialog):
         row.addStretch()
         row.addWidget(self.refresh_time)
         updates.addLayout(row)
+        self.update_combo = self._choice(
+            updates, "Yeni sürümleri denetle", "update_check", UPDATE_CHOICES
+        )
         self.close_to_tray = QCheckBox("Kapatınca tepsiye küçült")
         self.close_to_tray.setChecked(store.setting("close_to_tray", False) is True)
         available = (
