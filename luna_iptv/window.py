@@ -27,6 +27,7 @@ from .accounts import sanitize_profile
 from .auto_refresh import RefreshScheduler
 from .category_editor import CategoryEditor
 from .channel_banner import BannerPlacer, ChannelBanner
+from .comfort import ComfortPreferences
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
@@ -59,9 +60,11 @@ from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selecte
 from .settings_dialog import SettingsDialog
 from .shell_motion import PageTransition, WatchPanelController
 from .source_connections import HealthResult, check_connection, validate_candidate
+from .statistics import StatisticsDialog, WatchTracker
 from .tasks import Task
 from .toast import Toast
 from .transport import TransportController
+from .tray import TrayController
 from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
 
@@ -110,14 +113,11 @@ class RemoteControl:
         self._window.transport.seek_relative(position_us / 1e6 - self._window._position)
 
     def raise_window(self):
-        if self._window.isMinimized():
-            self._window.showNormal()
-        self._window.raise_()
-        self._window.activateWindow()
+        self._window.tray.show_window()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, store, *, ask_profile=False):
+    def __init__(self, store, *, ask_profile=False, tray_available=None):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
@@ -129,6 +129,9 @@ class MainWindow(QMainWindow):
         self._duration = 0.0
         self._seekable = False
         self._closed = False
+        self._quitting = False
+        self._buffering = False
+        self._statistics_dialog = None
         self._busy = False
         self._importing = False
         self._tasks = set()
@@ -163,6 +166,8 @@ class MainWindow(QMainWindow):
         self.transport = TransportController(self.player, self)
         self.recovery = RecoveryController(self)
         self.track_preferences = TrackPreferences(store, self.player)
+        self.comfort_preferences = ComfortPreferences(store, self.player)
+        self.watch_tracker = WatchTracker(store)
         build_window(self)
         self._language_notice_timer = QTimer(self)
         self._language_notice_timer.setSingleShot(True)
@@ -225,6 +230,11 @@ class MainWindow(QMainWindow):
         self.player.ready.connect(
             lambda: self.engine_label.setText("mpv  ·  " + QApplication.platformName())
         )
+        self.tray = TrayController(self, available=tray_available)
+        self._watch_timer = QTimer(self)
+        self._watch_timer.setInterval(30000)
+        self._watch_timer.timeout.connect(self.watch_tracker.flush)
+        self._watch_timer.start()
         self.refresh_library()
         self.refresh_profile_badge()
         self._guide_timer = QTimer(self)
@@ -501,6 +511,7 @@ class MainWindow(QMainWindow):
                 self._sync_playback_state()
                 self.player.stop()
                 self.current = None
+                self.tray.refresh()
                 self.watch_panel.sync()
                 self._loading = False
                 self.favorite_button.setEnabled(False)
@@ -1016,7 +1027,9 @@ class MainWindow(QMainWindow):
         if not self.guard("Ayarları açmak için PIN gir."):
             return
         if self._settings_dialog is None or not isValid(self._settings_dialog):
-            self._settings_dialog = SettingsDialog(self.store, self)
+            self._settings_dialog = SettingsDialog(
+                self.store, self, tray_available=self.tray.available
+            )
             self._settings_dialog.refresh_changed.connect(self._wake_refresh)
         self._settings_dialog.show()
         self._settings_dialog.raise_()
@@ -1077,6 +1090,14 @@ class MainWindow(QMainWindow):
         self.idle_inhibit.set_active(self._playback_active and not self._playback_paused)
         self._sync_mpris()
         self._wake_refresh()
+        self.watch_tracker.set_running(
+            self._playback_active
+            and not self._playback_paused
+            and not self._loading
+            and not self._idle
+            and not self._buffering
+        )
+        self.tray.refresh()
 
     def _sync_mpris(self):
         channel = self.current if self._playback_active else None
@@ -1119,6 +1140,8 @@ class MainWindow(QMainWindow):
             return
         self.dismiss_resume()
         self.save_progress()
+        self.watch_tracker.begin(channel.id)
+        self._buffering = False
         if not recovering:
             self.recovery.begin(channel.id, live=channel.kind == "live")
             self._record_recent = True
@@ -1127,6 +1150,7 @@ class MainWindow(QMainWindow):
         persist_preferences = preferences is not None
         if preferences is None and self.current is not None and self.current.id == channel.id:
             preferences = self.track_preferences.current_choices()
+        preserve_comfort = self.current is not None and self.current.id == channel.id
         self.current = channel
         self.watch_panel.sync()
         self._current_persistent = True
@@ -1144,6 +1168,7 @@ class MainWindow(QMainWindow):
         self._loading = True
         self._tracks = []
         source = self.source_for(channel)
+        self.comfort_preferences.begin(source["id"] if source else None, preserve=preserve_comfort)
         track_options = self.track_preferences.begin(
             source["id"] if source else None,
             preferences=preferences,
@@ -1240,7 +1265,8 @@ class MainWindow(QMainWindow):
         # mpv only reports pause changes; a new file starting unpaused sends none.
         self.play_button.setText("▶" if self._playback_paused else "Ⅱ")
         self.status(self.recovery.message or "Yayın oynatılıyor.")
-        self.player.set_property("volume", self.volume.value())
+        self.comfort_preferences.loaded(volume=self.volume.value())
+        self._sync_playback_state()
         self.save_progress()
 
     def playback_error(self, message):
@@ -1264,6 +1290,14 @@ class MainWindow(QMainWindow):
             self.recovery.paused(token, bool(value))
             self._sync_playback_state()
         elif name == "paused-for-cache":
+            self._buffering = bool(value)
+            self.watch_tracker.set_running(
+                self._playback_active
+                and not self._playback_paused
+                and not self._loading
+                and not self._idle
+                and not self._buffering
+            )
             self.recovery.buffering(token, bool(value))
         elif name == "track-list" and self._playback_active:
             self._update_tracks(value)
@@ -1316,7 +1350,9 @@ class MainWindow(QMainWindow):
             self.status(message, retry)
 
     def _finish_playback(self, *, end_session=True):
+        self.watch_tracker.set_running(False)
         if end_session:
+            self.watch_tracker.finish()
             self._playback_active = False
             self._playback_paused = False
             self._sync_playback_state()
@@ -1344,6 +1380,13 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         self.transport.observe(name, value)
+        if (
+            name == "paused-for-cache"
+            and self._playback_active
+            and self._untracked_playback_token == self._playback_token
+        ):
+            self._buffering = bool(value)
+            self._sync_playback_state()
         if self.media_info.update(name, value):
             self.refresh_media_info()
         if name == "idle-active" and value and not self._loading:
@@ -1382,6 +1425,7 @@ class MainWindow(QMainWindow):
             self.mute_button.setText("Sessiz" if value else "Ses")
         elif name == "volume" and value is not None:
             self.volume.blockSignals(True)
+            self.volume.setMaximum(max(100, self.comfort_preferences.values["boost"], round(value)))
             self.volume.setValue(round(value))
             self.volume.blockSignals(False)
         elif name == "track-list":
@@ -1389,6 +1433,7 @@ class MainWindow(QMainWindow):
                 self._update_tracks(value)
         elif name == "idle-active":
             self._idle = bool(value)
+            self._sync_playback_state()
         elif name == "paused-for-cache" and value:
             self.status("Yayın arabelleğe alınıyor…")
         elif (
@@ -1401,6 +1446,8 @@ class MainWindow(QMainWindow):
             self.status("Yayın oynatılıyor.")
 
     def save_progress(self):
+        if not self._closed:
+            self.watch_tracker.flush()
         if self.current and self._current_persistent and not self._closed and self._record_progress:
             self.store.save_progress(
                 self.current.id, self._position, self._duration, mark_recent=self._record_recent
@@ -1628,6 +1675,7 @@ class MainWindow(QMainWindow):
         self.channel_banner.hide_banner()
         self.stop_playback()
         self.current = None
+        self.tray.refresh()
         self.watch_panel.sync()
         self._current_persistent = False
         self.favorite_button.setEnabled(False)
@@ -1638,6 +1686,7 @@ class MainWindow(QMainWindow):
         self.cancel_next_episode()  # Stop, profile switches and closing end the countdown too
         self.dismiss_resume()
         self.save_progress()
+        self.watch_tracker.finish()
         self.recovery.cancel()
         self._untracked_playback_token = None
         self._playback_active = False
@@ -1839,6 +1888,10 @@ class MainWindow(QMainWindow):
                         m, t, generation=generation
                     )
                 )
+        menu.addSeparator()
+        self.comfort_preferences.add_menu(
+            menu, guarded, self.status, enabled=self.current is not None and not self._idle
+        )
         menu.addSeparator()
         remember = menu.addAction("Bu kaynak için tercihleri hatırla")
         remember.setCheckable(True)
@@ -2158,6 +2211,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             source["epg_url"] = dialog.location.text().strip()
             self.store.save_source(source)
+            self.refresh_home()
             if source["epg_url"]:
                 self.load_guide(source)
 
@@ -2353,9 +2407,17 @@ class MainWindow(QMainWindow):
                 lambda checked=False, pid=profile["id"]: self.switch_profile(pid)
             )
         menu.addSeparator()
+        menu.addAction("İstatistikler", self.open_statistics)
         menu.addAction("Profilleri yönet…", self.open_profiles)
         menu.addAction("Ebeveyn denetimi…", self.open_parental)
         return menu
+
+    def open_statistics(self):
+        self.watch_tracker.flush()
+        if self._statistics_dialog is not None and isValid(self._statistics_dialog):
+            self._statistics_dialog.close()
+        self._statistics_dialog = StatisticsDialog(self.store, self)
+        self._statistics_dialog.show()
 
     def switch_profile(self, profile_id):
         """Leaving a kids profile or entering a protected one asks for the PIN."""
@@ -2374,6 +2436,8 @@ class MainWindow(QMainWindow):
 
     def leave_profile(self):
         """Before another profile becomes active: save and stop what this one watches."""
+        if self._statistics_dialog is not None and isValid(self._statistics_dialog):
+            self._statistics_dialog.close()
         self.details.dismiss()  # an open detail card was unlocked for this profile only
         if self.current is not None:
             self.close_current()
@@ -2384,6 +2448,8 @@ class MainWindow(QMainWindow):
 
     def load_profile(self):
         """Reload everything personal: favorites, folders, history, reminders, locks."""
+        if self._statistics_dialog is not None and isValid(self._statistics_dialog):
+            self._statistics_dialog.close()
         self.details.dismiss()
         self.reminder_service.reload()
         self.refresh_library()
@@ -2415,7 +2481,7 @@ class MainWindow(QMainWindow):
             return profile["id"]
         fallback = next((p for p in self.store.profiles() if not p["protected"]), None)
         if fallback is None:
-            self.close()  # every profile is protected and the PIN was not given
+            self.quit_application()  # every profile is protected and the PIN was not given
             return None
         self.store.use_profile(fallback["id"])
         self.load_profile()
@@ -2589,11 +2655,21 @@ class MainWindow(QMainWindow):
         self.add_source(location=path)
         event.acceptProposedAction()
 
+    def quit_application(self):
+        self._quitting = True
+        self.close()
+
     def closeEvent(self, event):
         if self._closed:
             event.accept()
             return
+        if not self._quitting and self.tray.hide_on_close():
+            event.ignore()
+            return
         self.save_progress()
+        self.watch_tracker.finish()
+        self._watch_timer.stop()
+        self.tray.close()
         self._closed = True
         self.watch_panel.animation.stop()
         self.page_transition.finish()

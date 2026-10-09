@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
 import unicodedata
 import uuid
 from dataclasses import asdict, fields
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
@@ -143,6 +145,13 @@ class Store:
                 protected INTEGER NOT NULL DEFAULT 0,
                 position INTEGER NOT NULL,
                 avatar TEXT
+            );
+            CREATE TABLE IF NOT EXISTS watch_log (
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                day TEXT NOT NULL,
+                channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                seconds REAL NOT NULL CHECK(seconds >= 0),
+                PRIMARY KEY(profile_id, day, channel_id)
             );
             CREATE TABLE IF NOT EXISTS secrets (
                 key TEXT PRIMARY KEY,
@@ -1065,6 +1074,59 @@ class Store:
             args += (source_id,)
         with self._db:
             self._db.execute(sql, args)
+
+    def add_watch_time(self, channel_id, day, seconds, *, profile_id=None):
+        """Increment actual viewing time; progress.updated_at is an ordering counter."""
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            return
+        if not math.isfinite(seconds) or seconds <= 0:
+            return
+        day = date.fromisoformat(day).isoformat()
+        profile_id = self.profile_id if profile_id is None else profile_id
+        with self._db:
+            self._db.execute(
+                """INSERT INTO watch_log(profile_id,day,channel_id,seconds)
+                SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM channels WHERE id=?)
+                AND EXISTS(SELECT 1 FROM profiles WHERE id=?)
+                ON CONFLICT(profile_id,day,channel_id)
+                DO UPDATE SET seconds=watch_log.seconds+excluded.seconds""",
+                (profile_id, day, channel_id, seconds, channel_id, profile_id),
+            )
+
+    def watch_statistics(self, today=None):
+        today = today or date.today()
+        monday = today - timedelta(days=today.weekday())
+        start = today - timedelta(days=6)
+        rows = self._db.execute(
+            """SELECT w.day,c.name,c.kind,w.seconds FROM watch_log w
+            JOIN channels c ON c.id=w.channel_id
+            WHERE w.profile_id=? AND w.day BETWEEN ? AND ?""",
+            (self.profile_id, start.isoformat(), today.isoformat()),
+        ).fetchall()
+        days = {(start + timedelta(days=i)).isoformat(): 0.0 for i in range(7)}
+        # Aggregate by channel id, not title: duplicate names are distinct channels.
+        top = self._db.execute(
+            """SELECT c.name,SUM(w.seconds) total FROM watch_log w
+            JOIN channels c ON c.id=w.channel_id
+            WHERE w.profile_id=? AND w.day BETWEEN ? AND ?
+            GROUP BY w.channel_id ORDER BY total DESC,c.name,w.channel_id LIMIT 5""",
+            (self.profile_id, monday.isoformat(), today.isoformat()),
+        ).fetchall()
+        live = vod = 0.0
+        for day, _name, kind, seconds in rows:
+            days[day] += seconds
+            if day >= monday.isoformat():
+                if kind == "live":
+                    live += seconds
+                else:
+                    vod += seconds
+        return {
+            "week_seconds": live + vod,
+            "days": list(days.items()),
+            "top": top,
+            "live_seconds": live,
+            "vod_seconds": vod,
+        }
 
     def playback_preferences(self, source_id: str) -> dict:
         from .preferences import normalize_preferences

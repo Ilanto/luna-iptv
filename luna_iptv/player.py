@@ -433,7 +433,34 @@ class VideoWidget(QOpenGLWidget):
         # Preserve Qt's negotiated EGL format; forcing a core profile after
         # QApplication exists can mismatch the window's shared context.
         self.setMinimumSize(160, 90)
-        self._frame_requested.connect(self.update, Qt.ConnectionType.QueuedConnection)
+        self._frame_requested.connect(self._request_frame, Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def _request_frame(self):
+        if self.player._closed or self._render is None:
+            return
+        if self.isVisible():
+            self.update()
+            return
+        # Qt does not paint hidden widgets. Consume frames without drawing so
+        # libmpv can keep audio/video moving while Luna lives in the tray.
+        self.makeCurrent()
+        try:
+            context = self.context()
+            if context is not None and QOpenGLContext.currentContext() == context:
+                if self._render.update():
+                    self._render.render(skip_rendering=True)
+        except Exception:
+            if not self._failed:
+                self._failed = True
+                self.player.error.emit("Arka planda video karesi işlenemedi.")
+        finally:
+            self.doneCurrent()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # A visible update may already be queued when the window is hidden.
+        QTimer.singleShot(0, self._request_frame)
 
     def showEvent(self, event):
         super().showEvent(event)

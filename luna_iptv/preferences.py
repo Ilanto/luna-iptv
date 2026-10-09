@@ -72,6 +72,10 @@ def normalize_preferences(value):
             normalized = track_preference(choice)
             if normalized:
                 result[mode] = normalized
+    from .comfort import normalize_comfort
+
+    if comfort := normalize_comfort(value.get("comfort")):
+        result["comfort"] = comfort
     return result
 
 
@@ -312,4 +316,8 @@ class TrackPreferences:
 
     def _save(self):
         if self.source_id:
+            saved = self.store.playback_preferences(self.source_id)
+            self._preferences.pop("comfort", None)
+            if "comfort" in saved:
+                self._preferences["comfort"] = saved["comfort"]
             self.store.save_playback_preferences(self.source_id, self._preferences)

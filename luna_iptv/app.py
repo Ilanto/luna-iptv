@@ -25,6 +25,8 @@ def main():
     if "QT_QPA_PLATFORM" not in os.environ and os.environ.get("WAYLAND_DISPLAY"):
         os.environ["QT_QPA_PLATFORM"] = "wayland"
     app = QApplication([])
+    # Ignored close events hide to tray; accepted closes still exit normally.
+    app.setQuitOnLastWindowClosed(True)
     app.setApplicationName("Luna IPTV")
     app.setOrganizationName("Luna")
     app.setDesktopFileName("luna-iptv")

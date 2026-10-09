@@ -3,10 +3,12 @@
 from PySide6.QtCore import Qt, QTime, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
+    QSystemTrayIcon,
     QTimeEdit,
     QVBoxLayout,
 )
@@ -30,7 +32,7 @@ from .settings import (
 class SettingsDialog(QDialog):
     refresh_changed = Signal()
 
-    def __init__(self, store, parent=None):
+    def __init__(self, store, parent=None, *, tray_available=None):
         super().__init__(parent)
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -93,6 +95,19 @@ class SettingsDialog(QDialog):
         row.addStretch()
         row.addWidget(self.refresh_time)
         updates.addLayout(row)
+        self.close_to_tray = QCheckBox("Kapatınca tepsiye küçült")
+        self.close_to_tray.setChecked(store.setting("close_to_tray", False) is True)
+        available = (
+            QSystemTrayIcon.isSystemTrayAvailable() if tray_available is None else tray_available
+        )
+        self.close_to_tray.setEnabled(available)
+        self.close_to_tray.toggled.connect(lambda value: self._save("close_to_tray", value))
+        startup.addWidget(self.close_to_tray)
+        if not available:
+            hint = text_label("Bu masaüstünde sistem tepsisi kullanılamıyor.", "faint")
+            hint.setWordWrap(True)
+            startup.addWidget(hint)
+            self.close_to_tray.setToolTip(hint.text())
         layout.addStretch()
         footer = QHBoxLayout()
         footer.addWidget(text_label("Değişiklikler anında kaydedilir.", "faint"))

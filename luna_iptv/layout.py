@@ -461,7 +461,7 @@ def build_window(w):
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
     w.playback_menu_button = icon_button(
-        "Oynatma", w.track_menu, "tracks", tip="Ses, altyazı ve oynatma seçenekleri"
+        "Oynatma", w.track_menu, "tracks", tip="Görüntü, ses, altyazı ve oynatma seçenekleri"
     )
     w.playback_menu_button.setProperty("mini_hidden", True)
     row.addWidget(w.playback_menu_button)
