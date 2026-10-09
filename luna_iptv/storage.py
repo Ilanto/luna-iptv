@@ -16,6 +16,7 @@ from .media_details import MediaDetails, normalize_info
 from .models import Channel, Playlist
 
 _SOURCE_FIELDS = ("id", "name", "type", "location", "username", "password", "epg_url")
+_UNCHANGED = object()  # distinguish an omitted avatar from explicit None (initial)
 
 
 class Store:
@@ -140,7 +141,8 @@ class Store:
                 color TEXT NOT NULL,
                 kids INTEGER NOT NULL DEFAULT 0,
                 protected INTEGER NOT NULL DEFAULT 0,
-                position INTEGER NOT NULL
+                position INTEGER NOT NULL,
+                avatar TEXT
             );
             CREATE TABLE IF NOT EXISTS secrets (
                 key TEXT PRIMARY KEY,
@@ -176,6 +178,9 @@ class Store:
             );
             """
         )
+        profile_columns = {row[1] for row in self._db.execute("PRAGMA table_info(profiles)")}
+        if "avatar" not in profile_columns:
+            self._db.execute("ALTER TABLE profiles ADD COLUMN avatar TEXT")
         progress_columns = {
             row[1] for row in self._db.execute("PRAGMA table_info(progress)").fetchall()
         }
@@ -262,11 +267,11 @@ class Store:
             )
 
     def profiles(self) -> list[dict]:
-        columns = ("id", "name", "color", "kids", "protected", "position")
+        columns = ("id", "name", "color", "kids", "protected", "position", "avatar")
         return [
-            dict(zip(columns, (*row[:3], bool(row[3]), bool(row[4]), row[5]), strict=True))
+            dict(zip(columns, (*row[:3], bool(row[3]), bool(row[4]), *row[5:]), strict=True))
             for row in self._db.execute(
-                "SELECT id,name,color,kids,protected,position FROM profiles ORDER BY position,id"
+                "SELECT id,name,color,kids,protected,position,avatar FROM profiles ORDER BY position,id"
             )
         ]
 
@@ -295,30 +300,38 @@ class Store:
         return color
 
     def create_profile(
-        self, name: str, color: str, *, kids: bool = False, protected: bool = False
+        self, name: str, color: str, *, kids: bool = False, protected: bool = False, avatar=None
     ) -> int:
         with self._db:
             name, color = self._profile_name(name), self._profile_color(color)
             return self._db.execute(
-                """INSERT INTO profiles(name,color,kids,protected,position)
-                SELECT ?,?,?,?,COALESCE(MAX(position), -1) + 1 FROM profiles""",
-                (name, color, int(kids), int(protected)),
+                """INSERT INTO profiles(name,color,kids,protected,avatar,position)
+                SELECT ?,?,?,?,?,COALESCE(MAX(position), -1) + 1 FROM profiles""",
+                (name, color, int(kids), int(protected), avatar),
             ).lastrowid
 
     def update_profile(
-        self, profile_id: int, *, name=None, color=None, kids=None, protected=None
+        self,
+        profile_id: int,
+        *,
+        name=None,
+        color=None,
+        kids=None,
+        protected=None,
+        avatar=_UNCHANGED,
     ) -> None:
         with self._db:
             current = self.profile(profile_id)
             if current is None:
                 raise ValueError("Profil bulunamadı.")
             self._db.execute(
-                "UPDATE profiles SET name=?,color=?,kids=?,protected=? WHERE id=?",
+                "UPDATE profiles SET name=?,color=?,kids=?,protected=?,avatar=? WHERE id=?",
                 (
                     current["name"] if name is None else self._profile_name(name, profile_id),
                     current["color"] if color is None else self._profile_color(color),
                     int(current["kids"] if kids is None else kids),
                     int(current["protected"] if protected is None else protected),
+                    current["avatar"] if avatar is _UNCHANGED else avatar,
                     profile_id,
                 ),
             )

@@ -6,9 +6,10 @@ just that window, so thousands of channels scroll as smoothly as a dozen.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, time, timedelta, timezone
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 from . import theme
 from .dialogs import text_label
 from .library import search_key, tile_color
-from .motion import IconButton
+from .motion import IconButton, motion_level, on_motion_changed
 
 ROW = 64
 HEADER = 40
@@ -74,7 +75,46 @@ class GuideGrid(QAbstractScrollArea):
         # The "now" line moves; a minute's resolution is plenty.
         self._clock = QTimer(self)
         self._clock.setInterval(60_000)
-        self._clock.timeout.connect(self.viewport().update)
+        self._clock.timeout.connect(self._refresh_now)
+        self._now = datetime.now(timezone.utc)
+        self._pulse_clock = QElapsedTimer()
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(40)
+        self._pulse_timer.timeout.connect(self._pulse_tick)
+        on_motion_changed(self._motion_changed)
+
+    def _refresh_now(self):
+        # Keep line/badge geometry fixed between minute updates: pulse frames
+        # then invalidate only the halo, without leaving trails or moving text.
+        self._now = datetime.now(timezone.utc)
+        self.viewport().update()
+
+    @staticmethod
+    def pulse_alpha(elapsed_ms):
+        return 18 + 22 * (1 - math.cos(math.tau * elapsed_ms / 2400)) / 2
+
+    def _now_strip(self):
+        x = self.x_for(self._now)
+        if not (self.day_start <= self._now < self.day_end):
+            return QRect()
+        if not LOGO_COLUMN <= x <= self.viewport().width():
+            return QRect()
+        return QRect(
+            math.floor(x) - 8, HEADER - 7, 17, self.viewport().height() - HEADER + 7
+        ).intersected(self.viewport().rect())
+
+    def _pulse_tick(self):
+        strip = self._now_strip()
+        if not strip.isEmpty():
+            self.viewport().update(strip)
+
+    def _motion_changed(self):
+        if motion_level() == "full" and self.isVisible():
+            self._pulse_clock.start()
+            self._pulse_timer.start()
+        else:
+            self._pulse_timer.stop()
+        self._pulse_tick()  # erase the halo immediately when motion is reduced
 
     # --- data -------------------------------------------------------------------
     def set_rows(self, rows):
@@ -107,10 +147,15 @@ class GuideGrid(QAbstractScrollArea):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._refresh_now()
         self._clock.start()
+        self._motion_changed()
+        self._logo_timer.start()
 
     def hideEvent(self, event):
         self._clock.stop()
+        self._pulse_timer.stop()
+        self._logo_timer.stop()
         super().hideEvent(event)
 
     def _scrolled(self, *_):
@@ -179,7 +224,7 @@ class GuideGrid(QAbstractScrollArea):
         painter.fillRect(self.viewport().rect(), QColor(theme.NIGHT))
         view_start = self.moment_at(LOGO_COLUMN)
         view_end = self.moment_at(width)
-        now = datetime.now(timezone.utc)
+        now = self._now
         font = QFont(self.font())
         for row in self._visible_rows():
             channel, index = self.rows[row]
@@ -194,6 +239,13 @@ class GuideGrid(QAbstractScrollArea):
             self._paint_channel(painter, font, row)
         x = self.x_for(now)
         if LOGO_COLUMN <= x <= width and self.day_start <= now < self.day_end:
+            if self._pulse_timer.isActive():
+                halo = QColor(theme.GOLD)
+                alpha = self.pulse_alpha(self._pulse_clock.elapsed())
+                for stroke, opacity in ((12, alpha / 3), (8, alpha / 2), (4, alpha)):
+                    halo.setAlpha(round(opacity))
+                    painter.setPen(QPen(halo, stroke))
+                    painter.drawLine(QPointF(x, HEADER - 1), QPointF(x, height))
             painter.setPen(QPen(QColor(theme.GOLD), 2))
             painter.drawLine(QPointF(x, HEADER - 6), QPointF(x, height))
             badge = QRectF(x - 26, 6, 52, 20)

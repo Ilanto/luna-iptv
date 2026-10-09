@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from . import __version__, theme
+from . import __version__, icons, theme
 from .accounts import sanitize_profile
 from .category_editor import CategoryEditor
 from .channel_banner import BannerPlacer, ChannelBanner
@@ -550,11 +550,21 @@ class MainWindow(QMainWindow):
         )
         self.category_bar.edit_button.setEnabled(bool(self.store.sources()))
         self._hidden_category_count = len(hidden_groups)
+        self._refresh_theme_details()
+        self.refresh_folders()
+
+    def _refresh_theme_details(self):
+        """Regenerate the few theme-coloured assets stored outside paint methods."""
+        if hasattr(self, "guide_mark"):
+            self.guide_mark.setPixmap(
+                icons.pixmap("guide", theme.ACCENT, 16, self.devicePixelRatioF())
+            )
+        if not hasattr(self, "_hidden_category_count"):
+            return
         self.hidden_categories_label.setText(
-            f'{len(hidden_groups)} kategori gizli · <a href="edit" style="color: {theme.ACCENT};'
+            f'{self._hidden_category_count} kategori gizli · <a href="edit" style="color: {theme.ACCENT};'
             f' text-decoration: none;">Düzenle</a>'
         )
-        self.refresh_folders()
 
     def edit_categories(self, *_):
         if self.proxy.section not in ("live", "movie", "series"):
@@ -2316,6 +2326,8 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event):
         super().changeEvent(event)
+        if event.type() == QEvent.PaletteChange:
+            self._refresh_theme_details()
         if (
             event.type() == QEvent.WindowStateChange
             and hasattr(self, "_fullscreen")

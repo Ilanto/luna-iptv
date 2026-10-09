@@ -98,9 +98,9 @@ class IconButton(QPushButton):
         stacked=False,
         size=20,
         caption="",
-        color=theme.TEXT_SOFT,
-        hover_color=theme.TEXT,
-        checked_color=theme.ACCENT_STRONG,
+        color=None,
+        hover_color=None,
+        checked_color=None,
         parent=None,
     ):
         super().__init__(text, parent)
@@ -109,7 +109,7 @@ class IconButton(QPushButton):
         self.show_label = label
         self.stacked = stacked
         self.icon_px = size
-        self.colors = (color, hover_color, checked_color)
+        self._colors = (color, hover_color, checked_color)
         self._hover = 0.0
         self._hover_target = 0.0
         self._animation = QVariantAnimation(self, duration=160)
@@ -165,6 +165,16 @@ class IconButton(QPushButton):
 
     def minimumSizeHint(self):
         return self.sizeHint()
+
+    @property
+    def colors(self):
+        """Explicit overrides stay fixed; defaults follow the live palette."""
+        return tuple(
+            value if value is not None else default
+            for value, default in zip(
+                self._colors, (theme.TEXT_SOFT, theme.TEXT, theme.ACCENT_STRONG), strict=True
+            )
+        )
 
     def icon_color(self):
         normal, hover, checked = self.colors

@@ -1,12 +1,20 @@
 """Application settings that apply as soon as a choice changes."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QHBoxLayout, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QVBoxLayout
 
+from . import theme
 from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
 from .motion import IconButton, set_motion_level
-from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings import (
+    ACCENT_CHOICES,
+    AUTOPLAY_CHOICES,
+    BASE_THEME_CHOICES,
+    MOTION_CHOICES,
+    STARTUP_CHOICES,
+    selected_setting,
+)
 
 
 class SettingsDialog(QDialog):
@@ -23,6 +31,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(text_label("Ayarlar", "heading"))
 
         appearance = self._section(layout, "GÖRÜNÜM")
+        self.accent_combo = self._choice(appearance, "Vurgu rengi", "accent", ACCENT_CHOICES)
+        self.base_theme_combo = self._choice(appearance, "Tema", "base_theme", BASE_THEME_CHOICES)
         self.motion_combo = self._choice(appearance, "Hareket", "motion_level", MOTION_CHOICES)
         note = text_label("Az: gökyüzü ve logo sabit. Kapalı: tüm hareketler kapalı.", "faint")
         note.setWordWrap(True)
@@ -92,3 +102,5 @@ class SettingsDialog(QDialog):
         self.store.set_setting(key, value)
         if key == "motion_level":
             set_motion_level(value)
+        elif key in ("accent", "base_theme"):
+            theme.apply_theme(QApplication.instance(), self.store)
