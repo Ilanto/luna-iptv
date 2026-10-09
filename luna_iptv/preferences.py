@@ -286,6 +286,10 @@ class TrackPreferences:
             self._save()
         return True
 
+    def external_subtitle(self):
+        """Keep an explicitly loaded subtitle selected when mpv updates its track list."""
+        self._manual_modes.add("sub")
+
     def set_remember(self, enabled, *, generation=None):
         if generation is not None and generation != self.generation:
             return False

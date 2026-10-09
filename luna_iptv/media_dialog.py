@@ -52,6 +52,7 @@ from .media_details import MediaDetails
 from .models import Channel
 from .motion import IconButton
 from .preferences import normalize_preferences
+from .tmdb import merge, trailer_url
 
 _LANGUAGE_PREFERENCES = (
     ("Türkçe", "tr"),
@@ -333,6 +334,9 @@ class MediaDetailDialog(QDialog):
         self._channel = channel
         self._poster_cache = poster_cache
         self._poster_url = ""
+        self._backdrop_url = ""
+        self._online_info = {}
+        self._provider_details = None
         self._imdb_url = ""
         self._imdb_query = None
         self._episodes = []
@@ -430,6 +434,12 @@ class MediaDetailDialog(QDialog):
         actions.addWidget(self.play_button)
         actions.addWidget(self.favorite_button)
         actions.addWidget(self.imdb_button)
+        self.trailer_button = IconButton("Fragman", "external", label=True, size=16)
+        self.trailer_button.setObjectName("glass")
+        self.trailer_button.setAutoDefault(False)
+        self.trailer_button.clicked.connect(self._open_trailer)
+        self.trailer_button.hide()
+        actions.addWidget(self.trailer_button)
         actions.addStretch()
         content.addLayout(actions)
         columns.addLayout(content, 1)
@@ -504,6 +514,14 @@ class MediaDetailDialog(QDialog):
         status_row.addWidget(self.status_label, 1)
         status_row.addWidget(self.retry_button)
         details_layout.addLayout(status_row)
+        self.online_status_label = text_label("", "muted")
+        self.online_status_label.setWordWrap(True)
+        self.online_status_label.hide()
+        details_layout.addWidget(self.online_status_label)
+        self.tmdb_label = text_label("", "faint")
+        self.tmdb_label.setWordWrap(True)
+        self.tmdb_label.hide()
+        details_layout.addWidget(self.tmdb_label)
 
         about = self.about = QFrame()
         about_layout = QVBoxLayout(about)
@@ -806,6 +824,14 @@ class MediaDetailDialog(QDialog):
         return (channel.provider_key or channel.id) if channel else None
 
     def set_details(self, details: MediaDetails):
+        self._provider_details = details
+        if self._online_info:
+            details = MediaDetails(
+                info=merge(details.info, self._online_info),
+                episodes=details.episodes,
+                episode_info=details.episode_info,
+                series_title=details.series_title,
+            )
         selected_id = self._identity(self._current_channel())
         first_details = self._details is None
         self._details = details
@@ -830,6 +856,22 @@ class MediaDetailDialog(QDialog):
         self.season_combo.blockSignals(False)
         self.season_combo.setEnabled(bool(groups))
         self._populate_episodes(selected_id=selected_id)
+
+    def set_online_info(self, info):
+        self._online_info = info
+        self.tmdb_label.setText("TMDB · " + info["tmdb_attribution"] if info else "")
+        self.tmdb_label.setVisible(bool(info))
+        self.trailer_button.setVisible(bool(info.get("trailer")))
+        self.set_details(self._provider_details or MediaDetails())
+
+    def set_online_status(self, text):
+        self.online_status_label.setText(text)
+        self.online_status_label.setVisible(bool(text))
+
+    def _open_trailer(self):
+        url = self._online_info.get("trailer", "")
+        if url and trailer_url(url.removeprefix("https://www.youtube.com/watch?v=")) == url:
+            QDesktopServices.openUrl(QUrl(url))
 
     @staticmethod
     def _season_order(group):
@@ -984,7 +1026,9 @@ class MediaDetailDialog(QDialog):
         self.poster_scope_label.setVisible(bool(self.poster_scope_label.text()))
         self.hero.name = self.poster_label.name = title
         self.poster_label.setAccessibleName(scope)
-        self._set_poster(poster)
+        self._set_artwork(
+            self._online_info.get("poster") or poster, self._online_info.get("backdrop", "")
+        )
         self.play_button.setEnabled(self.selected_channel() is not None)
         self._refresh_play_label()
         self.favorite_button.setEnabled(self.favorite_channel() is not None)
@@ -1061,12 +1105,22 @@ class MediaDetailDialog(QDialog):
             self.imdb_lookup_requested.emit(*self._imdb_query)
 
     def _release_poster(self, *_):
-        if self._poster_url:
-            self._poster_cache.release(self._poster_url)
+        for url in {self._poster_url, self._backdrop_url} - {""}:
+            self._poster_cache.release(url)
+
+    def _set_artwork(self, poster, backdrop):
+        if self._backdrop_url and self._backdrop_url != backdrop:
+            self._poster_cache.release(self._backdrop_url)
+        self._backdrop_url = backdrop
+        self._set_poster(poster)
+        if backdrop:
+            self._poster_cache.request_logo(backdrop)
+            self._poster_ready(backdrop)
 
     def _set_poster(self, url):
         if url != self._poster_url:
-            self._release_poster()
+            if self._poster_url:
+                self._poster_cache.release(self._poster_url)
         self._poster_url = url
         self.poster_label.clear()
         self.poster_label.setText("Afiş yok")
@@ -1077,12 +1131,16 @@ class MediaDetailDialog(QDialog):
 
     @Slot(str)
     def _poster_ready(self, url):
-        if url != self._poster_url:
+        if url not in (self._poster_url, self._backdrop_url):
             return
         pixmap = self._poster_cache.prepared_logo(url)
         if pixmap is not None and not pixmap.isNull():
+            if url == self._backdrop_url:
+                self.hero.set_poster(pixmap)
+                return
             ratio = self.devicePixelRatioF()
             scaled = pixmap.scaled(POSTER_SIZE * ratio, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scaled.setDevicePixelRatio(ratio)
             self.poster_label.setPixmap(rounded(scaled, 14))
-            self.hero.set_poster(pixmap)
+            if not self._backdrop_url:
+                self.hero.set_poster(pixmap)

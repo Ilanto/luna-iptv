@@ -15,9 +15,10 @@ from urllib.parse import urlsplit
 
 from .accounts import MAX_UNIX_SECONDS
 from .preferences import normalize_preferences
+from .settings import ONLINE_SECRETS
 
 MAX_FILE_SIZE = 32 * 1024 * 1024
-_PIN_FIELDS = {"pin", "pin_hash", "pin_salt", "parental_pin", "secrets"}
+_PIN_FIELDS = {"pin", "pin_hash", "pin_salt", "parental_pin", "secrets", *ONLINE_SECRETS}
 _CONNECTION = {"location", "username", "password", "epg_url"}
 _SOURCE_FIELDS = {"id", "name", "type", *_CONNECTION, "credentials_omitted"}
 _CHANNEL_FIELDS = {"id", "source_id", "name", "kind", "series_id", "provider_key"}

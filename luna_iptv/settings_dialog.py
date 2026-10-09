@@ -17,6 +17,7 @@ from . import theme
 from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
 from .motion import IconButton, set_motion_level
+from .online_settings import OnlineSettings
 from .settings import (
     ACCENT_CHOICES,
     AUTOPLAY_CHOICES,
@@ -30,7 +31,7 @@ from .settings import (
 from .updates import UPDATE_CHOICES
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(QDialog, OnlineSettings):
     refresh_changed = Signal()
 
     def __init__(self, store, parent=None, *, tray_available=None):
@@ -38,14 +39,23 @@ class SettingsDialog(QDialog):
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Ayarlar")
-        self.resize(500, 470)
-        self.setMinimumWidth(420)
+        self.resize(1000, 740)
+        self.setMinimumWidth(920)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(16)
         layout.addWidget(text_label("Ayarlar", "heading"))
 
-        appearance = self._section(layout, "GÖRÜNÜM")
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        settings = QVBoxLayout()
+        online = QVBoxLayout()
+        columns.addLayout(settings, 1)
+        columns.addLayout(online, 1)
+        layout.addLayout(columns, 1)
+        self._online_section(online)
+
+        appearance = self._section(settings, "GÖRÜNÜM")
         self.accent_combo = self._choice(appearance, "Vurgu rengi", "accent", ACCENT_CHOICES)
         self.base_theme_combo = self._choice(appearance, "Tema", "base_theme", BASE_THEME_CHOICES)
         self.motion_combo = self._choice(appearance, "Hareket", "motion_level", MOTION_CHOICES)
@@ -53,7 +63,7 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         appearance.addWidget(note)
 
-        playback = self._section(layout, "OYNATMA TERCİHLERİ")
+        playback = self._section(settings, "OYNATMA TERCİHLERİ")
         languages = (("Otomatik", "auto"), *_LANGUAGE_PREFERENCES)
         subtitles = (("Otomatik", "auto"), ("Kapalı", "off"), *_LANGUAGE_PREFERENCES)
         self.audio_combo = self._choice(
@@ -73,9 +83,9 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         playback.addWidget(note)
 
-        startup = self._section(layout, "BAŞLANGIÇ")
+        startup = self._section(settings, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
-        updates = self._section(layout, "GÜNCELLEME")
+        updates = self._section(online, "GÜNCELLEME")
         self.refresh_combo = self._choice(
             updates, "Kaynakları ve rehberi otomatik yenile", "auto_refresh", REFRESH_CHOICES
         )
@@ -115,7 +125,8 @@ class SettingsDialog(QDialog):
             hint.setWordWrap(True)
             startup.addWidget(hint)
             self.close_to_tray.setToolTip(hint.text())
-        layout.addStretch()
+        settings.addStretch()
+        online.addStretch()
         footer = QHBoxLayout()
         footer.addWidget(text_label("Değişiklikler anında kaydedilir.", "faint"))
         footer.addStretch()
