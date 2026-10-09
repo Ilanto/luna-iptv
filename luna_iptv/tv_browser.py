@@ -3,11 +3,11 @@
 from datetime import datetime
 
 from PySide6.QtCore import QEasingCurve, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
 from . import icons, theme
-from .library import CARD_HEIGHT, CARD_WIDTH
+from .library import CARD_HEIGHT, CARD_WIDTH, tile_color
 from .motion import animation_ms, motion_level, on_motion_changed
 
 TABS = ("Canlı", "Filmler", "Diziler", "Rehber", "Favoriler", "TV modundan çık")
@@ -53,13 +53,13 @@ class TvBrowser(QWidget):
         self.update()
 
     @staticmethod
-    def text(painter, rect, text, size=28, color=None, *, wrap=False, bold=False):
+    def text(painter, rect, text, size=28, color=None, *, wrap=False, bold=False, center=False):
         font = QFont(painter.font())
         font.setPixelSize(size)
         font.setBold(bold)
         painter.setFont(font)
         painter.setPen(QColor(color or theme.TEXT))
-        flags = Qt.AlignLeft | Qt.AlignVCenter
+        flags = (Qt.AlignHCenter if center else Qt.AlignLeft) | Qt.AlignVCenter
         if wrap:
             flags |= Qt.TextWordWrap
         else:
@@ -173,10 +173,23 @@ class TvBrowser(QWidget):
             target = QRectF(0, 0, size.width(), size.height())
             target.moveCenter(art.center())
             painter.drawPixmap(target, image, QRectF(image.rect()))
-        else:
-            pixmap = icons.pixmap("lock" if locked else "moon", theme.ACCENT, 80)
+        elif locked:
+            pixmap = icons.pixmap("lock", theme.GOLD, 80)
             target = QRectF(art.center().x() - 40, art.center().y() - 40, 80, 80)
             painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
+        else:
+            # Like the main grid: the channel's own night hue with its name large on it.
+            stage = rect.adjusted(6, 6, -6, -96)
+            base = QColor(tile_color(channel.name))
+            glow = QLinearGradient(stage.topLeft(), stage.bottomRight())
+            glow.setColorAt(0.0, base.lighter(150))
+            glow.setColorAt(1.0, base)
+            shape = QPainterPath()
+            shape.addRoundedRect(stage, 18, 18)
+            painter.fillPath(shape, glow)
+            self.text(
+                painter, stage.adjusted(20, 0, -20, 0), channel.name, 40, bold=True, center=True
+            )
         self.text(
             painter,
             QRectF(rect.x() + 24, rect.bottom() - 90, rect.width() - 48, 40),
