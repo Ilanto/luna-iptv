@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -74,6 +74,7 @@ from .timeshift import cache_minutes
 from .toast import Toast
 from .transport import TransportController
 from .tray import TrayController
+from .tv_mode import TvModeWindow
 from .updates import UpdateChecker
 from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
@@ -127,6 +128,8 @@ class RemoteControl:
 
 
 class MainWindow(QMainWindow):
+    playback_started = Signal(object)
+
     def __init__(self, store, *, ask_profile=False, tray_available=None):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -142,6 +145,7 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self._buffering = False
         self.multiview = None
+        self.tv_mode = None
         self._statistics_dialog = None
         self._busy = False
         self._importing = False
@@ -319,6 +323,8 @@ class MainWindow(QMainWindow):
         )
 
     def status(self, message, retry=None, *, icon=None):
+        if self.tv_mode is not None:
+            self.tv_mode.notify(message)
         self.mini_status.setText(message)
         self.mini_status.setToolTip(message)
         self.message.setText(message)
@@ -1140,9 +1146,14 @@ class MainWindow(QMainWindow):
 
     def request_play(self, channel, *, preferences=None, approved=False, failover=False):
         """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
+        tv_mode, profile_id = self.tv_mode, self.store.profile_id
         if not self.kids_limits.check():
             return
         if not self.unlock_channel(channel, approved=approved):
+            return
+        if tv_mode is not None and (
+            self._closed or self.tv_mode is not tv_mode or self.store.profile_id != profile_id
+        ):
             return
         if not failover:
             self._failover_tried = set()  # a person's own choice starts a new chain
@@ -1150,6 +1161,9 @@ class MainWindow(QMainWindow):
         self.dismiss_resume()
         preferences = normalize_preferences(preferences) if preferences is not None else None
         position = self.resume_position(channel)
+        if self.tv_mode is not None:
+            self.play(channel, start_override=position, preferences=preferences)
+            return
         if not position:
             self.play(channel, start_override=0, preferences=preferences)
             return
@@ -1309,6 +1323,7 @@ class MainWindow(QMainWindow):
                 track_options=track_options,
                 live_cache_minutes=live_cache,
             )
+            self.playback_started.emit(channel)
         source = self.source_for(channel)
         if source and source.get("epg_url") and source["id"] not in self._guide_data:
             self.load_guide(source)
@@ -1332,7 +1347,9 @@ class MainWindow(QMainWindow):
     def banner_suppressed(self):
         """The mini player (unless it went fullscreen) has no room for the banner."""
         mini = getattr(self, "mini_player", None)
-        return bool(mini is not None and mini.active and not self.isFullScreen())
+        return self.tv_mode is not None or bool(
+            mini is not None and mini.active and not self.isFullScreen()
+        )
 
     def show_channel_banner(self, seconds=4.5):
         """The TV-style banner: number, channel, programme now and next."""
@@ -2582,7 +2599,7 @@ class MainWindow(QMainWindow):
 
     def guard(self, reason):
         """Ask for the PIN when one is set; every time, nothing is remembered."""
-        return ask_pin(self.store, reason, self)
+        return ask_pin(self.store, reason, self.tv_mode or self)
 
     def kids_profile(self):
         profile = self.store.profile(self.store.profile_id)
@@ -2590,6 +2607,7 @@ class MainWindow(QMainWindow):
 
     def show_kids_limit(self, reason):
         if reason:
+            self.close_tv_mode()
             self.details.dismiss()
             self.dismiss_resume()
             self.mini_player.cancel_pending()
@@ -2698,6 +2716,7 @@ class MainWindow(QMainWindow):
                 lambda checked=False, pid=profile["id"]: self.switch_profile(pid)
             )
         menu.addSeparator()
+        menu.addAction("TV modu (F11)", self.toggle_tv_mode)
         menu.addAction("Çoklu izleme", self.open_multiview)
         menu.addAction("İstatistikler", self.open_statistics)
         menu.addAction("Profilleri yönet…", self.open_profiles)
@@ -2729,6 +2748,7 @@ class MainWindow(QMainWindow):
 
     def leave_profile(self):
         """Before another profile becomes active: save and stop what this one watches."""
+        self.close_tv_mode()
         self.close_multiview()
         if self._statistics_dialog is not None and isValid(self._statistics_dialog):
             self._statistics_dialog.close()
@@ -2864,7 +2884,30 @@ class MainWindow(QMainWindow):
             else "Rehber kanal kimliği, listedeki tvg-id ile eşleşmelidir."
         )
 
+    def toggle_tv_mode(self):
+        """Lend the existing video stack to the couch interface."""
+        if self.tv_mode is not None:
+            self.close_tv_mode()
+            return
+        if not self.kids_limits.check():
+            return
+        self.close_multiview()
+        self.leave_mini_player()
+        self.details.dismiss()
+        self.dismiss_resume()
+        self.tv_mode = TvModeWindow(self)
+        self.tv_mode.closed.connect(self._tv_mode_closed)
+        self.tv_mode.showFullScreen()
+
+    def _tv_mode_closed(self):
+        self.tv_mode = None
+
+    def close_tv_mode(self):
+        if self.tv_mode is not None:
+            self.tv_mode.close()
+
     def toggle_mini_player(self):
+        self.close_tv_mode()
         if self.mini_player.active or self.mini_player.pending:
             self.leave_mini_player()
         elif self._fullscreen:
@@ -2974,6 +3017,7 @@ class MainWindow(QMainWindow):
         return bool(saving and saving())
 
     def closeEvent(self, event):
+        self.close_tv_mode()
         self.close_multiview()
         if self._closed:
             event.accept()
