@@ -31,7 +31,14 @@ from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
 from .layout import build_window
-from .library import ChannelFilter, ChannelModel, ordered_channels, resumable, search_key
+from .library import (
+    ChannelFilter,
+    ChannelModel,
+    channel_key,
+    ordered_channels,
+    resumable,
+    search_key,
+)
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
@@ -192,6 +199,7 @@ class MainWindow(QMainWindow):
         self.number_entry.typing.connect(self._number_typing)
         self.number_entry.chosen.connect(self.jump_to_number)
         self._notice_kind = None
+        self._failover_tried = set()
         self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
@@ -909,10 +917,12 @@ class MainWindow(QMainWindow):
         if dialog is not None and isValid(dialog):
             dialog.reject()
 
-    def request_play(self, channel, *, preferences=None, approved=False):
+    def request_play(self, channel, *, preferences=None, approved=False, failover=False):
         """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
         if not self.unlock_channel(channel, approved=approved):
             return
+        if not failover:
+            self._failover_tried = set()  # a person's own choice starts a new chain
         self.cancel_next_episode()
         self.dismiss_resume()
         preferences = normalize_preferences(preferences) if preferences is not None else None
@@ -1542,10 +1552,57 @@ class MainWindow(QMainWindow):
             return
         self.play(self.current, recovering=True)
 
+    def alternative_channel(self, channel, tried=()):
+        """The same live channel in another source: same guide id, else the same plain name."""
+        if channel is None or channel.kind != "live":
+            return None
+        source = channel.id.split(":", 1)[0]
+        name = channel_key(channel.name)
+        for candidate in self.model.channels:
+            if (
+                candidate.kind != "live"
+                or candidate.id in tried
+                or candidate.id.split(":", 1)[0] == source
+                or candidate.id in self.model.locked
+                or self.proxy.category_hidden(candidate)
+            ):
+                continue
+            same_guide = channel.tvg_id and candidate.tvg_id == channel.tvg_id
+            if same_guide or (name and channel_key(candidate.name) == name):
+                return candidate
+        return None
+
+    def _fail_over(self):
+        """A live channel that will not open is tried once in each other source that has it."""
+        failed = self.current
+        tried = self._failover_tried | {failed.id}
+        alternative = self.alternative_channel(failed, tried)
+        if alternative is None:
+            return False
+        source = self.source_for(alternative)
+        self._failover_tried = tried
+        note = f"{failed.name} açılmadı; {source['name'] if source else 'diğer kaynak'} üzerinden açılıyor."
+
+        def switch():
+            self.request_play(alternative, failover=True)
+            self.status(note)  # after play's own "bağlanılıyor" line, so it is the one seen
+
+        QTimer.singleShot(0, switch)
+        return True
+
     def refresh_recovery(self):
         if self._closed:
             return
         terminal = self.recovery.state in {"failed", "untracked-failed"}
+        if (
+            terminal
+            and self.current is not None
+            and self.current.kind == "live"
+            and self._playback_active
+            and self._fail_over()
+        ):
+            self._finish_playback()
+            return
         live_wait = (
             self.recovery.state == "waiting"
             and self.current is not None

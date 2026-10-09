@@ -1,4 +1,5 @@
 import math
+import re
 import unicodedata
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -28,6 +29,15 @@ def search_key(text):
         for c in unicodedata.normalize("NFKD", text.casefold().replace("ı", "i"))
         if not unicodedata.combining(c)
     )
+
+
+_QUALITY = re.compile(r"\b(?:hd|fhd|uhd|sd|4k|8k|hevc|h\.?26[45]|raw|backup|yedek)\b")
+
+
+def channel_key(name):
+    """A channel name without quality tags or punctuation: 'TRT 1 HD' and 'TRT1 FHD' match."""
+    key = _QUALITY.sub(" ", search_key(name))
+    return "".join(c for c in key if c.isalnum())
 
 
 PROGRESS_ROLE = Qt.UserRole + 2
