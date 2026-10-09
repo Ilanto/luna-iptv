@@ -66,6 +66,8 @@ Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, 
 - **Çocuk profili:** günlük süre ve yatma saati; 5 dk kala uyarı, süre dolunca nazik bir ekran; ebeveyn PIN'le süre ekleyebilir.
 - **Açılış animasyonu:** tutulma logosu bir an parlar (yalnız tam harekette).
 - **Flatpak:** her sürümle GitHub'da Flatpak paketi de yayınlanır (`flatpak install --user luna-iptv.flatpak`).
+- **İngilizce arayüz:** Ayarlar → Görünüm → Dil / Language (yeniden başlatınca).
+- **Kod düzeni:** ana pencere 3.062 satırdan 386 satıra, veri katmanı 1.783'ten 960'a bölündü; davranış aynı.
 
 ### 0.19.0 · hızlı kazançlar
 

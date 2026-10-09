@@ -70,7 +70,7 @@ desktop-file-validate packaging/luna-iptv.desktop
 - Multi-view, TV mode, live time-shift, recordings and Xtream catch-up.
 - TMDB details and OpenSubtitles search with the user's own keys.
 - New-episode alerts, kids daily limits and bedtime, opening animation.
-- Flatpak packaging built on GitHub.
+- Flatpak packaging built on GitHub; English interface; window and storage split.
 
 * Fri Oct 09 2026 Luna IPTV contributors - 0.19.0-1
 - Picture and sound options, tray icon, watching statistics, first-run guide.
