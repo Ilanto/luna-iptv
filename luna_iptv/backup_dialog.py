@@ -4,6 +4,7 @@ import sqlite3
 from datetime import date
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from . import theme
 from .backup import (
     apply_backup,
     export_backup,
@@ -160,6 +162,9 @@ def restore_backup_dialog(window):
     window.load_profile()
     window._wake_refresh()
     set_motion_level(selected_setting(window.store, "motion_level", MOTION_CHOICES))
+    app = QApplication.instance()
+    if app is not None:  # a restored accent or base theme applies right away
+        theme.apply_theme(app, window.store)
     restored_ids = {source["id"] for source in data["sources"]}
     incomplete = sum(
         bool(source_incomplete(source))

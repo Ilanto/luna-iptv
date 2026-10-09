@@ -559,3 +559,9 @@ def test_legacy_buffer_clear_during_load_allows_watch_time(window, monkeypatch):
     window.loaded()
     assert not window._buffering
     assert window.watch_tracker.running
+
+
+def test_session_end_check_does_not_raise(qt_app):
+    from luna_iptv.window import MainWindow
+
+    assert MainWindow._session_ending() in (True, False)

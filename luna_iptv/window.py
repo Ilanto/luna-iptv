@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSlider,
@@ -2677,11 +2677,19 @@ class MainWindow(QMainWindow):
         self._quitting = True
         self.close()
 
+    @staticmethod
+    def _session_ending():
+        """Logout or shutdown in progress (the session manager is saving)."""
+        app = QGuiApplication.instance()
+        saving = getattr(app, "isSavingSession", None)
+        return bool(saving and saving())
+
     def closeEvent(self, event):
         if self._closed:
             event.accept()
             return
-        if not self._quitting and self.tray.hide_on_close():
+        # Logout or shutdown must really close, not hide in the tray.
+        if not self._quitting and not self._session_ending() and self.tray.hide_on_close():
             event.ignore()
             return
         self.save_progress()
