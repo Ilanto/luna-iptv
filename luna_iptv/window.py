@@ -33,6 +33,7 @@ from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
+from .kids_limits import KidsLimitPanel, KidsLimits
 from .layout import build_window
 from .library import (
     ChannelFilter,
@@ -49,6 +50,7 @@ from .models import Channel, Playlist
 from .motion import set_motion_level
 from .mpris import MprisService
 from .network import LIMIT, NetworkError, XtreamClient, channel_id, fetch, load_m3u
+from .new_episodes import NewEpisodeService
 from .parental_ui import ParentalDialog, ask_pin
 from .playback_dialogs import HistoryDialog, ResumeDialog
 from .player import Player
@@ -241,6 +243,25 @@ class MainWindow(QMainWindow):
         self._watch_timer.start()
         self.refresh_library()
         self.refresh_profile_badge()
+        self.kids_limit_panel = KidsLimitPanel(self, self.extend_kids_time, self.pick_limit_profile)
+        self.kids_limits = KidsLimits(
+            self.store,
+            self.watch_tracker.flush,
+            self.close_current,
+            self.show_kids_limit,
+            self.toast.show_message,
+            self,
+        )
+        self.kids_limits.reload()
+        self.new_episodes = NewEpisodeService(
+            self.store,
+            self.run_task,
+            self.watch_new_episode,
+            self.switch_profile,
+            self.toast.show_message,
+            self,
+        )
+        self.new_episodes.changed.connect(self.refresh_library)
         self._guide_timer = QTimer(self)
         self._guide_timer.setInterval(30000)
         self._guide_timer.timeout.connect(self.update_guide)
@@ -256,6 +277,7 @@ class MainWindow(QMainWindow):
             self,
         )
         self.recovery.changed.connect(self._wake_refresh)
+        self.refresh_scheduler.refreshed.connect(self.new_episodes.refresh)
         self.refresh_scheduler.start()
 
     def _wake_refresh(self):
@@ -559,6 +581,7 @@ class MainWindow(QMainWindow):
             self.store.favorites(),
             self.store.progress_map(),
         )
+        self.model.set_unseen_series(self.store.unseen_series())
         if self.store.pin_hash():
             self.store.lock_adult_groups()  # new adult categories from this catalogue
         self.apply_locks(filter_now=False)
@@ -1052,8 +1075,24 @@ class MainWindow(QMainWindow):
         if dialog is not None and isValid(dialog):
             dialog.reject()
 
+    def watch_new_episode(self, episode):
+        """A desktop action must also respect the parent series' content lock."""
+        source_id = episode.id.split(":", 1)[0]
+        series = next(
+            (
+                c
+                for c in self.store.channels(source_id)
+                if c.kind == "series" and c.series_id == episode.series_id
+            ),
+            None,
+        )
+        if series is not None and self.unlock_channel(series):
+            self.request_play(episode)
+
     def request_play(self, channel, *, preferences=None, approved=False, failover=False):
         """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
+        if not self.kids_limits.check():
+            return
         if not self.unlock_channel(channel, approved=approved):
             return
         if not failover:
@@ -1126,6 +1165,8 @@ class MainWindow(QMainWindow):
         )
 
     def play(self, channel, *, start_override=None, recovering=False, preferences=None):
+        if not self.kids_limits.check():
+            return
         if not channel.url:
             self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
             return
@@ -2339,6 +2380,34 @@ class MainWindow(QMainWindow):
         profile = self.store.profile(self.store.profile_id)
         return bool(profile and profile["kids"])
 
+    def show_kids_limit(self, reason):
+        if reason:
+            self.details.dismiss()
+            self.dismiss_resume()
+            self.mini_player.cancel_pending()
+            self.mini_player.leave()
+            self.fullscreen.set_active(False)
+        self.centralWidget().setEnabled(not reason)
+        self.kids_limit_panel.show_reason(reason)
+
+    def extend_kids_time(self):
+        if not self.store.pin_hash():
+            self.status("Süre eklemek için Ebeveyn denetiminden bir PIN belirle.")
+            return
+        profile_id = self.store.profile_id
+        if not self.guard("Süre eklemek için ebeveyn PIN'ini gir."):
+            return
+        choice, accepted = QInputDialog.getItem(
+            self, "Bugün için süre ekle", "Ek süre", ["15 dk", "30 dk", "60 dk"], 0, False
+        )
+        if accepted and self.store.profile_id == profile_id:
+            self.kids_limits.extend(int(choice.split()[0]), lambda: True)
+
+    def pick_limit_profile(self):
+        picker = ProfilePicker(self.store.profiles(), self.store.profile_id, self)
+        if picker.exec() == QDialog.Accepted:
+            self.switch_profile(picker.chosen)
+
     def unlock_channel(self, channel, *, approved=False):
         """May this channel open now? approved: the PIN was just asked for it."""
         if channel.id not in self.model.locked:
@@ -2464,6 +2533,7 @@ class MainWindow(QMainWindow):
         self.refresh_library()
         self.refresh_favorites()
         self.refresh_profile_badge()
+        self.kids_limits.reload()
 
     def start_session(self):
         if self._closed:
@@ -2705,6 +2775,8 @@ class MainWindow(QMainWindow):
         self.mpris.close()
         self.reminder_service.close()
         self.refresh_scheduler.close()
+        self.new_episodes.close()
+        self.kids_limits.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()

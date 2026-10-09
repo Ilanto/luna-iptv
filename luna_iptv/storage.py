@@ -153,6 +153,16 @@ class Store:
                 seconds REAL NOT NULL CHECK(seconds >= 0),
                 PRIMARY KEY(profile_id, day, channel_id)
             );
+            CREATE TABLE IF NOT EXISTS episode_checks (
+                series_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+                day TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS unseen_episodes (
+                profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                series_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                episode_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                PRIMARY KEY(profile_id, series_id, episode_id)
+            );
             CREATE TABLE IF NOT EXISTS secrets (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -354,6 +364,10 @@ class Store:
         active = remaining[0]["id"] if self.profile_id == profile_id else self.profile_id
         with self._db:
             self._db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+            self._db.executemany(
+                "DELETE FROM app_settings WHERE key=?",
+                [(f"{key}:{profile_id}",) for key in ("kids_limits", "kids_extra", "kids_warning")],
+            )
             if self.profile_id == profile_id:
                 self._db.execute(
                     """INSERT INTO app_settings(key,value) VALUES('active_profile',?)
@@ -1127,6 +1141,57 @@ class Store:
             "live_seconds": live,
             "vod_seconds": vod,
         }
+
+    def watch_seconds(self, day, *, profile_id=None):
+        profile_id = self.profile_id if profile_id is None else profile_id
+        return self._db.execute(
+            "SELECT COALESCE(SUM(seconds),0) FROM watch_log WHERE profile_id=? AND day=?",
+            (profile_id, day),
+        ).fetchone()[0]
+
+    def favorite_series(self):
+        """All profiles' series favorites, without changing the active profile."""
+        return self._db.execute(
+            """SELECT f.profile_id,c.id,c.source_id FROM favorites f
+            JOIN channels c ON c.id=f.channel_id JOIN sources s ON s.id=c.source_id
+            WHERE c.kind='series' AND s.type='xtream' ORDER BY c.rowid,f.profile_id"""
+        ).fetchall()
+
+    def episode_check_day(self, series_id):
+        row = self._db.execute(
+            "SELECT day FROM episode_checks WHERE series_id=?", (series_id,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def mark_episode_check(self, series_id, day):
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO episode_checks(series_id,day) VALUES(?,?)",
+                (series_id, day),
+            )
+
+    def mark_new_episodes(self, series_id, episodes, profiles):
+        with self._db:
+            self._db.executemany(
+                "INSERT OR IGNORE INTO unseen_episodes VALUES(?,?,?)",
+                [(pid, series_id, episode.id) for pid in profiles for episode in episodes],
+            )
+
+    def unseen_series(self):
+        return {
+            row[0]
+            for row in self._db.execute(
+                "SELECT DISTINCT series_id FROM unseen_episodes WHERE profile_id=?",
+                (self.profile_id,),
+            )
+        }
+
+    def see_series(self, series_id):
+        with self._db:
+            self._db.execute(
+                "DELETE FROM unseen_episodes WHERE profile_id=? AND series_id=?",
+                (self.profile_id, series_id),
+            )
 
     def playback_preferences(self, source_id: str) -> dict:
         from .preferences import normalize_preferences

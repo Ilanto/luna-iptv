@@ -102,6 +102,9 @@ class MediaDetailController(QObject):
         dialog.finished.connect(finished)
         self.refresh_favorite()
         dialog.show()
+        if self._series_channel is not None:
+            self.window.store.see_series(self._series_channel.id)
+            self.window.model.set_unseen_series(self.window.store.unseen_series())
         if source["type"] != "xtream":
             dialog.set_status("Bu kaynak ayrıntılı içerik bilgisi sağlamıyor.")
             return

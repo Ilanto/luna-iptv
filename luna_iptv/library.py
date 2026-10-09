@@ -42,6 +42,7 @@ def channel_key(name):
 
 PROGRESS_ROLE = Qt.UserRole + 2
 LOCKED_ROLE = Qt.UserRole + 3
+NEW_EPISODES_ROLE = Qt.UserRole + 4
 
 
 def resumable(position, duration):
@@ -62,6 +63,7 @@ class ChannelModel(QAbstractListModel):
         self.search_keys = []
         self.progress = {}
         self.locked = frozenset()  # channel ids behind the parental PIN
+        self.unseen_series = frozenset()
         self._rows = {}
         self._keys = {}  # (name, group) -> search key, reused across resets
 
@@ -85,9 +87,12 @@ class ChannelModel(QAbstractListModel):
             return position / duration if resumable(position, duration) else None
         if role == LOCKED_ROLE:
             return channel.id in self.locked
+        if role == NEW_EPISODES_ROLE:
+            return channel.kind == "series" and channel.id in self.unseen_series
         if role == Qt.AccessibleTextRole:
             locked = ", kilitli" if channel.id in self.locked else ""
-            return channel.name + ", " + channel.group + locked
+            new = ", yeni bölüm" if channel.id in self.unseen_series else ""
+            return channel.name + ", " + channel.group + locked + new
 
     def reset(self, channels, favorites, progress=None):
         self.beginResetModel()
@@ -118,6 +123,18 @@ class ChannelModel(QAbstractListModel):
         if self.channels:
             self.dataChanged.emit(
                 self.index(0, 0), self.index(len(self.channels) - 1, 0), [LOCKED_ROLE]
+            )
+
+    def set_unseen_series(self, channel_ids):
+        unseen = frozenset(channel_ids)
+        if unseen == self.unseen_series:
+            return
+        self.unseen_series = unseen
+        if self.channels:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self.channels) - 1, 0),
+                [NEW_EPISODES_ROLE, Qt.AccessibleTextRole],
             )
 
     def replace_progress(self, progress):
@@ -618,6 +635,18 @@ class ChannelDelegate(QStyledItemDelegate):
         else:
             self._paint_logo(painter, option, index, channel, card, shape, hovered or selected)
         self._paint_outline(painter, option, card, selected)
+        if index.data(NEW_EPISODES_ROLE):
+            top = card.top() + (42 if index.data(LOCKED_ROLE) else 10)
+            badge = QRectF(card.left() + 10, top, 44, 20)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme.GOLD))
+            painter.drawRoundedRect(badge, 5, 5)
+            font = QFont(option.font)
+            font.setPixelSize(10)
+            font.setWeight(QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.ACCENT_INK))
+            painter.drawText(badge, Qt.AlignCenter, "YENİ")
         painter.restore()
 
     def _stage(self, painter, channel, rect, shape, lit):
