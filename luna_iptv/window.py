@@ -62,6 +62,7 @@ from .settings_dialog import SettingsDialog
 from .shell_motion import PageTransition, WatchPanelController
 from .source_connections import HealthResult, check_connection, validate_candidate
 from .statistics import StatisticsDialog, WatchTracker
+from .subtitle_dialog import SubtitleController
 from .tasks import Task
 from .toast import Toast
 from .transport import TransportController
@@ -176,6 +177,7 @@ class MainWindow(QMainWindow):
         self._language_notice_timer.setInterval(7000)
         self._language_notice_timer.timeout.connect(self.language_notice.hide)
         self.details = MediaDetailController(self)
+        self.subtitles = SubtitleController(self)
         self.fullscreen = FullscreenController(self, self.view_layout, self.player_header)
         self.channel_banner = ChannelBanner(self.watch)
         self._banner_placer = BannerPlacer(
@@ -1126,6 +1128,7 @@ class MainWindow(QMainWindow):
         )
 
     def play(self, channel, *, start_override=None, recovering=False, preferences=None):
+        self.subtitles.dismiss()
         if not channel.url:
             self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
             return
@@ -1262,6 +1265,7 @@ class MainWindow(QMainWindow):
         self._loading = False
         self.transport.loaded()
         self.track_preferences.loaded()
+        self.subtitles.loaded()
         self._show_track_notice()
         self.media_info.mark_loaded()
         self.refresh_media_info()
@@ -1687,6 +1691,7 @@ class MainWindow(QMainWindow):
         self.video_title.setText("İyi bir yayına yer aç.")
 
     def stop_playback(self):
+        self.subtitles.dismiss()
         self.cancel_next_episode()  # Stop, profile switches and closing end the countdown too
         self.dismiss_resume()
         self.save_progress()
@@ -1892,6 +1897,9 @@ class MainWindow(QMainWindow):
                         m, t, generation=generation
                     )
                 )
+        if self.subtitles.available():
+            find_subtitle = menu.addAction("Altyazı bul…")
+            find_subtitle.triggered.connect(lambda: guarded(self.subtitles.open))
         menu.addSeparator()
         self.comfort_preferences.add_menu(
             menu, guarded, self.status, enabled=self.current is not None and not self._idle
@@ -2702,6 +2710,7 @@ class MainWindow(QMainWindow):
         self._source_health_tokens.clear()
         self.dismiss_resume()
         self.details.close()
+        self.subtitles.dismiss()
         self.track_preferences.finish()
         self.fullscreen.close()
         self.transport.close()

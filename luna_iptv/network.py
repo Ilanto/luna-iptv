@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
@@ -213,6 +214,10 @@ class XtreamClient:
             for season, row in self._episode_rows(response):
                 item_info = normalize_info(row.get("info"), row, base_url=self.base + "/")
                 item = self._episode_channel(season, row, series_id, item_info)
+                number = row.get("episode_num", "")
+                if re.fullmatch(r"[0-9]{1,5}", str(number)):
+                    item_info["season"] = str(season)
+                    item_info["episode"] = str(number)
                 channels.append(item)
                 episode_info[item.provider_key] = item_info
             series_info = response.get("info")

@@ -9,6 +9,10 @@ STARTUP_CHOICES = (
     ("Hiçbir şey yapma", "none"),
 )
 AUTOPLAY_CHOICES = (("Açık", "on"), ("Kapalı", "off"))
+INFO_LANGUAGE_CHOICES = (("Türkçe", "tr-TR"), ("English", "en-US"))
+ONLINE_SECRETS = frozenset(
+    {"tmdb_api_key", "opensubtitles_api_key", "opensubtitles_username", "opensubtitles_password"}
+)
 
 
 def selected_setting(store, key, choices):

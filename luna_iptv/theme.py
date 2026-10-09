@@ -208,6 +208,12 @@ QPushButton:hover {{ background: {HOVER}; border-color: {TEXT_MUTED}; }}
 QPushButton:focus {{ border-color: {ACCENT}; }}
 QPushButton:pressed {{ background: {ACCENT_TINT}; }}
 QPushButton:disabled {{ color: {TEXT_MUTED}; background: {DUSK}; border-color: {LINE_SOFT}; }}
+QToolButton#onlineControl {{ background: {RAISED}; border: 1px solid {LINE};
+    border-radius: 8px; padding: 7px 10px; color: {TEXT}; }}
+QToolButton#onlineControl:hover {{ background: {HOVER}; border-color: {TEXT_MUTED}; }}
+QToolButton#onlineControl:focus {{ border-color: {ACCENT}; }}
+QToolButton#onlineControl:checked {{ background: {ACCENT_TINT}; }}
+QToolButton#onlineControl:disabled {{ color: {TEXT_MUTED}; background: {DUSK}; }}
 QPushButton#primary {{ background: {ACCENT}; color: {ACCENT_INK}; border: 1px solid {ACCENT};
     font-weight: 600; border-radius: 12px; }}
 QPushButton#primary:hover {{ background: {ACCENT_STRONG}; border-color: {ACCENT_STRONG}; }}

@@ -12,11 +12,12 @@ from PySide6.QtCore import QObject, QSize, QUrl
 from PySide6.QtGui import QDesktopServices
 from shiboken6 import isValid
 
-from . import imdb
+from . import imdb, tmdb
 from .logos import LogoCache
 from .media_details import MediaDetails
 from .media_dialog import MediaDetailDialog
 from .network import XtreamClient
+from .settings import INFO_LANGUAGE_CHOICES, selected_setting
 
 DETAIL_TTL = 86400
 FAILURE_TTL = 60
@@ -104,6 +105,7 @@ class MediaDetailController(QObject):
         dialog.show()
         if source["type"] != "xtream":
             dialog.set_status("Bu kaynak ayrıntılı içerik bilgisi sağlamıyor.")
+            self._enrich(dialog, channel)
             return
         cached = self.window.store.media_details(channel.id, self._fingerprint)
         if cached is not None:
@@ -115,6 +117,7 @@ class MediaDetailController(QObject):
                     if channel.kind == "series" and not details.episodes
                     else ""
                 )
+                self._enrich(dialog, channel)
                 return
         self._request(channel, source)
 
@@ -166,6 +169,7 @@ class MediaDetailController(QObject):
         if not force and time.monotonic() < self._failures.get(key, 0):
             if self._visible(channel, fingerprint):
                 self.dialog.set_status("Ayrıntılar alınamadı. Yeniden deneyebilirsin.", retry=True)
+                self._enrich(self.dialog, channel)
             return
         if self._visible(channel, fingerprint):
             self.dialog.set_status("Ayrıntılar alınıyor…")
@@ -189,6 +193,7 @@ class MediaDetailController(QObject):
                 self.dialog.set_status(
                     "Ayrıntılar alınamadı. Mevcut bilgiler korunuyor.", retry=True
                 )
+                self._enrich(self.dialog, channel)
             finish()
 
         def loaded(details):
@@ -205,6 +210,7 @@ class MediaDetailController(QObject):
                             if channel.kind == "series" and not details.episodes
                             else ""
                         )
+                        self._enrich(self.dialog, channel)
             except (sqlite3.Error, OSError):
                 if self._visible(channel, fingerprint):
                     self.dialog.set_status("Ayrıntılar kaydedilemedi.", retry=True)
@@ -215,6 +221,49 @@ class MediaDetailController(QObject):
             lambda: XtreamClient(
                 source["location"], source["username"], source["password"]
             ).media_details(channel),
+            loaded,
+            "",
+            busy=False,
+            failure=failed,
+        )
+
+    def _enrich(self, dialog, channel):
+        key = self.window.store.online_secret("tmdb_api_key")
+        if not key or getattr(dialog, "_tmdb_requested", False):
+            return
+        dialog._tmdb_requested = True
+        fingerprint = self._fingerprint
+        details = dialog._details or MediaDetails()
+        title = details.series_title or (
+            self._series_channel.name if self._series_channel else channel.name
+        )
+        kind = "series" if channel.series_id or channel.kind == "series" else "movie"
+        language = selected_setting(self.window.store, "info_language", INFO_LANGUAGE_CHOICES)
+        client = tmdb.TMDBClient(key, self.window.store.path.parent, language)
+
+        def visible():
+            return (
+                not self._closed
+                and not self.window._closed
+                and self.dialog is dialog
+                and isValid(dialog)
+                and self._valid(channel, fingerprint)
+                and self.window.store.online_secret("tmdb_api_key") == key
+                and selected_setting(self.window.store, "info_language", INFO_LANGUAGE_CHOICES)
+                == language
+            )
+
+        def loaded(info):
+            if visible():
+                dialog.set_online_info(info)
+                dialog.set_online_status("" if info else "TMDB’de eşleşme bulunamadı.")
+
+        def failed(_error):
+            if visible():
+                dialog.set_online_status("TMDB bilgisi alınamadı. Mevcut bilgiler korunuyor.")
+
+        self.window.run_task(
+            lambda: client.lookup(channel.id, title, kind, details.info.get("year", "")),
             loaded,
             "",
             busy=False,

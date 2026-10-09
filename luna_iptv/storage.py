@@ -372,6 +372,29 @@ class Store:
         row = self._db.execute("SELECT value FROM secrets WHERE key='pin_hash'").fetchone()
         return row[0] if row is not None else None
 
+    def online_secret(self, key: str) -> str:
+        from .settings import ONLINE_SECRETS
+
+        if key not in ONLINE_SECRETS:
+            raise ValueError("Bilinmeyen çevrimiçi ayar.")
+        row = self._db.execute("SELECT value FROM secrets WHERE key=?", (key,)).fetchone()
+        return row[0] if row is not None else ""
+
+    def set_online_secret(self, key: str, value: str) -> None:
+        from .settings import ONLINE_SECRETS
+
+        if key not in ONLINE_SECRETS:
+            raise ValueError("Bilinmeyen çevrimiçi ayar.")
+        with self._db:
+            if value:
+                self._db.execute(
+                    """INSERT INTO secrets(key,value) VALUES(?,?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                    (key, value),
+                )
+            else:
+                self._db.execute("DELETE FROM secrets WHERE key=?", (key,))
+
     def set_pin_hash(self, value: str | None) -> None:
         with self._db:
             if value is None:
