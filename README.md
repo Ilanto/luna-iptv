@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.19.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.20.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -53,6 +53,19 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.20.0 · büyük özellikler
+
+- **Çoklu izleme:** canlı kanalın menüsünden "Çoklu izlemeye ekle"; 2 ya da 4 kanal yan yana, ses tıkladığın kutudan (1–4 odak, F tam ekran, M sessiz).
+- **TV modu** (F11 ya da profil menüsü): koltuktan, yalnız ok tuşları, Enter ve Geri ile; iri kartlar, sade rehber, kanal değiştirme, rakamla kanal, PIN yalnız rakamlarla.
+- **Canlı yayını duraklat ve geri sar:** geri sarma belleği (Ayarlar: 15/30/60 dk), "CANLI'ya dön".
+- **Kayıt:** oynayan kanalda ya da rehberdeki programda "Kaydet"; ayrı bir ffmpeg süreciyle (izlemeyi etkilemez), planlı kayıtlar ve "Kayıtlar" penceresi; varsayılan klasör ~/Videos/Luna.
+- **Geçmiş yayınlar (catch-up):** sağlayıcı arşivi açık Xtream kanallarında rehberdeki geçmiş programlar için "İzle (geçmiş)".
+- **TMDB ve altyazı:** kendi ücretsiz anahtarlarınla (Ayarlar → Çevrimiçi bilgi) film/dizi özeti, oyuncular, daha iyi afiş ve fragman; "Altyazı bul…" ile Türkçe/İngilizce altyazı. Anahtarlar yalnız bu bilgisayarda kalır, yedeğe girmez.
+- **Yeni bölüm haberi:** favori dizilere yeni bölüm gelince bildirim ve kartta "YENİ".
+- **Çocuk profili:** günlük süre ve yatma saati; 5 dk kala uyarı, süre dolunca nazik bir ekran; ebeveyn PIN'le süre ekleyebilir.
+- **Açılış animasyonu:** tutulma logosu bir an parlar (yalnız tam harekette).
+- **Flatpak:** her sürümle GitHub'da Flatpak paketi de yayınlanır (`flatpak install --user luna-iptv.flatpak`).
 
 ### 0.19.0 · hızlı kazançlar
 

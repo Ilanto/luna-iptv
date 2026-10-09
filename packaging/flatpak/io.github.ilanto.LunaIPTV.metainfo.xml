@@ -36,6 +36,14 @@
   <!-- Unspecified OARS attributes mean none; user-supplied streams are not bundled. -->
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.20.0" date="2026-10-09">
+      <description>
+        <p>Çoklu izleme, TV modu, canlı yayını duraklatıp geri sarma, kayıt ve geçmiş yayınlar
+        (catch-up) eklendi. Kendi anahtarınızla TMDB bilgileri ve OpenSubtitles altyazıları,
+        favori dizilerde yeni bölüm haberi, çocuk profillerine günlük süre ve yatma saati,
+        açılış animasyonu ve Flatpak paketi geldi.</p>
+      </description>
+    </release>
     <release version="0.19.0" date="2026-10-09">
       <description>
         <p>Görüntü ve ses seçenekleri, sistem tepsisi, izleme istatistikleri ve ilk açılış
