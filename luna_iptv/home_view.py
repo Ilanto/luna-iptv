@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from .card_motion import CardView
 from .dialogs import text_label
 from .home_hero import HomeHero
+from .i18n import N_, _, _n, format_number
 from .library import (
     CARD_GAP,
     CARD_HEIGHT,
@@ -35,12 +36,12 @@ from .onboarding import OnboardingCard
 def greeting(hour):
     """Local-time greeting, with exclusive upper hour boundaries."""
     if 5 <= hour < 12:
-        return "Günaydın"
+        return _("Günaydın")
     if 12 <= hour < 18:
-        return "İyi günler"
+        return _("İyi günler")
     if 18 <= hour < 23:
-        return "İyi akşamlar"
-    return "İyi geceler"
+        return _("İyi akşamlar")
+    return _("İyi geceler")
 
 
 class IdListModel(QAbstractListModel):
@@ -145,8 +146,8 @@ class HomeRow(QWidget):
         self.previous_button = QPushButton("‹")
         self.next_button = QPushButton("›")
         for button, name, step in (
-            (self.previous_button, "Önceki kartlar", -1),
-            (self.next_button, "Sonraki kartlar", 1),
+            (self.previous_button, _("Önceki kartlar"), -1),
+            (self.next_button, _("Sonraki kartlar"), 1),
         ):
             button.setObjectName("homeScroll")
             button.setFixedSize(30, 30)
@@ -179,7 +180,11 @@ class HomeRow(QWidget):
     def set_ids(self, ids, *, hide_locked):
         self.model.set_ids(ids, hide_locked=hide_locked)
         count = self.model.rowCount()
-        self.view.setAccessibleName(f"{self.title}, {count} öğe")
+        self.view.setAccessibleName(
+            _n("{title}, {count} öğe", "{title}, {count} öğeler", count).format(
+                title=self.title, count=count
+            )
+        )
         self.setVisible(count > 0)
 
     def scroll(self, direction):
@@ -244,10 +249,10 @@ class HomeView(QWidget):
         body.addWidget(self.hero)
         self.rows = {}
         for key, title, posters, resume in (
-            ("continue", "Kaldığın yerden devam et", True, True),
-            ("favorite_live", "Favorilerinde şu an", False, False),
-            ("recent_live", "Son izlenen kanallar", False, False),
-            ("favorite_vod", "Favori filmler ve diziler", True, False),
+            ("continue", _("Kaldığın yerden devam et"), True, True),
+            ("favorite_live", _("Favorilerinde şu an"), False, False),
+            ("recent_live", _("Son izlenen kanallar"), False, False),
+            ("favorite_vod", _("Favori filmler ve diziler"), True, False),
         ):
             row = HomeRow(window, title, posters=posters, resume=resume)
             body.addWidget(row)
@@ -261,19 +266,21 @@ class HomeView(QWidget):
         empty = QVBoxLayout(self.empty)
         empty.setContentsMargins(28, 28, 28, 28)
         empty.setSpacing(16)
-        title = text_label("Burası senin ana sayfan", "title")
+        title = text_label(_("Burası senin ana sayfan"), "title")
         title.setWordWrap(True)
         empty.addWidget(title)
         note = text_label(
-            "Yarım kalan filmlerin ve bölümlerin, favorilerin ve son izlediğin kanallar "
-            "burada seni bekleyecek. Bir yayın seç, kendine yer aç.",
+            _(
+                "Yarım kalan filmlerin ve bölümlerin, favorilerin ve son izlediğin kanallar "
+                "burada seni bekleyecek. Bir yayın seç, kendine yer aç."
+            ),
             "muted",
         )
         note.setWordWrap(True)
         empty.addWidget(note)
         actions = QHBoxLayout()
-        self.live_button = IconButton("Canlı TV'ye git", "live", label=True, size=16)
-        self.add_button = IconButton("Kaynak ekle", "plus", label=True, size=16)
+        self.live_button = IconButton(_("Canlı TV'ye git"), "live", label=True, size=16)
+        self.add_button = IconButton(_("Kaynak ekle"), "plus", label=True, size=16)
         self.live_button.clicked.connect(lambda: window.set_section("live"))
         self.add_button.clicked.connect(lambda: window.add_source())
         for button in (self.live_button, self.add_button):
@@ -321,8 +328,14 @@ class HomeView(QWidget):
                 candidates["favorite_vod"].append(channel)
         self.summary.setText(
             " · ".join(
-                f"{counts[kind]:,} {label}".replace(",", ".")
-                for kind, label in (("live", "canlı kanal"), ("movie", "film"), ("series", "dizi"))
+                _n(singular, plural, counts[kind]).format(
+                    count=format_number(counts[kind], decimals=0, grouping=True)
+                )
+                for kind, singular, plural in (
+                    ("live", N_("{count} canlı kanal"), N_("{count} canlı kanallar")),
+                    ("movie", N_("{count} film"), N_("{count} filmler")),
+                    ("series", N_("{count} dizi"), N_("{count} diziler")),
+                )
             )
         )
         resume_ids, live_ids = [], []

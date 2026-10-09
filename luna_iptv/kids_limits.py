@@ -8,14 +8,15 @@ from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import icons, theme
 from .dialogs import text_label
+from .i18n import N_, _
 
 LIMIT_CHOICES = (
-    ("Sınırsız", 0),
-    ("30 dk", 30),
-    ("1 sa", 60),
-    ("1,5 sa", 90),
-    ("2 sa", 120),
-    ("3 sa", 180),
+    (N_("Sınırsız"), 0),
+    (N_("30 dk"), 30),
+    (N_("1 sa"), 60),
+    (N_("1,5 sa"), 90),
+    (N_("2 sa"), 120),
+    (N_("3 sa"), 180),
 )
 
 
@@ -117,7 +118,7 @@ class KidsLimits(QObject):
                 day = now.date().isoformat()
                 if self.store.setting(key) != day:
                     self.store.set_setting(key, day)
-                    self.toast("5 dakikan kaldı")
+                    self.toast(_("5 dakikan kaldı"))
         else:
             self._timer.stop()
         self.reason = reason
@@ -172,14 +173,14 @@ class KidsLimitPanel(QWidget):
         self.heading = text_label("", "heading")
         self.heading.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.heading)
-        note = text_label("Biraz dinlenelim. Yayınlar burada seni bekliyor.", "muted")
+        note = text_label(_("Biraz dinlenelim. Yayınlar burada seni bekliyor."), "muted")
         note.setAlignment(Qt.AlignCenter)
         layout.addWidget(note)
-        self.add_button = QPushButton("Ebeveyn: süre ekle")
+        self.add_button = QPushButton(_("Ebeveyn: süre ekle"))
         self.add_button.setObjectName("primary")
         self.add_button.clicked.connect(extend)
         layout.addWidget(self.add_button, 0, Qt.AlignCenter)
-        self.switch_button = QPushButton("Profil değiştir")
+        self.switch_button = QPushButton(_("Profil değiştir"))
         self.switch_button.clicked.connect(switch)
         layout.addWidget(self.switch_button, 0, Qt.AlignCenter)
         layout.addStretch()
@@ -191,7 +192,7 @@ class KidsLimitPanel(QWidget):
             self.hide()
             return
         self.heading.setText(
-            "Bugünlük bu kadar, iyi geceler" if reason == "bedtime" else "Süren doldu"
+            _("Bugünlük bu kadar, iyi geceler") if reason == "bedtime" else _("Süren doldu")
         )
         self.setGeometry(self.parentWidget().rect())
         self.show()

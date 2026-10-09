@@ -2,6 +2,8 @@
 
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
+from .i18n import _
+
 
 class TrayController:
     def __init__(self, window, *, available=None):
@@ -9,13 +11,13 @@ class TrayController:
         self._available = available
         self.notified = False
         self.menu = QMenu(window)
-        self.title_action = self.menu.addAction("Henüz yayın seçilmedi")
+        self.title_action = self.menu.addAction(_("Henüz yayın seçilmedi"))
         self.title_action.setEnabled(False)
-        self.play_action = self.menu.addAction("Oynat/Duraklat", window.toggle_play)
-        self.recent_menu = self.menu.addMenu("Son kanallar")
+        self.play_action = self.menu.addAction(_("Oynat/Duraklat"), window.toggle_play)
+        self.recent_menu = self.menu.addMenu(_("Son kanallar"))
         self.menu.addSeparator()
-        self.show_action = self.menu.addAction("Luna'yı göster", self.show_window)
-        self.quit_action = self.menu.addAction("Çıkış", window.quit_application)
+        self.show_action = self.menu.addAction(_("Luna'yı göster"), self.show_window)
+        self.quit_action = self.menu.addAction(_("Çıkış"), window.quit_application)
         self.menu.aboutToShow.connect(self.refresh)
         # Injecting availability exercises the full lifecycle without talking
         # to the desktop notification area (including during offscreen tests).
@@ -39,7 +41,7 @@ class TrayController:
         window = self.window
         if window._closed:
             return
-        name = window.current.name if window.current else "Henüz yayın seçilmedi"
+        name = window.current.name if window.current else _("Henüz yayın seçilmedi")
         self.title_action.setText(name.replace("&", "&&"))
         self.play_action.setEnabled(window.current is not None)
         if self.icon is not None:
@@ -88,9 +90,9 @@ class TrayController:
         window.hide()
         if not self.notified:
             self.notified = True
-            window.status("Luna tepside çalışıyor")
+            window.status(_("Luna tepside çalışıyor"))
             if self.icon is not None:
-                self.icon.showMessage("Luna IPTV", "Luna tepside çalışıyor")
+                self.icon.showMessage("Luna IPTV", _("Luna tepside çalışıyor"))
         return True
 
     def close(self):

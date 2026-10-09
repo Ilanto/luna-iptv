@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from .dialogs import text_label
+from .i18n import _, _n
 from .media_controller import source_fingerprint
 from .motion import IconButton
 from .subtitles import OpenSubtitlesClient, SubtitleCache, episode_query
@@ -21,32 +22,32 @@ class SubtitleDialog(QDialog):
     def __init__(self, title, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setWindowTitle("Altyazı bul")
+        self.setWindowTitle(_("Altyazı bul"))
         self.resize(620, 400)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 20)
-        layout.addWidget(text_label("Altyazı bul", "heading"))
+        layout.addWidget(text_label(_("Altyazı bul"), "heading"))
         self.query = QLineEdit(title)
-        self.query.setAccessibleName("Film veya dizi adı")
+        self.query.setAccessibleName(_("Film veya dizi adı"))
         row = QHBoxLayout()
         row.addWidget(self.query, 1)
-        self.search_button = IconButton("Ara", "search", label=True)
+        self.search_button = IconButton(_("Ara"), "search", label=True)
         row.addWidget(self.search_button)
         layout.addLayout(row)
         self.results = QListWidget()
-        self.results.setAccessibleName("Dil, sürüm ve indirme sayısı")
+        self.results.setAccessibleName(_("Dil, sürüm ve indirme sayısı"))
         self.results.setWordWrap(True)
         layout.addWidget(self.results, 1)
-        self.note = text_label("Türkçe, ardından İngilizce altyazılar · OpenSubtitles", "muted")
+        self.note = text_label(_("Türkçe, ardından İngilizce altyazılar · OpenSubtitles"), "muted")
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
         footer = QHBoxLayout()
         footer.addStretch()
-        self.download_button = IconButton("İndir ve kullan", "tracks", label=True)
+        self.download_button = IconButton(_("İndir ve kullan"), "tracks", label=True)
         self.download_button.setEnabled(False)
         self.download_button.setObjectName("primary")
         footer.addWidget(self.download_button)
-        close = IconButton("Kapat", "close", label=True)
+        close = IconButton(_("Kapat"), "close", label=True)
         close.clicked.connect(self.reject)
         footer.addWidget(close)
         layout.addLayout(footer)
@@ -66,13 +67,19 @@ class SubtitleDialog(QDialog):
     def set_results(self, results):
         self.results.clear()
         for subtitle in results:
-            language = {"tr": "Türkçe", "en": "English"}.get(subtitle.language, subtitle.language)
+            language = {"tr": _("Türkçe"), "en": _("English")}.get(
+                subtitle.language, subtitle.language
+            )
             item = QListWidgetItem(
-                f"{language} · {subtitle.release} · {subtitle.downloads} indirme"
+                _n(
+                    "{language} · {release} · {downloads} indirme",
+                    "{language} · {release} · {downloads} indirmeler",
+                    subtitle.downloads,
+                ).format(language=language, release=subtitle.release, downloads=subtitle.downloads)
             )
             item.setData(Qt.UserRole, subtitle)
             self.results.addItem(item)
-        self.set_busy(False, "Bir altyazı seç." if results else "Altyazı bulunamadı.")
+        self.set_busy(False, _("Bir altyazı seç.") if results else _("Altyazı bulunamadı."))
 
 
 class SubtitleController(QObject):
@@ -163,7 +170,7 @@ class SubtitleController(QObject):
             query = dialog.query.text().strip()
             if not query:
                 return
-            dialog.set_busy(True, "Altyazılar aranıyor…")
+            dialog.set_busy(True, _("Altyazılar aranıyor…"))
             w.run_task(
                 lambda: client.search(channel, query, info),
                 lambda results: dialog.set_results(results) if visible() else None,
@@ -184,7 +191,7 @@ class SubtitleController(QObject):
                 return
             selected = item.data(Qt.UserRole)
             self._selection_generation += 1
-            dialog.set_busy(True, "Altyazı indiriliyor…")
+            dialog.set_busy(True, _("Altyazı indiriliyor…"))
 
             def work():
                 path = client.download(selected)

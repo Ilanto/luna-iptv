@@ -12,8 +12,16 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-NO_FFMPEG = "Kayıt için ffmpeg gerekli. ffmpeg kurup yeniden dene."
-PADDING_CHOICES = (("3 dk", 3), ("0 dk", 0), ("1 dk", 1), ("5 dk", 5), ("10 dk", 10))
+from .i18n import N_, _
+
+NO_FFMPEG = N_("Kayıt için ffmpeg gerekli. ffmpeg kurup yeniden dene.")
+PADDING_CHOICES = (
+    (N_("3 dk"), 3),
+    (N_("0 dk"), 0),
+    (N_("1 dk"), 1),
+    (N_("5 dk"), 5),
+    (N_("10 dk"), 10),
+)
 
 
 def recording_folder(store):
@@ -39,12 +47,12 @@ def recording_filename(channel, title, start):
 def recording_command(executable, channel, duration, path):
     """Arguments only; never pass a provider URL through a shell or diagnostic."""
     if duration <= 0 or not math.isfinite(duration):
-        raise ValueError("Kayıt süresi geçersiz.")
+        raise ValueError(_("Kayıt süresi geçersiz."))
     args = [executable, "-hide_banner", "-loglevel", "error", "-nostdin", "-n"]
     headers = []
     for name, value in channel.headers.items():
         if any(c in str(name) + str(value) for c in "\r\n\x00") or ":" in str(name):
-            raise ValueError("Yayın HTTP başlıkları geçersiz.")
+            raise ValueError(_("Yayın HTTP başlıkları geçersiz."))
         if name.lower() == "user-agent":
             args += ["-user_agent", str(value)]
         else:
@@ -100,11 +108,11 @@ class RecordingService(QObject):
         for item in self.store.recordings():
             if item["status"] == "running":
                 self.store.update_recording(
-                    item["id"], "interrupted", message="Kayıt yarıda kesildi."
+                    item["id"], "interrupted", message=N_("Kayıt yarıda kesildi.")
                 )
             elif item["status"] == "scheduled" and item["end"] <= now:
                 self.store.update_recording(
-                    item["id"], "missed", message="Program saati kaçırıldı."
+                    item["id"], "missed", message=N_("Program saati kaçırıldı.")
                 )
         self._arm()
 
@@ -122,21 +130,21 @@ class RecordingService(QObject):
         if self._closed:
             return None
         if not self.available:
-            raise ValueError(NO_FFMPEG)
+            raise ValueError(_(NO_FFMPEG))
         current = next((c for c in self.store.channels() if c.id == channel.id), None)
         if current is None:
-            raise ValueError("Bu kanal artık kaynakta bulunmuyor.")
+            raise ValueError(_("Bu kanal artık kaynakta bulunmuyor."))
         channel = current
         if channel.kind != "live" or not channel.url:
-            raise ValueError("Yalnızca canlı kanallar kaydedilebilir.")
+            raise ValueError(_("Yalnızca canlı kanallar kaydedilebilir."))
         if programme.start.utcoffset() is None or programme.end.utcoffset() is None:
-            raise ValueError("Program saat dilimi geçersiz.")
+            raise ValueError(_("Program saat dilimi geçersiz."))
         start, end = int(programme.start.timestamp()), int(programme.end.timestamp())
         if end <= max(start, self._clock()):
-            raise ValueError("Bitmiş program kaydedilemez.")
+            raise ValueError(_("Bitmiş program kaydedilemez."))
         locked, kids = self._is_locked(channel), self._kids()
         if locked and kids:
-            raise ValueError("Bu içerik bu profilde kapalı.")
+            raise ValueError(_("Bu içerik bu profilde kapalı."))
         if locked and not self._authorize(channel):
             return None
         # A PIN prompt can run a nested event loop and switch profiles.
@@ -184,7 +192,7 @@ class RecordingService(QObject):
                         identity, ("finished" if code == 0 else "failed", 0)
                     )[0]
                     self.store.update_recording(
-                        identity, status, message="" if code == 0 else "Kayıt sona erdi."
+                        identity, status, message="" if code == 0 else N_("Kayıt sona erdi.")
                     )
                     del self._processes[identity]
                     changed = True
@@ -202,12 +210,14 @@ class RecordingService(QObject):
                 continue
             changed = True
             if item["end"] <= now:
-                self.store.update_recording(identity, "missed", message="Program saati kaçırıldı.")
+                self.store.update_recording(
+                    identity, "missed", message=N_("Program saati kaçırıldı.")
+                )
                 continue
             channel = channels.get(item["channel_id"])
             if channel is None or channel.kind != "live" or not self._permitted(channel, item):
                 self.store.update_recording(
-                    identity, "cancelled", message="Kanal kullanılamıyor veya kilitli."
+                    identity, "cancelled", message=N_("Kanal kullanılamıyor veya kilitli.")
                 )
                 continue
             executable = self._find_ffmpeg()
@@ -232,7 +242,7 @@ class RecordingService(QObject):
                 self.store.update_recording(
                     identity,
                     "failed",
-                    message="Kayıt başlatılamadı. Klasörü ve ffmpeg'i kontrol et.",
+                    message=N_("Kayıt başlatılamadı. Klasörü ve ffmpeg'i kontrol et."),
                 )
             else:
                 self._processes[identity] = process
@@ -269,7 +279,7 @@ class RecordingService(QObject):
                 process.kill()
                 process.wait()
             self.store.update_recording(
-                identity, "interrupted", message="Uygulama kapanırken durduruldu."
+                identity, "interrupted", message=N_("Uygulama kapanırken durduruldu.")
             )
         self._processes.clear()
         self._stopping.clear()

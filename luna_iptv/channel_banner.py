@@ -6,6 +6,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout
 
 from .dialogs import text_label
+from .i18n import _
 from .library import KIND_LABELS
 
 SHOW_SECONDS = 4.5
@@ -75,7 +76,7 @@ class ChannelBanner(QFrame):
             done = (datetime.now(timezone.utc) - programme.start).total_seconds()
             self._fraction = min(1.0, max(0.0, done / span)) if span > 0 else 0.0
         else:
-            kind = "Dizi bölümü" if channel.series_id else KIND_LABELS.get(channel.kind, "")
+            kind = _("Dizi bölümü") if channel.series_id else _(KIND_LABELS.get(channel.kind, ""))
             self.title.setText(channel.group or kind)
             self.time.setText(kind if channel.group else "")
             self._fraction = 0.0
@@ -84,7 +85,11 @@ class ChannelBanner(QFrame):
         self.track.setVisible(programme is not None)
         if following is not None:
             moment = following.start.astimezone()
-            self.following.setText(f"Sonra · {moment:%H:%M}\n{following.title}")
+            self.following.setText(
+                _("Sonra · {time}\n{title}").format(
+                    time=moment.strftime("%H:%M"), title=following.title
+                )
+            )
         else:
             self.following.setText("")
         self.following.setVisible(following is not None)

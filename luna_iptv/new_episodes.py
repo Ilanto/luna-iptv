@@ -5,6 +5,7 @@ from datetime import datetime
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import reminders
+from .i18n import _, _n
 from .media_controller import source_fingerprint
 from .network import XtreamClient
 from .settings import AUTOPLAY_CHOICES, selected_setting
@@ -52,7 +53,7 @@ class NewEpisodeService(QObject):
         if self._closed or not self.enabled():
             return
         queued = set(self._queue)
-        for _, series_id, _ in self.store.favorite_series():
+        for _source_id, series_id, _name in self.store.favorite_series():
             if series_id not in queued:
                 self._queue.append(series_id)
                 queued.add(series_id)
@@ -120,10 +121,12 @@ class NewEpisodeService(QObject):
                 )
                 if new:
                     self.store.mark_new_episodes(series.id, new, owners)
-                    body = f"{series.name}: {len(new)} yeni bölüm"
+                    body = _n(
+                        "{name}: {count} yeni bölüm", "{name}: {count} yeni bölümler", len(new)
+                    ).format(name=series.name, count=len(new))
                     for profile_id in owners:
                         self.sender.send(
-                            "Yeni bölümler",
+                            _("Yeni bölümler"),
                             body,
                             lambda nid, pid=profile_id: self._sent(nid, pid, series.id, new[0].id),
                         )

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy, QWidget
 
 from . import theme
 from .channel_banner import ChannelBanner
+from .i18n import _
 from .media_controller import source_fingerprint
 from .network import XtreamClient
 from .tv_browser import TvBrowser
@@ -40,7 +41,7 @@ class TvModeWindow(QWidget):
         self._generation = 0
         self._series_pending = None
         self._native_window = None
-        self.setWindowTitle("Luna · TV modu")
+        self.setWindowTitle(_("Luna · TV modu"))
         self.setFocusPolicy(Qt.StrongFocus)
         self.setScreen(host.screen())
         self.resize(round(1920 * self.scale), round(1080 * self.scale))
@@ -79,7 +80,9 @@ class TvModeWindow(QWidget):
         self._refresh_timer.setInterval(0)
         self._refresh_timer.timeout.connect(self.refresh_rows)
         self.number_entry = NumberEntry(self)
-        self.number_entry.typing.connect(lambda digits: self.notify(f"Kanal {digits}_"))
+        self.number_entry.typing.connect(
+            lambda digits: self.notify(_("Kanal {digits}_").format(digits=digits))
+        )
         self.number_entry.chosen.connect(self.jump_to_number)
         self._apply_scale()
 
@@ -112,7 +115,7 @@ class TvModeWindow(QWidget):
         QApplication.instance().installEventFilter(self)
         self.refresh_rows()
         if self.background_audio:
-            self.notify("Ses sürüyor. Durdurmak için Geri'ye bas.")
+            self.notify(_("Ses sürüyor. Durdurmak için Geri'ye bas."))
 
     def _apply_scale(self):
         size = round(26 * self.scale)
@@ -219,8 +222,8 @@ class TvModeWindow(QWidget):
                 if self.tab == 3:
                     self.rows.append((channel.name, [channel]))
                 else:
-                    groups.setdefault(channel.group or "Diğer", []).append(channel)
-            self.rows.extend(groups.items())
+                    groups.setdefault(channel.group, []).append(channel)
+            self.rows.extend((group or _("Diğer"), items) for group, items in groups.items())
         self.columns = [0] * len(self.rows)
         self.row = min(self.row, len(self.rows) - 1)
         if previous and self.row >= 0:
@@ -251,18 +254,24 @@ class TvModeWindow(QWidget):
 
     def description(self, channel):
         if channel.id in self.host.model.locked:
-            return "Kilitli içerik · Açmak için Enter ve PIN"
+            return _("Kilitli içerik · Açmak için Enter ve PIN")
         if channel.kind == "live":
             now, following = self.now_next(channel)
             return "\n".join(
                 (
-                    f"Şimdi · {now.title}" if now else "Şimdi · Rehber bilgisi yok",
-                    f"Sonra · {following.title}" if following else "Sonra · Rehber bilgisi yok",
+                    _("Şimdi · {title}").format(title=now.title)
+                    if now
+                    else _("Şimdi · Rehber bilgisi yok"),
+                    _("Sonra · {title}").format(title=following.title)
+                    if following
+                    else _("Sonra · Rehber bilgisi yok"),
                 )
             )
         details = self._metadata.get(channel.id)
         return (
-            details.info.get("description", "Konu bilgisi yok.") if details else "Konu bilgisi yok."
+            details.info.get("description", _("Konu bilgisi yok."))
+            if details
+            else _("Konu bilgisi yok.")
         )
 
     def load_focused_details(self):
@@ -280,7 +289,7 @@ class TvModeWindow(QWidget):
                 self.row = 0 if self.rows else -1
                 self.focus_changed()
                 if not self.rows:
-                    self.notify("Bu dizide henüz bölüm bulunmuyor.")
+                    self.notify(_("Bu dizide henüz bölüm bulunmuyor."))
             return
         if open_series:
             self._series_pending = channel.id
@@ -321,7 +330,7 @@ class TvModeWindow(QWidget):
             if valid():
                 if self._series_pending == channel.id:
                     self._series_pending = None
-                    self.notify("Bölümler alınamadı. Yeniden denemek için Enter.")
+                    self.notify(_("Bölümler alınamadı. Yeniden denemek için Enter."))
                 next_focus()
 
         def next_focus():
@@ -342,7 +351,7 @@ class TvModeWindow(QWidget):
             failure=failed,
         )
         if open_series:
-            self.notify("Bölümler alınıyor…")
+            self.notify(_("Bölümler alınıyor…"))
 
     def _details_loaded(self, channel, details):
         self._metadata[channel.id] = details
@@ -364,7 +373,7 @@ class TvModeWindow(QWidget):
             self.row = 0 if self.rows else -1
             self.focus_changed()
             if not self.rows:
-                self.notify("Bu dizide henüz bölüm bulunmuyor.")
+                self.notify(_("Bu dizide henüz bölüm bulunmuyor."))
         self.browser.update()
 
     def activate(self):
@@ -426,9 +435,11 @@ class TvModeWindow(QWidget):
         number = ids.index(channel.id) + 1 if channel.id in ids else None
         self.banner.set_content(channel, number, now, following)
         self.banner.show_for(None)
-        seek = "←→ 10 sn sar" if channel.kind != "live" else "↑↓ Kanal değiştir"
+        seek = _("←→ 10 sn sar") if channel.kind != "live" else _("↑↓ Kanal değiştir")
         self.controls.setText(
-            f"{seek}  ·  P Duraklat / Oynat  ·  M Ses  ·  Enter Gizle  ·  Geri Liste"
+            _("{seek}  ·  P Duraklat / Oynat  ·  M Ses  ·  Enter Gizle  ·  Geri Liste").format(
+                seek=seek
+            )
         )
         self.controls.show()
         self.controls.raise_()
@@ -470,7 +481,7 @@ class TvModeWindow(QWidget):
             return
         channels = self.host.numbered_channels()
         if not 1 <= number <= len(channels):
-            self.notify(f"{number} numaralı kanal yok.")
+            self.notify(_("{number} numaralı kanal yok.").format(number=number))
             return
         channel = channels[number - 1]
         self.zap_ids = [c.id for c in channels]
@@ -485,11 +496,11 @@ class TvModeWindow(QWidget):
             self.hide_controls()
             self.browser.show()
             self.browser.raise_()
-            self.notify("Ses sürüyor. Durdurmak için yeniden Geri'ye bas.")
+            self.notify(_("Ses sürüyor. Durdurmak için yeniden Geri'ye bas."))
         elif self.background_audio:
             self.host.stop_playback()
             self.background_audio = False
-            self.notify("Oynatma durduruldu.")
+            self.notify(_("Oynatma durduruldu."))
         elif self.series:
             self.series = None
             self.refresh_rows()

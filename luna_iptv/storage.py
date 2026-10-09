@@ -21,6 +21,7 @@ from urllib.parse import urlsplit as urlsplit
 from .accounts import AccountProfile as AccountProfile
 from .accounts import bounded_timestamp as bounded_timestamp
 from .accounts import sanitize_profile as sanitize_profile
+from .i18n import _
 from .media_details import MediaDetails as MediaDetails
 from .media_details import normalize_info as normalize_info
 from .models import Channel as Channel
@@ -337,7 +338,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
             or len(name.strip()) > 40
             or any(unicodedata.category(c) == "Cc" for c in name)
         ):
-            raise ValueError("Profil adı 1–40 karakter olmalı ve kontrol karakteri içermemeli.")
+            raise ValueError(_("Profil adı 1–40 karakter olmalı ve kontrol karakteri içermemeli."))
         name = name.strip()
         if any(
             item["id"] != profile_id and item["name"].casefold() == name.casefold()
@@ -349,7 +350,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
     @staticmethod
     def _profile_color(color: str) -> str:
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
-            raise ValueError("Profil rengi #RRGGBB biçiminde olmalı.")
+            raise ValueError(_("Profil rengi #RRGGBB biçiminde olmalı."))
         return color
 
     def create_profile(
@@ -376,7 +377,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
         with self._db:
             current = self.profile(profile_id)
             if current is None:
-                raise ValueError("Profil bulunamadı.")
+                raise ValueError(_("Profil bulunamadı."))
             self._db.execute(
                 "UPDATE profiles SET name=?,color=?,kids=?,protected=?,avatar=? WHERE id=?",
                 (
@@ -392,7 +393,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
     def delete_profile(self, profile_id: int) -> None:
         remaining = [item for item in self.profiles() if item["id"] != profile_id]
         if self.profile(profile_id) is None:
-            raise ValueError("Profil bulunamadı.")
+            raise ValueError(_("Profil bulunamadı."))
         if not remaining:
             raise ValueError("Son profil silinemez.")
         active = remaining[0]["id"] if self.profile_id == profile_id else self.profile_id
@@ -412,7 +413,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
 
     def use_profile(self, profile_id: int) -> None:
         if self.profile(profile_id) is None:
-            raise ValueError("Profil bulunamadı.")
+            raise ValueError(_("Profil bulunamadı."))
         self.set_setting("active_profile", profile_id)
         self.profile_id = profile_id
 
@@ -420,7 +421,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
         from .settings import ONLINE_SECRETS
 
         if key not in ONLINE_SECRETS:
-            raise ValueError("Bilinmeyen çevrimiçi ayar.")
+            raise ValueError(_("Bilinmeyen çevrimiçi ayar."))
         row = self._db.execute("SELECT value FROM secrets WHERE key=?", (key,)).fetchone()
         return row[0] if row is not None else ""
 
@@ -428,7 +429,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
         from .settings import ONLINE_SECRETS
 
         if key not in ONLINE_SECRETS:
-            raise ValueError("Bilinmeyen çevrimiçi ayar.")
+            raise ValueError(_("Bilinmeyen çevrimiçi ayar."))
         with self._db:
             if value:
                 self._db.execute(
@@ -460,7 +461,7 @@ class Store(LibraryMixin, HistoryMixin, ParentalMixin, SchedulesMixin, BackupMix
     def rename_source(self, source_id: str, name: str) -> bool:
         name = name.strip()
         if not name or any(unicodedata.category(c) == "Cc" for c in name):
-            raise ValueError("Kaynak adı boş olamaz veya kontrol karakteri içeremez.")
+            raise ValueError(_("Kaynak adı boş olamaz veya kontrol karakteri içeremez."))
         with self._db:
             return (
                 self._db.execute("UPDATE sources SET name=? WHERE id=?", (name, source_id)).rowcount

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
 from . import icons, theme
 from .card_motion import CardView
+from .i18n import N_, _
 from .motion import animation_ms, motion_level, on_motion_changed
 
 
@@ -90,8 +91,8 @@ class ChannelModel(QAbstractListModel):
         if role == NEW_EPISODES_ROLE:
             return channel.kind == "series" and channel.id in self.unseen_series
         if role == Qt.AccessibleTextRole:
-            locked = ", kilitli" if channel.id in self.locked else ""
-            new = ", yeni bölüm" if channel.id in self.unseen_series else ""
+            locked = _(", kilitli") if channel.id in self.locked else ""
+            new = _(", yeni bölüm") if channel.id in self.unseen_series else ""
             return channel.name + ", " + channel.group + locked + new
 
     def reset(self, channels, favorites, progress=None):
@@ -314,7 +315,7 @@ class ChannelFilter(QSortFilterProxyModel):
             self.invalidateFilter()
 
 
-KIND_LABELS = {"live": "Canlı yayın", "movie": "Film / video", "series": "Dizi"}
+KIND_LABELS = {"live": N_("Canlı yayın"), "movie": N_("Film / video"), "series": N_("Dizi")}
 # Night-sky hues behind each logo; a channel name always maps to the same one.
 TILE_HUES = ("#16245a", "#231c55", "#132f4a", "#2c1c48", "#173444", "#1f2452")
 CARD_WIDTH = 228
@@ -646,7 +647,7 @@ class ChannelDelegate(QStyledItemDelegate):
             font.setWeight(QFont.Bold)
             painter.setFont(font)
             painter.setPen(QColor(theme.ACCENT_INK))
-            painter.drawText(badge, Qt.AlignCenter, "YENİ")
+            painter.drawText(badge, Qt.AlignCenter, _("YENİ"))
         painter.restore()
 
     def _stage(self, painter, channel, rect, shape, lit):
@@ -764,7 +765,7 @@ class ChannelDelegate(QStyledItemDelegate):
             card,
             art.bottom() + 8,
             channel.name,
-            channel.group or KIND_LABELS.get(channel.kind, ""),
+            channel.group or _(KIND_LABELS.get(channel.kind, "")),
         )
 
     def _paint_logo(self, painter, option, index, channel, card, shape, lit):
@@ -810,7 +811,7 @@ class ChannelDelegate(QStyledItemDelegate):
         painter.restore()
 
         programme = None if locked else self.now_for(channel)
-        kind = KIND_LABELS.get(channel.kind, "")
+        kind = _(KIND_LABELS.get(channel.kind, ""))
         if programme:
             start, end = programme.start.astimezone(), programme.end.astimezone()
             heading, detail_text = (

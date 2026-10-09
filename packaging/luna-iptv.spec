@@ -33,7 +33,7 @@ from pathlib import Path
 import shutil
 
 destination = Path("%{buildroot}%{_datadir}/%{name}")
-for source in Path("luna_iptv").rglob("*.py"):
+for source in [*Path("luna_iptv").rglob("*.py"), *Path("luna_iptv").rglob("locale/*.json")]:
     target = destination / source
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)

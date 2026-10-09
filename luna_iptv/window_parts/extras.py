@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _
 
 
 class ExtrasMixin:
@@ -21,7 +22,7 @@ class ExtrasMixin:
             return None
         if created and self.current is not None:
             self.close_current()
-            self.status("Çoklu izleme açıldı; ana oynatıcı bant genişliği için durduruldu.")
+            self.status(_("Çoklu izleme açıldı; ana oynatıcı bant genişliği için durduruldu."))
         view.show()
         view.raise_()
         view.activateWindow()
@@ -38,18 +39,18 @@ class ExtrasMixin:
         index = self._guide_index.get(channel.id.split(":", 1)[0])
         upcoming = index.upcoming(channel.tvg_id, 20) if index and channel.kind == "live" else []
         if upcoming:
-            reminders = menu.addMenu("Hatırlatıcı kur")
+            reminders = menu.addMenu(_("Hatırlatıcı kur"))
             for programme in upcoming:
                 label = f"{programme.start.astimezone():%d.%m %H:%M} · {programme.title}"
                 reminders.addAction(
                     label.replace("&", "&&"),
                     lambda programme=programme: self.remind_programme(channel, programme),
                 )
-        menu.addAction("Hatırlatıcılar…", self.open_reminders)
+        menu.addAction(_("Hatırlatıcılar…"), self.open_reminders)
 
     def record_current(self):
         if not self.recording_service.available:
-            self.status("Kayıt için ffmpeg gerekli. ffmpeg kurup yeniden dene.")
+            self.status(_("Kayıt için ffmpeg gerekli. ffmpeg kurup yeniden dene."))
             return
         if not self.current or self.current.kind != "live" or not self._playback_active:
             return
@@ -57,13 +58,13 @@ class ExtrasMixin:
         programme = self.programme_now(channel)
         if programme is None:
             minutes, accepted = _window.QInputDialog.getInt(
-                self, "Kaydet", "Kayıt süresi (dakika)", 60, 1, 1440
+                self, _("Kaydet"), _("Kayıt süresi (dakika)"), 60, 1, 1440
             )
             if not accepted:
                 return
             now = _window.datetime.now(_window.timezone.utc)
             programme = _window.Programme(
-                channel.tvg_id, "Canlı yayın", now, now + _window.timedelta(minutes=minutes), ""
+                channel.tvg_id, _("Canlı yayın"), now, now + _window.timedelta(minutes=minutes), ""
             )
         self.record_programme(channel, programme)
 
@@ -77,7 +78,7 @@ class ExtrasMixin:
             item = next(r for r in self.store.recordings() if r["id"] == identity)
             self.status(
                 item["message"]
-                or ("Kayıt başladı." if item["status"] == "running" else "Kayıt planlandı.")
+                or (_("Kayıt başladı.") if item["status"] == "running" else _("Kayıt planlandı."))
             )
         return identity
 
@@ -86,7 +87,7 @@ class ExtrasMixin:
         # Missing source metadata cannot safely establish the original lock policy.
         if channel is None:
             return not self.kids_profile() and (
-                not prompt or self.guard("Kaydı açmak için PIN gir.")
+                not prompt or self.guard(_("Kaydı açmak için PIN gir."))
             )
         if prompt:
             return self.unlock_channel(channel)
@@ -97,14 +98,14 @@ class ExtrasMixin:
             return
         path = _window.Path(item["path"])
         if not path.is_file():
-            self.status("Kayıt dosyası bulunamadı.")
+            self.status(_("Kayıt dosyası bulunamadı."))
             return
         channel = _window.Channel(
             f"recording:{item['id']}",
             item["title"],
             path.resolve().as_uri(),
             kind="movie",
-            group="Kayıtlar",
+            group=_("Kayıtlar"),
             parental_id=item["channel_id"],
         )
         self.request_play(channel, approved=True)
@@ -122,7 +123,7 @@ class ExtrasMixin:
 
     def play_catchup(self, channel, programme):
         if not _window.can_catchup(channel, programme):
-            self.status("Bu program sağlayıcının geçmiş yayın aralığında değil.")
+            self.status(_("Bu program sağlayıcının geçmiş yayın aralığında değil."))
             return
         source = self.source_for(channel)
         if not source or source["type"] != "xtream" or not self.unlock_channel(channel):
@@ -137,7 +138,7 @@ class ExtrasMixin:
             programme.title,
             url,
             kind="movie",
-            group="Geçmiş yayın",
+            group=_("Geçmiş yayın"),
             headers=dict(channel.headers),
             parental_id=channel.id,
         )
@@ -151,7 +152,9 @@ class ExtrasMixin:
             return None
         if reminder_id is not None:
             self.status(
-                f"Hatırlatıcı kuruldu: {programme.title}, {programme.start.astimezone():%H:%M}",
+                _("Hatırlatıcı kuruldu: {title}, {time:%H:%M}").format(
+                    title=programme.title, time=programme.start.astimezone()
+                ),
                 icon="check",
             )
         return reminder_id
@@ -180,7 +183,7 @@ class ExtrasMixin:
             return
         channel = next((item for item in self.store.channels() if item.id == channel_id), None)
         if channel is None:
-            self.status("Bu kanal artık kaynakta bulunmuyor.")
+            self.status(_("Bu kanal artık kaynakta bulunmuyor."))
             return
         self.leave_mini_player()
         _window.RemoteControl(self).raise_window()

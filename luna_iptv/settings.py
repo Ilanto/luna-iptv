@@ -1,15 +1,24 @@
 """Persisted application defaults, separate from each source's remembered choices."""
 
-MOTION_CHOICES = (("Tam", "full"), ("Az", "reduced"), ("Kapalı", "off"))
-ACCENT_CHOICES = (("Ay mavisi", "moon"), ("Altın", "gold"), ("Gül", "rose"), ("Nane", "mint"))
-BASE_THEME_CHOICES = (("Gece", "night"), ("OLED siyah", "oled"))
-STARTUP_CHOICES = (
-    ("Son kanalı seç", "select"),
-    ("Son kanalı oynat", "play"),
-    ("Hiçbir şey yapma", "none"),
+from .i18n import N_
+
+LANGUAGE_CHOICES = ((N_("Türkçe"), "tr"), (N_("English"), "en"))
+
+MOTION_CHOICES = ((N_("Tam"), "full"), (N_("Az"), "reduced"), (N_("Kapalı"), "off"))
+ACCENT_CHOICES = (
+    (N_("Ay mavisi"), "moon"),
+    (N_("Altın"), "gold"),
+    (N_("Gül"), "rose"),
+    (N_("Nane"), "mint"),
 )
-AUTOPLAY_CHOICES = (("Açık", "on"), ("Kapalı", "off"))
-INFO_LANGUAGE_CHOICES = (("Türkçe", "tr-TR"), ("English", "en-US"))
+BASE_THEME_CHOICES = ((N_("Gece"), "night"), (N_("OLED siyah"), "oled"))
+STARTUP_CHOICES = (
+    (N_("Son kanalı seç"), "select"),
+    (N_("Son kanalı oynat"), "play"),
+    (N_("Hiçbir şey yapma"), "none"),
+)
+AUTOPLAY_CHOICES = ((N_("Açık"), "on"), (N_("Kapalı"), "off"))
+INFO_LANGUAGE_CHOICES = ((N_("Türkçe"), "tr-TR"), (N_("English"), "en-US"))
 ONLINE_SECRETS = frozenset(
     {"tmdb_api_key", "opensubtitles_api_key", "opensubtitles_username", "opensubtitles_password"}
 )
@@ -41,7 +50,7 @@ def playback_defaults(store):
     return result
 
 
-REFRESH_CHOICES = (("Her gün", "daily"), ("Her 6 saatte", "6h"), ("Kapalı", "off"))
+REFRESH_CHOICES = ((N_("Her gün"), "daily"), (N_("Her 6 saatte"), "6h"), (N_("Kapalı"), "off"))
 
 
 def refresh_time(store):

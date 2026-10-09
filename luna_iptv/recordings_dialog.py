@@ -8,17 +8,18 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 
 from .dialogs import text_label
+from .i18n import N_, _
 from .motion import IconButton
 
 STATUS = {
-    "scheduled": "Planlandı",
-    "running": "Kaydediliyor",
-    "finished": "Tamamlandı",
-    "missed": "Kaçırıldı",
-    "cancelled": "İptal edildi",
-    "stopped": "Durduruldu",
-    "failed": "Başarısız",
-    "interrupted": "Yarıda kesildi",
+    "scheduled": N_("Planlandı"),
+    "running": N_("Kaydediliyor"),
+    "finished": N_("Tamamlandı"),
+    "missed": N_("Kaçırıldı"),
+    "cancelled": N_("İptal edildi"),
+    "stopped": N_("Durduruldu"),
+    "failed": N_("Başarısız"),
+    "interrupted": N_("Yarıda kesildi"),
 }
 
 
@@ -27,17 +28,17 @@ class RecordingsDialog(QDialog):
         super().__init__(parent)
         self.service, self._play, self._allowed = service, play, allowed
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setWindowTitle("Kayıtlar")
+        self.setWindowTitle(_("Kayıtlar"))
         self.resize(760, 450)
         layout = QVBoxLayout(self)
-        layout.addWidget(text_label("Kayıtlar", "heading"))
+        layout.addWidget(text_label(_("Kayıtlar"), "heading"))
         note = text_label(
-            "Planlanan kayıtlar için Luna açık kalmalı. Kapatınca çalışan kayıt durur.", "muted"
+            _("Planlanan kayıtlar için Luna açık kalmalı. Kapatınca çalışan kayıt durur."), "muted"
         )
         note.setWordWrap(True)
         layout.addWidget(note)
         self.list = QTreeWidget()
-        self.list.setHeaderLabels(["Kanal / Program", "Başlangıç", "Durum"])
+        self.list.setHeaderLabels([_("Kanal / Program"), _("Başlangıç"), _("Durum")])
         self.list.setRootIsDecorated(False)
         self.list.itemSelectionChanged.connect(self._selection)
         layout.addWidget(self.list)
@@ -45,9 +46,9 @@ class RecordingsDialog(QDialog):
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
         row = QHBoxLayout()
-        self.cancel_button = IconButton("İptal et / Durdur", "stop", label=True)
-        self.play_button = IconButton("Oynat", "play", label=True)
-        self.folder_button = IconButton("Klasörü aç", "external", label=True)
+        self.cancel_button = IconButton(_("İptal et / Durdur"), "stop", label=True)
+        self.play_button = IconButton(_("Oynat"), "play", label=True)
+        self.folder_button = IconButton(_("Klasörü aç"), "external", label=True)
         for button in (self.cancel_button, self.play_button, self.folder_button):
             row.addWidget(button)
         row.addStretch()
@@ -72,7 +73,7 @@ class RecordingsDialog(QDialog):
                 [
                     f"{recording['channel_name']} · {recording['title']}",
                     datetime.fromtimestamp(recording["start"]).strftime("%d.%m %H:%M"),
-                    STATUS.get(recording["status"], recording["status"]),
+                    _(STATUS.get(recording["status"], recording["status"])),
                 ]
             )
             item.setData(0, Qt.UserRole, recording)
@@ -88,7 +89,7 @@ class RecordingsDialog(QDialog):
         exists = bool(item and item["path"] and Path(item["path"]).is_file())
         self.play_button.setEnabled(exists and item["status"] != "running")
         self.folder_button.setEnabled(exists)
-        self.message.setText(item["message"] if item else "")
+        self.message.setText(_(item["message"]) if item else "")
 
     def _cancel(self):
         if item := self.selected():

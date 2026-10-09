@@ -10,6 +10,7 @@ from datetime import time as civil_time
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from .backup import source_incomplete
+from .i18n import _, _n
 from .settings import REFRESH_CHOICES, refresh_time, selected_setting
 
 
@@ -121,13 +122,13 @@ class RefreshScheduler(QObject):
                     else:
                         self._retry_after[source_id] = self._clock() + 1800
                     if success and changed:
-                        self._status("Kaynaklar güncellendi")
+                        self._status(_("Kaynaklar güncellendi"))
                     self.wake()
 
                 try:
                     accepted = self._refresh(source, quiet=True, on_finished=finished)
                 except Exception:
-                    self._status("Otomatik yenileme tamamlanamadı.")
+                    self._status(_("Otomatik yenileme tamamlanamadı."))
                     finished(False)
                 else:
                     if accepted is False:
@@ -169,7 +170,13 @@ class RefreshScheduler(QObject):
                 days = math.ceil(remaining / 86400)
                 notified[source["id"]] = today
                 self._store.set_setting("auto_refresh_expiry_notified", notified)
-                self._status(f"{source['name']} aboneliği {days} gün içinde bitiyor")
+                self._status(
+                    _n(
+                        "{name} aboneliği {days} gün içinde bitiyor",
+                        "{name} aboneliği {days} günler içinde bitiyor",
+                        days,
+                    ).format(name=source["name"], days=days)
+                )
                 # Toasts replace each other. Give this account a full display
                 # lifetime before checking the next account or starting refresh.
                 # Pending accounts stay unmarked, including across app restarts.

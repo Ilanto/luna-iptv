@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import storage as _storage
+from ..i18n import _
 
 
 class BackupMixin:
@@ -140,7 +141,7 @@ class BackupMixin:
         from ..backup import source_incomplete
 
         if self._db.in_transaction:
-            raise ValueError("Başka bir kayıt işlemi sürerken yedek geri yüklenemez.")
+            raise ValueError(_("Başka bir kayıt işlemi sürerken yedek geri yüklenemez."))
         with self._db:
             self._db.execute("BEGIN IMMEDIATE")
             existing_sources = {item["id"]: item for item in self.sources()}
@@ -148,7 +149,7 @@ class BackupMixin:
                 existing = existing_sources.get(source["id"])
                 if existing is not None and existing["type"] != source["type"]:
                     raise ValueError(
-                        "Yedekteki bir kaynak kimliği farklı türde bir kaynakla çakışıyor."
+                        _("Yedekteki bir kaynak kimliği farklı türde bir kaynakla çakışıyor.")
                     )
                 values = dict(source)
                 if existing is not None:
@@ -183,7 +184,7 @@ class BackupMixin:
                         and existing[1] != channel["provider_key"]
                     )
                 ):
-                    raise ValueError("Yedekteki bir kanal kimliği mevcut kanalla çakışıyor.")
+                    raise ValueError(_("Yedekteki bir kanal kimliği mevcut kanalla çakışıyor."))
                 by_provider = self._db.execute(
                     "SELECT id FROM channels "
                     "WHERE source_id=? AND provider_key=? AND provider_key<>''",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _, _n, format_number
 
 
 class GuideMixin:
@@ -60,7 +61,7 @@ class GuideMixin:
         if source is None and self.current:
             source = self.source_for(self.current)
         if source is None:
-            self.status("Önce soldan bir kaynak seç. Rehber o kaynağa bağlanacak.")
+            self.status(_("Önce soldan bir kaynak seç. Rehber o kaynağa bağlanacak."))
             return
         dialog = _window.GuideDialog(source.get("epg_url", ""), self)
         if dialog.exec() == _window.QDialog.Accepted:
@@ -96,14 +97,14 @@ class GuideMixin:
                 with _window.Path(filename).expanduser().open("rb") as stream:
                     raw = stream.read(_window.LIMIT + 1)
                 if len(raw) > _window.LIMIT:
-                    raise _window.NetworkError("Rehber boyut sınırını aşıyor.")
+                    raise _window.NetworkError(_("Rehber boyut sınırını aşıyor."))
                 if raw.startswith(b"\x1f\x8b"):
                     import io
 
                     with _window.gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
                         raw = stream.read(_window.LIMIT + 1)
                     if len(raw) > _window.LIMIT:
-                        raise _window.NetworkError("Açılmış rehber boyut sınırını aşıyor.")
+                        raise _window.NetworkError(_("Açılmış rehber boyut sınırını aşıyor."))
             return raw, _window.parse_xmltv(raw)
 
         def finish(success, changed=False):
@@ -131,7 +132,11 @@ class GuideMixin:
             self.update_guide()
             if not quiet:
                 self.status(
-                    f"Program rehberi hazır · {len(programmes):,} program.".replace(",", ".")
+                    _n(
+                        "Program rehberi hazır · {count} program.",
+                        "Program rehberi hazır · {count} programlar.",
+                        len(programmes),
+                    ).format(count=format_number(len(programmes), decimals=0, grouping=True))
                 )
             finish(True, changed)
 
@@ -145,7 +150,7 @@ class GuideMixin:
         self.run_task(
             read,
             done,
-            None if quiet else "Program rehberi okunuyor…",
+            None if quiet else _("Program rehberi okunuyor…"),
             None if quiet else lambda: self.load_guide(source),
             busy=quiet,
             failure=failed,
@@ -171,9 +176,9 @@ class GuideMixin:
         if not self.current:
             return
         if self.current.kind != "live":
-            self.now_title.setText("Kaldığın yer hatırlanır.")
+            self.now_title.setText(_("Kaldığın yer hatırlanır."))
             self.next_title.setText(
-                "Ses, altyazı ve baştan başlatma seçenekleri Oynatma menüsünde."
+                _("Ses, altyazı ve baştan başlatma seçenekleri Oynatma menüsünde.")
             )
             return
         source = self.source_for(self.current)
@@ -181,13 +186,15 @@ class GuideMixin:
         now = index.now(self.current.tvg_id) if index else None
         upcoming = index.upcoming(self.current.tvg_id, 4) if index else []
         self.now_title.setText(
-            f"ŞİMDİ  {now.start.astimezone():%H:%M} — {now.end.astimezone():%H:%M}   {now.title}"
+            _("ŞİMDİ  {start:%H:%M} — {end:%H:%M}   {title}").format(
+                start=now.start.astimezone(), end=now.end.astimezone(), title=now.title
+            )
             if now
-            else "Bu kanal için güncel program bulunamadı."
+            else _("Bu kanal için güncel program bulunamadı.")
         )
         self.next_title.setText(
-            "SIRADA\n"
+            _("SIRADA\n")
             + "\n".join(f"{item.start.astimezone():%H:%M}   {item.title}" for item in upcoming)
             if upcoming
-            else "Rehber kanal kimliği, listedeki tvg-id ile eşleşmelidir."
+            else _("Rehber kanal kimliği, listedeki tvg-id ile eşleşmelidir.")
         )

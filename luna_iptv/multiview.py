@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .dialogs import text_label
+from .i18n import _
 from .idle_inhibit import IdleInhibit
 from .layout import button
 from .player import Player, VideoWidget
@@ -39,7 +40,7 @@ class MultiViewTile(QFrame):
         self.setFocusPolicy(Qt.ClickFocus)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(3, 3, 3, 3)
-        self.empty = text_label("Canlı kanalın menüsünden\nÇoklu izlemeye ekle", "muted")
+        self.empty = text_label(_("Canlı kanalın menüsünden\nÇoklu izlemeye ekle"), "muted")
         self.empty.setAlignment(Qt.AlignCenter)
         self.empty.setWordWrap(True)
         self.empty.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -59,7 +60,7 @@ class MultiViewTile(QFrame):
             label.setAttribute(Qt.WA_TransparentForMouseEvents)
             labels.addWidget(label)
         row.addLayout(labels, 1)
-        self.clear_button = button("×", self.clear, tip="Bu kutucuğu boşalt")
+        self.clear_button = button("×", self.clear, tip=_("Bu kutucuğu boşalt"))
         self.clear_button.setFixedSize(28, 28)
         row.addWidget(self.clear_button)
         self.strip.installEventFilter(self)
@@ -105,7 +106,7 @@ class MultiViewTile(QFrame):
             return
         self.name_label.setText(self.channel.name)
         programme = self.view.host.programme_now(self.channel)
-        self.programme_label.setText(programme.title if programme else "Program bilgisi yok")
+        self.programme_label.setText(programme.title if programme else _("Program bilgisi yok"))
         self.strip.setToolTip(f"{self.channel.name}\n{self.programme_label.text()}")
 
     def _queue_event(self, player, kind, *_):
@@ -121,7 +122,7 @@ class MultiViewTile(QFrame):
             self.refresh_programme()
         elif kind == "error":
             # Backend messages may contain source details; keep the overlay generic.
-            self.programme_label.setText("Yayın açılamadı. Kanalı yeniden ekleyebilirsin.")
+            self.programme_label.setText(_("Yayın açılamadı. Kanalı yeniden ekleyebilirsin."))
         self.view.sync_idle()
 
     def clear(self):
@@ -141,7 +142,7 @@ class MultiViewTile(QFrame):
             player.deleteLater()
         self.strip.hide()
         self.empty.show()
-        self.setAccessibleName(f"{self.index + 1} · Boş kutucuk")
+        self.setAccessibleName(_("{number} · Boş kutucuk").format(number=self.index + 1))
         self.view.sync_idle()
 
     def eventFilter(self, watched, event):
@@ -181,26 +182,26 @@ class MultiViewWindow(QWidget):
         self._mute_failed = False
         self._mute_completed.connect(self._finish_mute)
         self.idle_inhibit = IdleInhibit()
-        self.setWindowTitle("Çoklu izleme")
+        self.setWindowTitle(_("Çoklu izleme"))
         self.resize(1000, 600)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 8, 10, 10)
         outer.setSpacing(8)
         bar = QHBoxLayout()
         bar.setSpacing(6)
-        bar.addWidget(text_label("Çoklu izleme", "title"))
+        bar.addWidget(text_label(_("Çoklu izleme"), "title"))
         bar.addStretch()
         self.layout_buttons = {}
         for count, title in ((2, "1×2"), (4, "2×2")):
             control = button(title, lambda checked=False, n=count: self.set_layout(n))
             control.setCheckable(True)
-            control.setAccessibleName(f"{count} kanal düzeni")
+            control.setAccessibleName(_("{count} kanal düzeni").format(count=count))
             self.layout_buttons[count] = control
             bar.addWidget(control)
-        self.mute_button = button("Sessiz", self.toggle_mute, tip="Tüm sesi aç / kapat (M)")
+        self.mute_button = button(_("Sessiz"), self.toggle_mute, tip=_("Tüm sesi aç / kapat (M)"))
         self.mute_button.setCheckable(True)
         bar.addWidget(self.mute_button)
-        bar.addWidget(button("⛶", self.toggle_fullscreen, tip="Tam ekran (F)"))
+        bar.addWidget(button("⛶", self.toggle_fullscreen, tip=_("Tam ekran (F)")))
         outer.addLayout(bar)
         self.grid = QGridLayout()
         self.grid.setSpacing(8)

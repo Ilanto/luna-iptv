@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _
 
 
 class PlaybackMixin:
@@ -23,10 +24,10 @@ class PlaybackMixin:
             return False
         row = self._proxy_row(self.current.id)
         if row is None:
-            self.status("Bu kanal şu anki listede yok; önce listeden bir kanal seç.")
+            self.status(_("Bu kanal şu anki listede yok; önce listeden bir kanal seç."))
             return False
         rows = self.proxy.rowCount()
-        for _ in range(rows - 1):
+        for _attempt in range(rows - 1):
             row = (row + step) % rows
             channel = self.proxy.index(row, 0).data(_window.Qt.UserRole)
             if channel.kind == "live" and channel.id not in self.model.locked:
@@ -62,7 +63,9 @@ class PlaybackMixin:
             self.request_play(index.data(_window.Qt.UserRole))
             return
         self.welcome_subtitle.setText(
-            f"Son izlediğin: {index.data(_window.Qt.UserRole).name}\nOynatmak için Enter'a bas."
+            _("Son izlediğin: {name}\nOynatmak için Enter'a bas.").format(
+                name=index.data(_window.Qt.UserRole).name
+            )
         )
 
     def resume_position(self, channel):
@@ -178,7 +181,7 @@ class PlaybackMixin:
             return
         self.subtitles.dismiss()
         if not channel.url:
-            self.status("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile.")
+            self.status(_("Bu bölüm yeniden alınmalı. Diziyi açıp bölüm listesini yenile."))
             return
         if (
             self.current
@@ -244,13 +247,15 @@ class PlaybackMixin:
         self.info_button.setEnabled(True)
         self.video_title.setText(channel.name)
         self.video_badge.setText(
-            "CANLI YAYIN" if channel.kind == "live" else channel.group.upper() or "FİLM / VİDEO"
+            _("CANLI YAYIN")
+            if channel.kind == "live"
+            else channel.group.upper() or _("FİLM / VİDEO")
         )
         self.favorite_button.setEnabled(not bool(channel.parental_id))
         self.favorite_button.setText("★" if channel.id in self.store.favorites() else "☆")
         self.video_stack.setCurrentIndex(1)
         self.seek.setEnabled(False)
-        self.time_label.setText("Bağlanıyor…")
+        self.time_label.setText(_("Bağlanıyor…"))
         self.update_guide()
         self._playback_token = self.player.reserve_load()
         self._untracked_playback_token = None
@@ -259,7 +264,7 @@ class PlaybackMixin:
         self._sync_playback_state()
         self.recovery.watch(self._playback_token)
         self.status(
-            "Yayın açılıyor…",
+            _("Yayın açılıyor…"),
             lambda: self.play(self.current) if self.current and self._current_persistent else None,
         )
         self.refresh_recovery()
@@ -307,7 +312,7 @@ class PlaybackMixin:
         self.info_button.setEnabled(self.current is not None)
         # mpv only reports pause changes; a new file starting unpaused sends none.
         self.play_button.setText("▶" if self._playback_paused else "Ⅱ")
-        self.status(self.recovery.message or "Yayın oynatılıyor.")
+        self.status(self.recovery.message or _("Yayın oynatılıyor."))
         self.comfort_preferences.loaded(volume=self.volume.value())
         self._sync_playback_state()
         self.save_progress()
@@ -445,7 +450,7 @@ class PlaybackMixin:
                 + (
                     f" / {_window.clock_text(self._duration)}"
                     if self._duration > 0
-                    else "  ·  CANLI"
+                    else _("  ·  CANLI")
                 )
             )
             if abs(self._position - self._last_saved) >= 5:
@@ -469,7 +474,7 @@ class PlaybackMixin:
                 self._playback_paused = bool(value)
                 self._sync_playback_state()
         elif name == "mute":
-            self.mute_button.setText("Sessiz" if value else "Ses")
+            self.mute_button.setText(_("Sessiz") if value else _("Ses"))
         elif name == "volume" and value is not None:
             self.volume.blockSignals(True)
             self.volume.setMaximum(max(100, self.comfort_preferences.values["boost"], round(value)))
@@ -482,7 +487,7 @@ class PlaybackMixin:
             self._idle = bool(value)
             self._sync_playback_state()
         elif name == "paused-for-cache" and value:
-            self.status("Yayın arabelleğe alınıyor…")
+            self.status(_("Yayın arabelleğe alınıyor…"))
         elif (
             name == "paused-for-cache"
             and value is False
@@ -490,7 +495,7 @@ class PlaybackMixin:
             and not self._loading
             and not self._idle
         ):
-            self.status("Yayın oynatılıyor.")
+            self.status(_("Yayın oynatılıyor."))
 
         self.refresh_live_transport()
 
@@ -515,7 +520,7 @@ class PlaybackMixin:
 
     def toggle_play(self):
         if self.current and not self._current_persistent:
-            self.status("Bu yayın artık kaynakta bulunmuyor. Listeden başka bir yayın seç.")
+            self.status(_("Bu yayın artık kaynakta bulunmuyor. Listeden başka bir yayın seç."))
             return
         if self.current and self._idle:
             self.play(self.current)
@@ -541,12 +546,12 @@ class PlaybackMixin:
 
     def refresh_live_transport(self):
         window = self.transport.live_window
-        for button, direction in (
-            (self.seek_back_button, "geri"),
-            (self.seek_forward_button, "ileri"),
+        for button, tooltip in (
+            (self.seek_back_button, _("{seconds} saniye geri")),
+            (self.seek_forward_button, _("{seconds} saniye ileri")),
         ):
             button.caption = "10" if window else "5"
-            button.setToolTip(f"{button.caption} saniye {direction}")
+            button.setToolTip(tooltip.format(seconds=button.caption))
             button.setAccessibleName(button.toolTip())
             button.update()
         self.live_edge_button.setVisible(self.transport.behind_live)
@@ -567,8 +572,12 @@ class PlaybackMixin:
         self.seek.setEnabled(self.transport.can_seek)
         if not self.seek.isSliderDown():
             self.seek.setValue(round(1000 * (self._position - start) / (end - start)))
-        self.time_label.setText(f"−{_window.clock_text(end - self._position)} / CANLI")
-        self.seek.setToolTip(f"Önbellek: {_window.clock_text(end - start)} · CANLI")
+        self.time_label.setText(
+            _("−{time} / CANLI").format(time=_window.clock_text(end - self._position))
+        )
+        self.seek.setToolTip(
+            _("Önbellek: {time} · CANLI").format(time=_window.clock_text(end - start))
+        )
 
     def _reload_live_cache(self):
         if self.current and self.current.kind == "live" and self._playback_active:
@@ -584,7 +593,7 @@ class PlaybackMixin:
         self._current_persistent = False
         self.favorite_button.setEnabled(False)
         self.video_stack.setCurrentIndex(0)
-        self.video_title.setText("İyi bir yayına yer aç.")
+        self.video_title.setText(_("İyi bir yayına yer aç."))
 
     def stop_playback(self):
         self.subtitles.dismiss()
@@ -608,7 +617,7 @@ class PlaybackMixin:
         self.fullscreen.set_info_visible(False)
         self.info_button.setEnabled(False)
         self.player.stop()
-        self.status("Yayın durduruldu.")
+        self.status(_("Yayın durduruldu."))
         self.seek.setEnabled(False)
 
     def cancel_recovery(self):
@@ -654,7 +663,9 @@ class PlaybackMixin:
             return False
         source = self.source_for(alternative)
         self._failover_tried = tried
-        note = f"{failed.name} açılmadı; {source['name'] if source else 'diğer kaynak'} üzerinden açılıyor."
+        note = _("{name} açılmadı; {source} üzerinden açılıyor.").format(
+            name=failed.name, source=source["name"] if source else _("diğer kaynak")
+        )
 
         def switch():
             self.request_play(alternative, failover=True)
@@ -741,11 +752,11 @@ class PlaybackMixin:
             if not self._closed and self.track_preferences.generation == generation:
                 callback()
 
-        for mode, title in [("audio", "Ses parçaları"), ("sub", "Altyazılar")]:
+        for mode, title in [("audio", _("Ses parçaları")), ("sub", _("Altyazılar"))]:
             sub = menu.addMenu(title)
             sub.setEnabled(self.current is not None and not self._idle)
             tracks = [t for t in self._tracks if isinstance(t, dict) and t.get("type") == mode]
-            off = sub.addAction("Kapalı")
+            off = sub.addAction(_("Kapalı"))
             off.setCheckable(True)
             off.setChecked(not any(t.get("selected") for t in tracks))
             off.triggered.connect(
@@ -754,7 +765,11 @@ class PlaybackMixin:
                 )
             )
             for track in tracks:
-                label = track.get("title") or track.get("lang") or f"Parça {track.get('id', '')}"
+                label = (
+                    track.get("title")
+                    or track.get("lang")
+                    or _("Parça {id}").format(id=track.get("id", ""))
+                )
                 action = sub.addAction(str(label).replace("&", "&&"))
                 action.setCheckable(True)
                 action.setChecked(bool(track.get("selected")))
@@ -764,30 +779,30 @@ class PlaybackMixin:
                     )
                 )
         if self.subtitles.available():
-            find_subtitle = menu.addAction("Altyazı bul…")
+            find_subtitle = menu.addAction(_("Altyazı bul…"))
             find_subtitle.triggered.connect(lambda: guarded(self.subtitles.open))
         menu.addSeparator()
         self.comfort_preferences.add_menu(
             menu, guarded, self.status, enabled=self.current is not None and not self._idle
         )
         menu.addSeparator()
-        remember = menu.addAction("Bu kaynak için tercihleri hatırla")
+        remember = menu.addAction(_("Bu kaynak için tercihleri hatırla"))
         remember.setCheckable(True)
         remember.setChecked(self.track_preferences.remember)
         remember.setEnabled(self.track_preferences.source_id is not None)
         remember.triggered.connect(
             lambda checked: guarded(lambda: self.track_preferences.set_remember(checked))
         )
-        reset = menu.addAction("Ses ve altyazı tercihlerini sıfırla")
+        reset = menu.addAction(_("Ses ve altyazı tercihlerini sıfırla"))
         reset.setEnabled(self.track_preferences.source_id is not None)
         reset.triggered.connect(lambda: guarded(self.track_preferences.reset))
         menu.addSeparator()
-        record = menu.addAction("Kaydet", self.record_current)
+        record = menu.addAction(_("Kaydet"), self.record_current)
         record.setEnabled(
             bool(self.current and self.current.kind == "live" and self._playback_active)
         )
-        menu.addAction("Kayıtlar…", self.open_recordings)
-        restart = menu.addAction("Baştan başlat")
+        menu.addAction(_("Kayıtlar…"), self.open_recordings)
+        restart = menu.addAction(_("Baştan başlat"))
         restart.setEnabled(
             self.current is not None and self._current_persistent and self.current.kind != "live"
         )

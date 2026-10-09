@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlencode, urlsplit
 
+from .i18n import _
 from .online import OnlineError, read_json, request, write_bytes, write_json
 from .tmdb import clean_title
 
@@ -88,7 +89,7 @@ class SubtitleCache:
     def remember(self, channel_id, path):
         path = Path(path)
         if path.parent != self.directory or not re.fullmatch(r"\d+\.srt", path.name):
-            raise ValueError("Geçersiz altyazı yolu.")
+            raise ValueError(_("Geçersiz altyazı yolu."))
         write_json(self._record(channel_id), {"file": path.name})
 
     def remembered(self, channel_id):
@@ -160,7 +161,7 @@ class OpenSubtitlesClient:
                         Subtitle(
                             file_id,
                             str(attributes.get("language") or language),
-                            str(attributes.get("release") or file.get("file_name") or "Altyazı"),
+                            str(attributes.get("release") or file.get("file_name") or _("Altyazı")),
                             downloads if type(downloads) is int else 0,
                         )
                     )
@@ -224,4 +225,4 @@ class OpenSubtitlesClient:
 class OnlineErrorLogin(OnlineError):
     def __init__(self):
         super().__init__(401)
-        self.args = ("İndirmek için Ayarlar’da OpenSubtitles kullanıcı adı ve şifresini gir.",)
+        self.args = (_("İndirmek için Ayarlar’da OpenSubtitles kullanıcı adı ve şifresini gir."),)

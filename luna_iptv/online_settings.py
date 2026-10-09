@@ -4,6 +4,7 @@ from PySide6.QtCore import QThreadPool, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QToolButton
 
 from .dialogs import text_label
+from .i18n import _
 from .settings import INFO_LANGUAGE_CHOICES
 from .subtitles import OpenSubtitlesClient
 from .tasks import Task
@@ -19,12 +20,12 @@ class OnlineSettings:
         self.verify_buttons = {}
         self.verify_labels = {}
         self.show_buttons = {}
-        section = self._section(layout, "ÇEVRİMİÇİ BİLGİ")
+        section = self._section(layout, _("ÇEVRİMİÇİ BİLGİ"))
         for key, title in (
-            ("tmdb_api_key", "TMDB API anahtarı"),
-            ("opensubtitles_api_key", "OpenSubtitles API anahtarı"),
-            ("opensubtitles_username", "OpenSubtitles kullanıcı adı (isteğe bağlı)"),
-            ("opensubtitles_password", "OpenSubtitles şifresi (isteğe bağlı)"),
+            ("tmdb_api_key", _("TMDB API anahtarı")),
+            ("opensubtitles_api_key", _("OpenSubtitles API anahtarı")),
+            ("opensubtitles_username", _("OpenSubtitles kullanıcı adı (isteğe bağlı)")),
+            ("opensubtitles_password", _("OpenSubtitles şifresi (isteğe bağlı)")),
         ):
             section.addWidget(text_label(title, "muted"))
             row = QHBoxLayout()
@@ -38,8 +39,8 @@ class OnlineSettings:
             row.addWidget(field, 1)
             show = QToolButton()
             show.setObjectName("onlineControl")
-            show.setText("Göster")
-            show.setAccessibleName(f"{title}: göster veya gizle")
+            show.setText(_("Göster"))
+            show.setAccessibleName(_("{title}: göster veya gizle").format(title=title))
             show.setCheckable(True)
             show.toggled.connect(
                 lambda checked, edit=field, button=show: self._show_secret(edit, button, checked)
@@ -49,28 +50,30 @@ class OnlineSettings:
             if key.endswith("api_key"):
                 button = QToolButton()
                 button.setObjectName("onlineControl")
-                button.setText("Dene")
-                button.setAccessibleName(f"{title}: dene")
+                button.setText(_("Dene"))
+                button.setAccessibleName(_("{title}: dene").format(title=title))
                 button.setEnabled(bool(field.text().strip()))
                 button.clicked.connect(lambda _=False, name=key: self._verify_online(name))
                 self.verify_buttons[key] = button
                 row.addWidget(button)
                 result = text_label("", "muted")
-                result.setAccessibleName(f"{title}: doğrulama sonucu")
+                result.setAccessibleName(_("{title}: doğrulama sonucu").format(title=title))
                 self.verify_labels[key] = result
                 row.addWidget(result)
             section.addLayout(row)
         self.info_language_combo = self._choice(
-            section, "Bilgi dili", "info_language", INFO_LANGUAGE_CHOICES
+            section, _("Bilgi dili"), "info_language", INFO_LANGUAGE_CHOICES
         )
-        note = text_label("Anahtarlar yalnız bu bilgisayarda saklanır ve yedeğe girmez.", "faint")
+        note = text_label(
+            _("Anahtarlar yalnız bu bilgisayarda saklanır ve yedeğe girmez."), "faint"
+        )
         note.setWordWrap(True)
         section.addWidget(note)
 
     @staticmethod
     def _show_secret(field, button, visible):
         field.setEchoMode(QLineEdit.Normal if visible else QLineEdit.Password)
-        button.setText("Gizle" if visible else "Göster")
+        button.setText(_("Gizle") if visible else _("Göster"))
 
     def _save_online(self, key, value):
         self.store.set_online_secret(key, value)

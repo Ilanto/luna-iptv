@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _, _n, format_date
 
 
 class SettingsMixin:
@@ -15,12 +16,15 @@ class SettingsMixin:
         if not hasattr(self, "_hidden_category_count"):
             return
         self.hidden_categories_label.setText(
-            f'{self._hidden_category_count} kategori gizli · <a href="edit" style="color: {_window.theme.ACCENT};'
-            f' text-decoration: none;">Düzenle</a>'
+            _n(
+                '{count} kategori gizli · <a href="edit" style="color: {color}; text-decoration: none;">Düzenle</a>',
+                '{count} kategoriler gizli · <a href="edit" style="color: {color}; text-decoration: none;">Düzenle</a>',
+                self._hidden_category_count,
+            ).format(count=self._hidden_category_count, color=_window.theme.ACCENT)
         )
 
     def open_settings(self):
-        if not self.guard("Ayarları açmak için PIN gir."):
+        if not self.guard(_("Ayarları açmak için PIN gir.")):
             return
         if self._settings_dialog is None or not _window.isValid(self._settings_dialog):
             self._settings_dialog = _window.SettingsDialog(
@@ -42,19 +46,20 @@ class SettingsMixin:
         menu = _window.QMenu(self)
         if self.updates.available:
             menu.addAction(
-                f"Yeni sürüm: Luna {self.updates.available[0]} · İndir", self.open_update_page
+                _("Yeni sürüm: Luna {version} · İndir").format(version=self.updates.available[0]),
+                self.open_update_page,
             )
             menu.addSeparator()
-        rename = menu.addAction("Seçili kaynağı yeniden adlandır")
+        rename = menu.addAction(_("Seçili kaynağı yeniden adlandır"))
         rename.setEnabled(source is not None and not self._busy)
         rename.triggered.connect(lambda: self.rename_source(source))
-        edit = menu.addAction("Bağlantıyı düzenle")
+        edit = menu.addAction(_("Bağlantıyı düzenle"))
         edit.setEnabled(source is not None and not self._busy)
         edit.triggered.connect(lambda: self.edit_source(source))
-        refresh = menu.addAction("Seçili kaynağı yenile")
+        refresh = menu.addAction(_("Seçili kaynağı yenile"))
         refresh.setEnabled(source is not None and not self._busy)
         refresh.triggered.connect(lambda: self.import_source(source))
-        check = menu.addAction("Bağlantıyı kontrol et")
+        check = menu.addAction(_("Bağlantıyı kontrol et"))
         check.setEnabled(source is not None)
         check.triggered.connect(lambda: self.check_source(source))
         if source is not None:
@@ -62,50 +67,54 @@ class SettingsMixin:
             if snapshot is not None:
                 status, checked_at = snapshot
                 label = {
-                    "available": "Ulaşılabilir",
-                    "responding": "Sunucu yanıt veriyor",
-                    "unverified": "Akış doğrulanmadı",
-                    "unavailable": "Ulaşılamıyor",
-                }.get(status, "Bilinmiyor")
-                moment = _window.datetime.fromtimestamp(checked_at).strftime("%d.%m.%Y %H:%M")
-                last_check = menu.addAction(f"Son kontrol: {label} · {moment}")
+                    "available": _("Ulaşılabilir"),
+                    "responding": _("Sunucu yanıt veriyor"),
+                    "unverified": _("Akış doğrulanmadı"),
+                    "unavailable": _("Ulaşılamıyor"),
+                }.get(status, _("Bilinmiyor"))
+                moment = format_date(_window.datetime.fromtimestamp(checked_at), include_time=True)
+                last_check = menu.addAction(
+                    _("Son kontrol: {label} · {moment}").format(label=label, moment=moment)
+                )
                 last_check.setEnabled(False)
             else:
-                last_check = menu.addAction("Son kontrol: Henüz kontrol edilmedi")
+                last_check = menu.addAction(_("Son kontrol: Henüz kontrol edilmedi"))
                 last_check.setEnabled(False)
         if source is not None and source["type"] == "xtream":
-            account = menu.addAction("Hesap durumu")
+            account = menu.addAction(_("Hesap durumu"))
             account.triggered.connect(lambda: self.open_account(source))
-        remove = menu.addAction("Seçili kaynağı kaldır")
+        remove = menu.addAction(_("Seçili kaynağı kaldır"))
         remove.setEnabled(source is not None and not self._busy)
         remove.triggered.connect(lambda: self.remove_source(source))
         menu.addSeparator()
-        backup = menu.addAction("Yedekle…", self.export_backup)
+        backup = menu.addAction(_("Yedekle…"), self.export_backup)
         backup.setEnabled(not self._busy)
-        restore = menu.addAction("Yedekten geri yükle…", self.restore_backup)
+        restore = menu.addAction(_("Yedekten geri yükle…"), self.restore_backup)
         restore.setEnabled(not self._busy)
         menu.addSeparator()
-        menu.addAction("Kısayollar ve hakkında", self.about)
-        menu.addAction("Hatırlatıcılar…", self.open_reminders)
-        menu.addAction("Kayıtlar…", self.open_recordings)
+        menu.addAction(_("Kısayollar ve hakkında"), self.about)
+        menu.addAction(_("Hatırlatıcılar…"), self.open_reminders)
+        menu.addAction(_("Kayıtlar…"), self.open_recordings)
         return menu
 
     def export_backup(self):
         from ..backup_dialog import save_backup_dialog
 
-        if not self.guard("Yedek almak için PIN gir."):
+        if not self.guard(_("Yedek almak için PIN gir.")):
             return
         save_backup_dialog(self)
 
     def restore_backup(self):
         from ..backup_dialog import restore_backup_dialog
 
-        if not self.guard("Yedekten geri yüklemek için PIN gir."):
+        if not self.guard(_("Yedekten geri yüklemek için PIN gir.")):
             return
         restore_backup_dialog(self)
 
     def update_found(self, version, page):
-        self.status(f"Luna {version} çıktı. Kaynak menüsünden indirebilirsin.")
+        self.status(
+            _("Luna {version} çıktı. Kaynak menüsünden indirebilirsin.").format(version=version)
+        )
 
     def open_update_page(self):
         if self.updates.available:
@@ -115,5 +124,7 @@ class SettingsMixin:
         _window.QMessageBox.information(
             self,
             "Luna IPTV",
-            f"Luna IPTV {_window.__version__}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\n0–9  Kanal numarasıyla geç\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır.",
+            _(
+                "Luna IPTV {version}\nÖzgün, kişisel Linux IPTV istemcisi.\n\nCtrl+O  Kaynak ekle\nCtrl+F  Ara\nBoşluk  Oynat / duraklat\nF  Tam ekran\nM  Sesi aç / kapat\n← / →  5 saniye sar\nJ / L  Geri / ileri tara: 2×–16×\nK  Normal oynatmaya dön\nPage Up / Page Down  Önceki / sonraki kanal\n0–9  Kanal numarasıyla geç\nEsc  Tam ekrandan çık\n\nQt + libmpv · Native Wayland ve X11\nHesaplar yalnızca yerel diskte saklanır."
+            ).format(version=_window.__version__),
         )

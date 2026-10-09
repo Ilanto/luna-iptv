@@ -20,11 +20,14 @@ from PySide6.QtWidgets import (
 
 from . import icons, theme
 from .dialogs import text_label
+from .i18n import N_, _, _n, format_number
 from .library import search_key
 from .parental import hash_pin, valid_pin, verify_pin
 
 ATTEMPTS = 5
 LOCKOUT_SECONDS = 30
+_DEFAULT_PIN_PLACEHOLDER = N_("PIN")
+_DEFAULT_PIN_TITLE = N_("PIN belirle")
 # Shared by every PIN prompt, so closing and reopening the prompt does not reset the count.
 _failures = {"count": 0, "until": 0.0}
 
@@ -33,14 +36,14 @@ def reset_failures():
     _failures.update(count=0, until=0.0)
 
 
-def pin_field(placeholder="PIN"):
+def pin_field(placeholder=_DEFAULT_PIN_PLACEHOLDER):
     field = QLineEdit()
     field.setObjectName("pinField")
     field.setEchoMode(QLineEdit.Password)
     field.setAlignment(Qt.AlignCenter)
     field.setMaxLength(8)
-    field.setPlaceholderText(placeholder)
-    field.setAccessibleName(placeholder)
+    field.setPlaceholderText(_(placeholder))
+    field.setAccessibleName(_(placeholder))
     field.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,8}"), field))
     return field
 
@@ -61,14 +64,14 @@ class PinDialog(QDialog):
     def __init__(self, store, reason, parent=None, *, clock=time.monotonic):
         super().__init__(parent)
         self.setObjectName("pinDialog")
-        self.setWindowTitle("PIN gerekli")
+        self.setWindowTitle(_("PIN gerekli"))
         self._store = store
         self._clock = clock
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 20)
         layout.setSpacing(12)
         layout.addWidget(lock_badge(), 0, Qt.AlignHCenter)
-        title = text_label("PIN gerekli", "heading")
+        title = text_label(_("PIN gerekli"), "heading")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
         self.reason = text_label(reason, "muted")
@@ -82,8 +85,8 @@ class PinDialog(QDialog):
         self.error.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.error)
         buttons = QDialogButtonBox()
-        self.cancel_button = buttons.addButton("Vazgeç", QDialogButtonBox.RejectRole)
-        self.open_button = buttons.addButton("Aç", QDialogButtonBox.AcceptRole)
+        self.cancel_button = buttons.addButton(_("Vazgeç"), QDialogButtonBox.RejectRole)
+        self.open_button = buttons.addButton(_("Aç"), QDialogButtonBox.AcceptRole)
         self.open_button.setObjectName("primary")
         self.open_button.setDefault(True)
         buttons.rejected.connect(self.reject)
@@ -105,7 +108,13 @@ class PinDialog(QDialog):
         self.field.setEnabled(not locked)
         self.open_button.setEnabled(not locked)
         if locked:
-            self.error.setText(f"Çok fazla yanlış deneme. {math.ceil(wait)} saniye sonra dene.")
+            self.error.setText(
+                _n(
+                    "Çok fazla yanlış deneme. {seconds} saniye sonra dene.",
+                    "Çok fazla yanlış deneme. {seconds} saniyeler sonra dene.",
+                    math.ceil(wait),
+                ).format(seconds=math.ceil(wait))
+            )
         return locked
 
     def try_pin(self):
@@ -122,7 +131,13 @@ class PinDialog(QDialog):
             self._refresh_lockout()
         else:
             left = ATTEMPTS - _failures["count"]
-            self.error.setText(f"PIN yanlış. {left} deneme hakkın kaldı.")
+            self.error.setText(
+                _n(
+                    "PIN yanlış. {left} deneme hakkın kaldı.",
+                    "PIN yanlış. {left} denemeler hakkın kaldı.",
+                    left,
+                ).format(left=left)
+            )
         return False
 
 
@@ -136,26 +151,26 @@ def ask_pin(store, reason, parent=None):
 class NewPinDialog(QDialog):
     """Choose a PIN, typed twice."""
 
-    def __init__(self, parent=None, *, title="PIN belirle"):
+    def __init__(self, parent=None, *, title=_DEFAULT_PIN_TITLE):
         super().__init__(parent)
         self.setObjectName("pinDialog")
-        self.setWindowTitle(title)
+        self.setWindowTitle(_(title))
         self.pin = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 20)
         layout.setSpacing(12)
         layout.addWidget(lock_badge(), 0, Qt.AlignHCenter)
-        heading = text_label(title, "heading")
+        heading = text_label(_(title), "heading")
         heading.setAlignment(Qt.AlignCenter)
         layout.addWidget(heading)
         hint = text_label(
-            "4 ile 8 rakam arası. Çocukların tahmin edemeyeceği bir PIN seç.", "muted"
+            _("4 ile 8 rakam arası. Çocukların tahmin edemeyeceği bir PIN seç."), "muted"
         )
         hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignCenter)
         layout.addWidget(hint)
-        self.first = pin_field("Yeni PIN")
-        self.second = pin_field("Yeni PIN (tekrar)")
+        self.first = pin_field(_("Yeni PIN"))
+        self.second = pin_field(_("Yeni PIN (tekrar)"))
         self.second.returnPressed.connect(self.save)
         layout.addWidget(self.first)
         layout.addWidget(self.second)
@@ -163,8 +178,8 @@ class NewPinDialog(QDialog):
         self.error.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.error)
         buttons = QDialogButtonBox()
-        buttons.addButton("Vazgeç", QDialogButtonBox.RejectRole)
-        self.save_button = buttons.addButton("Kaydet", QDialogButtonBox.AcceptRole)
+        buttons.addButton(_("Vazgeç"), QDialogButtonBox.RejectRole)
+        self.save_button = buttons.addButton(_("Kaydet"), QDialogButtonBox.AcceptRole)
         self.save_button.setObjectName("primary")
         self.save_button.clicked.disconnect()
         self.save_button.clicked.connect(self.save)
@@ -174,10 +189,10 @@ class NewPinDialog(QDialog):
 
     def save(self):
         if not valid_pin(self.first.text()):
-            self.error.setText("PIN 4 ile 8 rakam arası olmalı.")
+            self.error.setText(_("PIN 4 ile 8 rakam arası olmalı."))
             return False
         if self.first.text() != self.second.text():
-            self.error.setText("İki PIN aynı değil.")
+            self.error.setText(_("İki PIN aynı değil."))
             self.second.clear()
             return False
         self.pin = self.first.text()
@@ -192,7 +207,7 @@ class ParentalDialog(QDialog):
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Ebeveyn denetimi")
+        self.setWindowTitle(_("Ebeveyn denetimi"))
         self.resize(560, 620)
         self._store = store
         self._filling = False
@@ -202,34 +217,34 @@ class ParentalDialog(QDialog):
         head = QHBoxLayout()
         head.addWidget(lock_badge(40))
         titles = QVBoxLayout()
-        titles.addWidget(text_label("Ebeveyn denetimi", "heading"))
+        titles.addWidget(text_label(_("Ebeveyn denetimi"), "heading"))
         self.summary = text_label("", "muted")
         self.summary.setWordWrap(True)
         titles.addWidget(self.summary)
         head.addLayout(titles, 1)
         layout.addLayout(head)
-        self.setup_button = QPushButton("PIN belirle ve başla")
+        self.setup_button = QPushButton(_("PIN belirle ve başla"))
         self.setup_button.setObjectName("primary")
         self.setup_button.clicked.connect(self.set_up)
         layout.addWidget(self.setup_button, 0, Qt.AlignLeft)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Kategori ara…")
+        self.search.setPlaceholderText(_("Kategori ara…"))
         self.search.setClearButtonEnabled(True)
-        self.search.setAccessibleName("Kategori ara")
+        self.search.setAccessibleName(_("Kategori ara"))
         self.search.textChanged.connect(self._filter)
         layout.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setObjectName("lockTree")
         self.tree.setHeaderHidden(True)
-        self.tree.setAccessibleName("Kilitli kategoriler")
+        self.tree.setAccessibleName(_("Kilitli kategoriler"))
         self.tree.itemChanged.connect(self._item_changed)
         layout.addWidget(self.tree, 1)
         tools = QHBoxLayout()
-        self.adult_button = QPushButton("Yetişkin kategorilerini bul")
+        self.adult_button = QPushButton(_("Yetişkin kategorilerini bul"))
         self.adult_button.clicked.connect(self.find_adult)
-        self.change_button = QPushButton("PIN'i değiştir")
+        self.change_button = QPushButton(_("PIN'i değiştir"))
         self.change_button.clicked.connect(self.change_pin)
-        self.off_button = QPushButton("Denetimi kapat")
+        self.off_button = QPushButton(_("Denetimi kapat"))
         self.off_button.setObjectName("danger")
         self.off_button.clicked.connect(self.turn_off)
         for button in (self.adult_button, self.change_button):
@@ -238,7 +253,7 @@ class ParentalDialog(QDialog):
         tools.addWidget(self.off_button)
         layout.addLayout(tools)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.button(QDialogButtonBox.Close).setText("Kapat")
+        buttons.button(QDialogButtonBox.Close).setText(_("Kapat"))
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.refresh()
@@ -255,16 +270,17 @@ class ParentalDialog(QDialog):
         self.setup_button.setVisible(not active)
         if not active:
             self.summary.setText(
-                "Bir PIN belirle. Seçtiğin kategoriler ve yayınlar her açılışta PIN ister; "
-                "ayarlar, kaynaklar, yedekler ve profiller de PIN'le korunur. "
-                "Çocuk profillerinde kilitli içerik hiç görünmez."
+                _(
+                    "Bir PIN belirle. Seçtiğin kategoriler ve yayınlar her açılışta PIN ister; ayarlar, kaynaklar, yedekler ve profiller de PIN'le korunur. Çocuk profillerinde kilitli içerik hiç görünmez."
+                )
             )
             return
         groups = self._store.locked_groups()
         channels = self._store.locked_channels()
         self.summary.setText(
-            f"{len(groups)} kategori ve {len(channels)} yayın kilitli. "
-            "Kilitli içerik her açılışta PIN ister."
+            _(
+                "{count} kategori ve {count_2} yayın kilitli. Kilitli içerik her açılışta PIN ister."
+            ).format(count=len(groups), count_2=len(channels))
         )
         self._fill(groups, channels)
 
@@ -280,7 +296,7 @@ class ParentalDialog(QDialog):
                 parent.setFlags(Qt.ItemIsEnabled)
                 self.tree.addTopLevelItem(parent)
                 parents[source_id] = parent
-            item = QTreeWidgetItem([f"{group}   {count:,}".replace(",", ".")])
+            item = QTreeWidgetItem([f"{group}   {format_number(count, decimals=0, grouping=True)}"])
             item.setData(0, Qt.UserRole, ("group", source_id, group))
             item.setData(0, Qt.UserRole + 1, search_key(group))
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
@@ -288,7 +304,7 @@ class ParentalDialog(QDialog):
             parent.addChild(item)
         if channels:
             by_id = {channel.id: channel for channel in self._store.channels()}
-            parent = QTreeWidgetItem(["Tek tek kilitlenen yayınlar"])
+            parent = QTreeWidgetItem([_("Tek tek kilitlenen yayınlar")])
             parent.setFlags(Qt.ItemIsEnabled)
             self.tree.addTopLevelItem(parent)
             for channel_id in sorted(channels, key=lambda c: by_id[c].name if c in by_id else c):
@@ -329,9 +345,11 @@ class ParentalDialog(QDialog):
 
     def _update_summary(self):
         self.summary.setText(
-            f"{len(self._store.locked_groups())} kategori ve "
-            f"{len(self._store.locked_channels())} yayın kilitli. "
-            "Kilitli içerik her açılışta PIN ister."
+            _(
+                "{count} kategori ve {count_2} yayın kilitli. Kilitli içerik her açılışta PIN ister."
+            ).format(
+                count=len(self._store.locked_groups()), count_2=len(self._store.locked_channels())
+            )
         )
 
     def set_up(self):
@@ -344,8 +362,9 @@ class ParentalDialog(QDialog):
         self.changed.emit()
         if found:
             self.summary.setText(
-                f"PIN kaydedildi. {found} yetişkin kategorisi kendiliğinden kilitlendi; "
-                "listeden değiştirebilirsin."
+                _(
+                    "PIN kaydedildi. {found} yetişkin kategorisi kendiliğinden kilitlendi; listeden değiştirebilirsin."
+                ).format(found=found)
             )
         return True
 
@@ -355,23 +374,25 @@ class ParentalDialog(QDialog):
         if found:
             self.changed.emit()
         self.summary.setText(
-            f"{found} yeni yetişkin kategorisi kilitlendi."
+            _("{found} yeni yetişkin kategorisi kilitlendi.").format(found=found)
             if found
-            else "Yeni yetişkin kategorisi bulunmadı. Kendin işaretleyebilirsin."
+            else _("Yeni yetişkin kategorisi bulunmadı. Kendin işaretleyebilirsin.")
         )
         return found
 
     def change_pin(self):
-        dialog = NewPinDialog(self, title="PIN'i değiştir")
+        dialog = NewPinDialog(self, title=_("PIN'i değiştir"))
         if dialog.exec() == QDialog.Accepted:
             self._store.set_pin_hash(hash_pin(dialog.pin))
-            self.summary.setText("Yeni PIN kaydedildi.")
+            self.summary.setText(_("Yeni PIN kaydedildi."))
 
     def turn_off(self):
         answer = QMessageBox.question(
             self,
-            "Denetimi kapat",
-            "PIN silinsin mi? Kilit seçimlerin saklanır ama PIN belirleyene kadar etkisiz kalır.",
+            _("Denetimi kapat"),
+            _(
+                "PIN silinsin mi? Kilit seçimlerin saklanır ama PIN belirleyene kadar etkisiz kalır."
+            ),
             QMessageBox.Yes | QMessageBox.No,
         )
         if answer != QMessageBox.Yes:

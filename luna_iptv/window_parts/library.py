@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _, _n, format_number
 
 
 class LibraryMixin:
@@ -10,7 +11,7 @@ class LibraryMixin:
         previous = select_source if select_source is not None else self.source_combo.currentData()
         self.source_combo.blockSignals(True)
         self.source_combo.clear()
-        self.source_combo.addItem("Tüm kaynaklar", "")
+        self.source_combo.addItem(_("Tüm kaynaklar"), "")
         for source in self.store.sources():
             self.source_combo.addItem(source["name"], source["id"])
         index = self.source_combo.findData(previous)
@@ -43,13 +44,15 @@ class LibraryMixin:
         self.filter_changed()
         self.details.invalidate()
         has_channels = bool(self.model.channels)
-        self.welcome_title.setText("Yayının hazır." if has_channels else "Ekran senin.")
+        self.welcome_title.setText(_("Yayının hazır.") if has_channels else _("Ekran senin."))
         self.welcome_subtitle.setText(
-            "Soldan bir yayın seç.\nİzleme alanın burada."
+            _("Soldan bir yayın seç.\nİzleme alanın burada.")
             if has_channels
-            else "Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak."
+            else _("Kendi listeni ekle. Sevdiğin yayını seç.\nGerisini Luna’ya bırak.")
         )
-        self.welcome_action.setText("Başka kaynak ekle" if has_channels else "İlk kaynağını ekle")
+        self.welcome_action.setText(
+            _("Başka kaynak ekle") if has_channels else _("İlk kaynağını ekle")
+        )
         self.refresh_home()
         self._reminders_changed()  # the visible guide must not keep removed channels
 
@@ -83,11 +86,11 @@ class LibraryMixin:
             b.setChecked(key == section)
         self.section_title.setText(
             {
-                "live": "Canlı TV",
-                "movie": "Filmler",
-                "series": "Diziler",
-                "favorites": "Favoriler",
-                "recent": "Son izlenenler",
+                "live": _("Canlı TV"),
+                "movie": _("Filmler"),
+                "series": _("Diziler"),
+                "favorites": _("Favoriler"),
+                "recent": _("Son izlenenler"),
             }[section]
         )
         self.search.clear()
@@ -106,7 +109,7 @@ class LibraryMixin:
         current = self.category.currentData() or ""
         self.category.blockSignals(True)
         self.category.clear()
-        self.category.addItem("Tüm kategoriler", "")
+        self.category.addItem(_("Tüm kategoriler"), "")
         hidden = self.model.locked if self.proxy.hide_locked else frozenset()
         counts = _window.Counter()
         positions = {}
@@ -149,10 +152,10 @@ class LibraryMixin:
         self._refresh_theme_details()
         self.refresh_folders()
 
-    def edit_categories(self, *_):
+    def edit_categories(self, *_args):
         if self.proxy.section not in ("live", "movie", "series"):
             return
-        if not self.guard("Kategori düzenini değiştirmek için PIN gir."):
+        if not self.guard(_("Kategori düzenini değiştirmek için PIN gir.")):
             return
         dialog = _window.CategoryEditor(self.store, self.proxy.source, self.proxy.section, self)
         if dialog.exec() == _window.QDialog.Accepted:
@@ -161,7 +164,7 @@ class LibraryMixin:
 
     def refresh_folders(self):
         folders = self.store.folders()
-        if self._folder_id not in {folder_id for folder_id, _ in folders}:
+        if self._folder_id not in {folder_id for folder_id, _name in folders}:
             self._folder_id = None
         self.proxy.folder_ids = (
             self.store.folder_items(self._folder_id) if self._folder_id is not None else None
@@ -196,20 +199,20 @@ class LibraryMixin:
         self.filter_changed()
 
     def create_folder(self, channel=None):
-        name, accepted = _window.QInputDialog.getText(self, "Yeni klasör", "Klasör adı:")
+        name, accepted = _window.QInputDialog.getText(self, _("Yeni klasör"), _("Klasör adı:"))
         if not accepted:
             return
         try:
             folder_id = self.store.create_folder(name)
         except ValueError as error:
-            _window.QMessageBox.warning(self, "Klasör oluşturulamadı", str(error))
+            _window.QMessageBox.warning(self, _("Klasör oluşturulamadı"), str(error))
             return
         if channel is not None:
             self.set_folder_membership(folder_id, channel, True)
         else:
             self.refresh_folders()
             self.filter_changed()
-        self.status(f"“{name.strip()}” klasörü oluşturuldu.", icon="check")
+        self.status(_("“{name}” klasörü oluşturuldu.").format(name=name.strip()), icon="check")
         return folder_id
 
     def rename_folder(self, folder_id):
@@ -217,14 +220,14 @@ class LibraryMixin:
         if name is None:
             return
         name, accepted = _window.QInputDialog.getText(
-            self, "Klasörü yeniden adlandır", "Klasör adı:", _window.QLineEdit.Normal, name
+            self, _("Klasörü yeniden adlandır"), _("Klasör adı:"), _window.QLineEdit.Normal, name
         )
         if not accepted:
             return
         try:
             self.store.rename_folder(folder_id, name)
         except ValueError as error:
-            _window.QMessageBox.warning(self, "Klasör yeniden adlandırılamadı", str(error))
+            _window.QMessageBox.warning(self, _("Klasör yeniden adlandırılamadı"), str(error))
             return
         self.refresh_folders()
 
@@ -235,8 +238,8 @@ class LibraryMixin:
         if (
             _window.QMessageBox.question(
                 self,
-                "Klasörü sil",
-                f"“{name}” klasörü silinsin mi?\nFavorilerin korunacak.",
+                _("Klasörü sil"),
+                _("“{name}” klasörü silinsin mi?\nFavorilerin korunacak.").format(name=name),
                 _window.QMessageBox.Yes | _window.QMessageBox.No,
                 _window.QMessageBox.No,
             )
@@ -249,8 +252,8 @@ class LibraryMixin:
 
     def build_folder_menu(self, folder_id):
         menu = _window.QMenu(self)
-        menu.addAction("Yeniden adlandır…", lambda: self.rename_folder(folder_id))
-        menu.addAction("Sil", lambda: self.delete_folder(folder_id))
+        menu.addAction(_("Yeniden adlandır…"), lambda: self.rename_folder(folder_id))
+        menu.addAction(_("Sil"), lambda: self.delete_folder(folder_id))
         return menu
 
     def folder_context_menu(self, folder_id, position):
@@ -262,10 +265,10 @@ class LibraryMixin:
         menu = _window.QMenu(self)
         favorite = channel.id in self.store.favorites()
         menu.addAction(
-            "Favorilerden çıkar" if favorite else "Favorilere ekle",
+            _("Favorilerden çıkar") if favorite else _("Favorilere ekle"),
             lambda: self.toggle_channel_favorite(channel),
         )
-        folders = menu.addMenu("Klasöre ekle")
+        folders = menu.addMenu(_("Klasöre ekle"))
         memberships = self.store.folders_of(channel.id)
         for folder_id, name in self.store.folders():
             action = folders.addAction(name)
@@ -275,16 +278,16 @@ class LibraryMixin:
                 lambda checked, fid=folder_id: self.set_folder_membership(fid, channel, checked)
             )
         folders.addSeparator()
-        folders.addAction("Yeni klasör…", lambda: self.create_folder(channel))
+        folders.addAction(_("Yeni klasör…"), lambda: self.create_folder(channel))
         self._add_reminder_menu(menu, channel)
         if channel.kind == "live":
-            menu.addAction("Çoklu izlemeye ekle", lambda: self.open_multiview(channel))
+            menu.addAction(_("Çoklu izlemeye ekle"), lambda: self.open_multiview(channel))
         if self.store.pin_hash() and not self.kids_profile():
             menu.addSeparator()
             if channel.id in self.store.locked_channels():
-                menu.addAction("Kilidi kaldır…", lambda: self.set_channel_locked(channel, False))
+                menu.addAction(_("Kilidi kaldır…"), lambda: self.set_channel_locked(channel, False))
             elif channel.id not in self.model.locked:
-                menu.addAction("Kilitle", lambda: self.set_channel_locked(channel, True))
+                menu.addAction(_("Kilitle"), lambda: self.set_channel_locked(channel, True))
         return menu
 
     def channel_context_menu(self, position):
@@ -314,7 +317,7 @@ class LibraryMixin:
         self.proxy.kind = kind
         self.filter_changed()
 
-    def filter_changed(self, *_):
+    def filter_changed(self, *_args):
         self.proxy.query = self.search.text().casefold().strip()
         favorites = self.proxy.section == "favorites"
         self.proxy.group = "" if favorites else self.category.currentData() or ""
@@ -326,17 +329,25 @@ class LibraryMixin:
         if searching:
             counts = self.proxy.search_counts()
             kinds = [
-                ("live", "Canlı", counts["live"]),
-                ("movie", "Film", counts["movie"]),
-                ("series", "Dizi", counts["series"]),
+                ("live", _("Canlı"), counts["live"]),
+                ("movie", _("Film"), counts["movie"]),
+                ("series", _("Dizi"), counts["series"]),
             ]
             programmes = self.programme_hits(self.search.text())
             if programmes:
-                kinds.append(("guide", "Rehberde", programmes))
+                kinds.append(("guide", _("Rehberde"), programmes))
             self.kind_bar.set_items(kinds, self.proxy.kind)
-            self.count_label.setText(f"{count:,} sonuç".replace(",", "."))
+            self.count_label.setText(
+                _n("{count} sonuç", "{count} sonuçlar", count).format(
+                    count=format_number(count, decimals=0, grouping=True)
+                )
+            )
         else:
-            self.count_label.setText(f"{count:,} yayın".replace(",", "."))
+            self.count_label.setText(
+                _n("{count} yayın", "{count} yayınlar", count).format(
+                    count=format_number(count, decimals=0, grouping=True)
+                )
+            )
         self.category_bar.setVisible(not searching and not favorites)
         self.hidden_categories_label.setVisible(
             bool(self._hidden_category_count)
@@ -351,9 +362,9 @@ class LibraryMixin:
         self.no_results.setVisible(count == 0 and not loading)
         self.channel_list.setVisible(count > 0 or loading)
         self.no_results.setText(
-            "Aramana uygun yayın yok.\nFiltreleri değiştirebilirsin."
+            _("Aramana uygun yayın yok.\nFiltreleri değiştirebilirsin.")
             if self.model.channels
-            else "Henüz yayın yok.\nBir kaynak ekleyerek başla."
+            else _("Henüz yayın yok.\nBir kaynak ekleyerek başla.")
         )
 
     def activate_index(self, index):
@@ -410,11 +421,11 @@ class LibraryMixin:
         self.filter_changed()
         self.refresh_home()
         self.status(
-            "İzleme geçmişi temizlendi."
+            _("İzleme geçmişi temizlendi.")
             + (
-                " Devam etme konumları sıfırlandı."
+                _(" Devam etme konumları sıfırlandı.")
                 if reset_progress
-                else " Kaldığın yerler korundu."
+                else _(" Kaldığın yerler korundu.")
             )
         )
 
@@ -428,9 +439,9 @@ class LibraryMixin:
         self.store.set_favorite(channel.id, favorite)
         self.refresh_favorites()
         self.status(
-            f"{channel.name} favorilere eklendi."
+            _("{name} favorilere eklendi.").format(name=channel.name)
             if favorite
-            else f"{channel.name} favorilerden çıkarıldı.",
+            else _("{name} favorilerden çıkarıldı.").format(name=channel.name),
             icon="check",
         )
 

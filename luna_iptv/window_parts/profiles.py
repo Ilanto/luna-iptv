@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _
 
 
 class ProfilesMixin:
@@ -27,16 +28,17 @@ class ProfilesMixin:
 
     def extend_kids_time(self):
         if not self.store.pin_hash():
-            self.status("Süre eklemek için Ebeveyn denetiminden bir PIN belirle.")
+            self.status(_("Süre eklemek için Ebeveyn denetiminden bir PIN belirle."))
             return
         profile_id = self.store.profile_id
-        if not self.guard("Süre eklemek için ebeveyn PIN'ini gir."):
+        if not self.guard(_("Süre eklemek için ebeveyn PIN'ini gir.")):
             return
+        choices = [_("15 dk"), _("30 dk"), _("60 dk")]
         choice, accepted = _window.QInputDialog.getItem(
-            self, "Bugün için süre ekle", "Ek süre", ["15 dk", "30 dk", "60 dk"], 0, False
+            self, _("Bugün için süre ekle"), _("Ek süre"), choices, 0, False
         )
         if accepted and self.store.profile_id == profile_id:
-            self.kids_limits.extend(int(choice.split()[0]), lambda: True)
+            self.kids_limits.extend((15, 30, 60)[choices.index(choice)], lambda: True)
 
     def pick_limit_profile(self):
         picker = _window.ProfilePicker(self.store.profiles(), self.store.profile_id, self)
@@ -48,9 +50,11 @@ class ProfilesMixin:
         if (channel.parental_id or channel.id) not in self.model.locked:
             return True
         if self.kids_profile():
-            self.status("Bu içerik bu profilde kapalı.")
+            self.status(_("Bu içerik bu profilde kapalı."))
             return False
-        return approved or self.guard(f"“{channel.name}” kilitli. Açmak için PIN gir.")
+        return approved or self.guard(
+            _("“{name}” kilitli. Açmak için PIN gir.").format(name=channel.name)
+        )
 
     def locked_ids(self):
         """Channels behind the PIN: locked one by one or through their category."""
@@ -81,14 +85,20 @@ class ProfilesMixin:
                 self.close_current()
 
     def set_channel_locked(self, channel, locked):
-        if not locked and not self.guard(f"“{channel.name}” kilidini kaldırmak için PIN gir."):
+        if not locked and not self.guard(
+            _("“{name}” kilidini kaldırmak için PIN gir.").format(name=channel.name)
+        ):
             return
         self.store.set_channel_locked(channel.id, locked)
         self.apply_locks()
-        self.status(f"“{channel.name}” kilitlendi." if locked else "Kilit kaldırıldı.")
+        self.status(
+            _("“{name}” kilitlendi.").format(name=channel.name)
+            if locked
+            else _("Kilit kaldırıldı.")
+        )
 
     def open_parental(self):
-        if not self.guard("Ebeveyn denetimini açmak için PIN gir."):
+        if not self.guard(_("Ebeveyn denetimini açmak için PIN gir.")):
             return
         dialog = _window.ParentalDialog(self.store, self)
         dialog.changed.connect(self.apply_locks)
@@ -96,7 +106,7 @@ class ProfilesMixin:
         dialog.exec()
 
     def open_profiles(self):
-        if not self.guard("Profilleri yönetmek için PIN gir."):
+        if not self.guard(_("Profilleri yönetmek için PIN gir.")):
             return
         dialog = _window.ProfilesDialog(self.store, self)
         dialog.deleting.connect(self._deleting_profile)
@@ -125,12 +135,12 @@ class ProfilesMixin:
                 lambda checked=False, pid=profile["id"]: self.switch_profile(pid)
             )
         menu.addSeparator()
-        menu.addAction("TV modu (F11)", self.toggle_tv_mode)
-        menu.addAction("Çoklu izleme", self.open_multiview)
-        menu.addAction("İstatistikler", self.open_statistics)
-        menu.addAction("Profilleri yönet…", self.open_profiles)
-        menu.addAction("Ebeveyn denetimi…", self.open_parental)
-        menu.addAction("Kayıtlar…", self.open_recordings)
+        menu.addAction(_("TV modu (F11)"), self.toggle_tv_mode)
+        menu.addAction(_("Çoklu izleme"), self.open_multiview)
+        menu.addAction(_("İstatistikler"), self.open_statistics)
+        menu.addAction(_("Profilleri yönet…"), self.open_profiles)
+        menu.addAction(_("Ebeveyn denetimi…"), self.open_parental)
+        menu.addAction(_("Kayıtlar…"), self.open_recordings)
         return menu
 
     def open_statistics(self):
@@ -146,13 +156,13 @@ class ProfilesMixin:
         if target is None or profile_id == self.store.profile_id:
             return False
         if (target["protected"] or self.kids_profile()) and not self.guard(
-            f"“{target['name']}” profiline geçmek için PIN gir."
+            _("“{name}” profiline geçmek için PIN gir.").format(name=target["name"])
         ):
             return False
         self.leave_profile()
         self.store.use_profile(profile_id)
         self.load_profile()
-        self.status(f"{target['name']} profili açık.", icon="check")
+        self.status(_("{name} profili açık.").format(name=target["name"]), icon="check")
         return True
 
     def leave_profile(self):
@@ -198,7 +208,7 @@ class ProfilesMixin:
         profile = self.store.profile(self.store.profile_id)
         if not (profile["protected"] and self.store.pin_hash()):
             return profile["id"]
-        if self.guard(f"“{profile['name']}” profiline girmek için PIN gir."):
+        if self.guard(_("“{name}” profiline girmek için PIN gir.").format(name=profile["name"])):
             return profile["id"]
         fallback = next((p for p in self.store.profiles() if not p["protected"]), None)
         if fallback is None:
@@ -206,5 +216,5 @@ class ProfilesMixin:
             return None
         self.store.use_profile(fallback["id"])
         self.load_profile()
-        self.status(f"{fallback['name']} profili açık.", icon="check")
+        self.status(_("{name} profili açık.").format(name=fallback["name"]), icon="check")
         return fallback["id"]

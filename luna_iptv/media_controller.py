@@ -13,6 +13,7 @@ from PySide6.QtGui import QDesktopServices
 from shiboken6 import isValid
 
 from . import imdb, tmdb
+from .i18n import _
 from .logos import LogoCache
 from .media_details import MediaDetails
 from .media_dialog import MediaDetailDialog
@@ -107,7 +108,7 @@ class MediaDetailController(QObject):
             self.window.store.see_series(self._series_channel.id)
             self.window.model.set_unseen_series(self.window.store.unseen_series())
         if source["type"] != "xtream":
-            dialog.set_status("Bu kaynak ayrıntılı içerik bilgisi sağlamıyor.")
+            dialog.set_status(_("Bu kaynak ayrıntılı içerik bilgisi sağlamıyor."))
             self._enrich(dialog, channel)
             return
         cached = self.window.store.media_details(channel.id, self._fingerprint)
@@ -116,7 +117,7 @@ class MediaDetailController(QObject):
             self._display(details, source)
             if 0 <= time.time() - checked_at < DETAIL_TTL:
                 dialog.set_status(
-                    "Bu dizide henüz bölüm bulunmuyor."
+                    _("Bu dizide henüz bölüm bulunmuyor.")
                     if channel.kind == "series" and not details.episodes
                     else ""
                 )
@@ -171,11 +172,13 @@ class MediaDetailController(QObject):
             return
         if not force and time.monotonic() < self._failures.get(key, 0):
             if self._visible(channel, fingerprint):
-                self.dialog.set_status("Ayrıntılar alınamadı. Yeniden deneyebilirsin.", retry=True)
+                self.dialog.set_status(
+                    _("Ayrıntılar alınamadı. Yeniden deneyebilirsin."), retry=True
+                )
                 self._enrich(self.dialog, channel)
             return
         if self._visible(channel, fingerprint):
-            self.dialog.set_status("Ayrıntılar alınıyor…")
+            self.dialog.set_status(_("Ayrıntılar alınıyor…"))
         if self._active is not None:
             self._pending = None if self._active == key else (channel, source)
             return
@@ -194,7 +197,7 @@ class MediaDetailController(QObject):
                 self._failures.popitem(last=False)
             if self._valid(channel, fingerprint) and self._visible(channel, fingerprint):
                 self.dialog.set_status(
-                    "Ayrıntılar alınamadı. Mevcut bilgiler korunuyor.", retry=True
+                    _("Ayrıntılar alınamadı. Mevcut bilgiler korunuyor."), retry=True
                 )
                 self._enrich(self.dialog, channel)
             finish()
@@ -209,14 +212,14 @@ class MediaDetailController(QObject):
                     if self._visible(channel, fingerprint):
                         self._display(details, source)
                         self.dialog.set_status(
-                            "Bu dizide henüz bölüm bulunmuyor."
+                            _("Bu dizide henüz bölüm bulunmuyor.")
                             if channel.kind == "series" and not details.episodes
                             else ""
                         )
                         self._enrich(self.dialog, channel)
             except (sqlite3.Error, OSError):
                 if self._visible(channel, fingerprint):
-                    self.dialog.set_status("Ayrıntılar kaydedilemedi.", retry=True)
+                    self.dialog.set_status(_("Ayrıntılar kaydedilemedi."), retry=True)
             finally:
                 finish()
 
@@ -259,11 +262,11 @@ class MediaDetailController(QObject):
         def loaded(info):
             if visible():
                 dialog.set_online_info(info)
-                dialog.set_online_status("" if info else "TMDB’de eşleşme bulunamadı.")
+                dialog.set_online_status("" if info else _("TMDB’de eşleşme bulunamadı."))
 
         def failed(_error):
             if visible():
-                dialog.set_online_status("TMDB bilgisi alınamadı. Mevcut bilgiler korunuyor.")
+                dialog.set_online_status(_("TMDB bilgisi alınamadı. Mevcut bilgiler korunuyor."))
 
         self.window.run_task(
             lambda: client.lookup(channel.id, title, kind, details.info.get("year", "")),
@@ -305,7 +308,7 @@ class MediaDetailController(QObject):
         self.window.run_task(
             lambda: imdb.find(title, year, kind),
             lambda url: QDesktopServices.openUrl(QUrl(url)),
-            "IMDb'de aranıyor…",
+            _("IMDb'de aranıyor…"),
             busy=False,
         )
 

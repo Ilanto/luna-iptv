@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _, _n
 
 
 class WatchingMixin:
@@ -54,9 +55,9 @@ class WatchingMixin:
         if _window.selected_setting(self.store, "autoplay_next", _window.AUTOPLAY_CHOICES) != "on":
             self._notice(
                 "next",
-                f"Sonraki bölüm: {following.name}",
-                ("Oynat", lambda: self.play_next_episode(following)),
-                ("Kapat", lambda: self._clear_notice("next")),
+                _("Sonraki bölüm: {name}").format(name=following.name),
+                (_("Oynat"), lambda: self.play_next_episode(following)),
+                (_("Kapat"), lambda: self._clear_notice("next")),
             )
             return True
         self.next_countdown.start(following)
@@ -66,9 +67,13 @@ class WatchingMixin:
         following = self.next_countdown.payload
         self._notice(
             "next",
-            f"Sonraki bölüm {seconds} saniye içinde: {following.name}",
-            ("Şimdi oynat", self.next_countdown.finish_now),
-            ("İptal", self.cancel_next_episode),
+            _n(
+                "Sonraki bölüm {seconds} saniye içinde: {name}",
+                "Sonraki bölüm {seconds} saniyeler içinde: {name}",
+                seconds,
+            ).format(seconds=seconds, name=following.name),
+            (_("Şimdi oynat"), self.next_countdown.finish_now),
+            (_("İptal"), self.cancel_next_episode),
         )
 
     def cancel_next_episode(self):
@@ -89,41 +94,52 @@ class WatchingMixin:
 
     def build_sleep_menu(self):
         menu = _window.QMenu(self)
-        menu.setTitle("Uyku zamanlayıcısı")
+        menu.setTitle(_("Uyku zamanlayıcısı"))
         if self.sleep_timer.active:
             remaining = (
-                "Bitince duracak"
+                _("Bitince duracak")
                 if self.sleep_timer.mode == "media"
-                else f"Kalan: {self.sleep_timer.label()}"
+                else _("Kalan: {remaining}").format(remaining=self.sleep_timer.label())
             )
             menu.addAction(remaining).setEnabled(False)
-            menu.addAction("15 dakika uzat", lambda: self.sleep_timer.extend(15))
-            menu.addAction("Kapat", self.sleep_timer.cancel)
+            menu.addAction(_("15 dakika uzat"), lambda: self.sleep_timer.extend(15))
+            menu.addAction(_("Kapat"), self.sleep_timer.cancel)
             menu.addSeparator()
         for minutes in _window.SLEEP_CHOICES:
-            menu.addAction(f"{minutes} dakika sonra", lambda m=minutes: self.start_sleep(m))
+            menu.addAction(
+                _n("{minutes} dakika sonra", "{minutes} dakikalar sonra", minutes).format(
+                    minutes=minutes
+                ),
+                lambda m=minutes: self.start_sleep(m),
+            )
         if self.current is not None and self._playback_active:
             if self.current.kind == "live":
                 programme = self.programme_now(self.current)
                 if programme is not None:
                     end = programme.end.timestamp()
-                    menu.addAction("Bu program bitince", lambda: self.start_sleep_until(end))
+                    menu.addAction(_("Bu program bitince"), lambda: self.start_sleep_until(end))
             elif self._duration > 0:
-                label = "Bu bölüm bitince" if self.current.series_id else "Bu film bitince"
+                label = _("Bu bölüm bitince") if self.current.series_id else _("Bu film bitince")
                 menu.addAction(label, self.start_sleep_at_media_end)
         return menu
 
     def start_sleep(self, minutes):
         self.sleep_timer.start(minutes)
-        self.status(f"Uyku zamanlayıcısı: {minutes} dakika sonra oynatma duracak.")
+        self.status(
+            _n(
+                "Uyku zamanlayıcısı: {minutes} dakika sonra oynatma duracak.",
+                "Uyku zamanlayıcısı: {minutes} dakikalar sonra oynatma duracak.",
+                minutes,
+            ).format(minutes=minutes)
+        )
 
     def start_sleep_at_media_end(self):
         self.sleep_timer.start_at_media_end()
-        self.status("Uyku zamanlayıcısı: bitince oynatma duracak.")
+        self.status(_("Uyku zamanlayıcısı: bitince oynatma duracak."))
 
     def start_sleep_until(self, moment):
         self.sleep_timer.start_until(moment)
-        self.status("Uyku zamanlayıcısı: bitince oynatma duracak.")
+        self.status(_("Uyku zamanlayıcısı: bitince oynatma duracak."))
 
     def refresh_sleep_button(self):
         active = self.sleep_timer.active
@@ -131,12 +147,14 @@ class WatchingMixin:
         self.sleep_label.setVisible(active)
         self.sleep_button.setToolTip(
             (
-                "Uyku zamanlayıcısı: bitince duracak"
+                _("Uyku zamanlayıcısı: bitince duracak")
                 if self.sleep_timer.mode == "media"
-                else f"Uyku zamanlayıcısı: {self.sleep_timer.label()} kaldı"
+                else _("Uyku zamanlayıcısı: {remaining} kaldı").format(
+                    remaining=self.sleep_timer.label()
+                )
             )
             if active
-            else "Uyku zamanlayıcısı"
+            else _("Uyku zamanlayıcısı")
         )
         if active and self.sleep_timer.mode != "media":
             self._sleep_label_timer.start()
@@ -148,7 +166,7 @@ class WatchingMixin:
         if self._playback_active:
             self.stop_playback()
         self.leave_fullscreen()
-        self.status("Uyku zamanlayıcısı: oynatma durduruldu. İyi geceler.")
+        self.status(_("Uyku zamanlayıcısı: oynatma durduruldu. İyi geceler."))
 
     def numbered_channels(self):
         """Live channels in list order, of the chosen source; their 1-based place is the number."""
@@ -163,12 +181,17 @@ class WatchingMixin:
         ]
 
     def _number_typing(self, digits):
-        self._notice("number", f"Kanal {digits}_")
+        self._notice("number", _("Kanal {digits}_").format(digits=digits))
 
     def jump_to_number(self, number):
         channels = self.numbered_channels()
         if number > len(channels):
-            self._notice("number", f"{number} numaralı kanal yok (1–{len(channels)}).")
+            self._notice(
+                "number",
+                _("{number} numaralı kanal yok (1–{count}).").format(
+                    number=number, count=len(channels)
+                ),
+            )
             _window.QTimer.singleShot(2500, lambda: self._clear_notice("number"))
             return False
         channel = channels[number - 1]

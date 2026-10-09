@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .i18n import _
 from .network import NetworkError
 
 JSON_LIMIT = 2 * 1024 * 1024
@@ -18,9 +19,9 @@ class OnlineError(NetworkError):
     def __init__(self, status=0):
         self.status = status
         super().__init__(
-            "Günlük indirme hakkı doldu"
+            _("Günlük indirme hakkı doldu")
             if status in (406, 429)
-            else "Çevrimiçi servise erişilemedi. Anahtarı ve bağlantıyı kontrol edin."
+            else _("Çevrimiçi servise erişilemedi. Anahtarı ve bağlantıyı kontrol edin.")
         )
 
 

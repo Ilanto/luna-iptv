@@ -2,7 +2,9 @@
 
 import math
 
-TIMESHIFT_CHOICES = (("30 dk", 30), ("Kapalı", 0), ("15 dk", 15), ("60 dk", 60))
+from .i18n import N_
+
+TIMESHIFT_CHOICES = ((N_("30 dk"), 30), (N_("Kapalı"), 0), (N_("15 dk"), 15), (N_("60 dk"), 60))
 
 
 def cache_minutes(value):

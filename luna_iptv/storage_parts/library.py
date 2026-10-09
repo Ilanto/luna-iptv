@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import storage as _storage
+from ..i18n import _
 
 
 class LibraryMixin:
@@ -44,7 +45,7 @@ class LibraryMixin:
     def save_category_prefs(self, source_id: str, kind: str, rows: list[tuple[str, bool]]) -> None:
         """Replace one profile's source and section preferences atomically."""
         if kind not in ("live", "movie", "series"):
-            raise ValueError("Geçersiz yayın türü.")
+            raise ValueError(_("Geçersiz yayın türü."))
         with self._db:
             self._db.execute(
                 "DELETE FROM category_prefs WHERE profile_id=? AND source_id=? AND kind=?",
@@ -73,13 +74,13 @@ class LibraryMixin:
 
     def _folder_name(self, name: str, folder_id: int | None = None) -> str:
         if not name.strip() or any(_storage.unicodedata.category(c) == "Cc" for c in name):
-            raise ValueError("Klasör adı boş olamaz veya kontrol karakteri içeremez.")
+            raise ValueError(_("Klasör adı boş olamaz veya kontrol karakteri içeremez."))
         name = name.strip()
         if any(
             other_id != folder_id and other_name.casefold() == name.casefold()
             for other_id, other_name in self.folders()
         ):
-            raise ValueError("Bu adda bir klasör zaten var.")
+            raise ValueError(_("Bu adda bir klasör zaten var."))
         return name
 
     def create_folder(self, name: str) -> int:

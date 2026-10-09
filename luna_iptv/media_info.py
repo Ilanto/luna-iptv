@@ -6,7 +6,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-UNKNOWN = "Bilgi yok"
+from .i18n import N_, _, format_number
+
+UNKNOWN = N_("Bilgi yok")
 
 
 def _positive_number(value: Any) -> float | None:
@@ -27,15 +29,15 @@ def _positive_dimension(value: Any) -> int | None:
 
 
 def _decimal(value: float, precision: int = 2) -> str:
-    text = f"{value:.{precision}f}"
+    text = format_number(value, decimals=precision)
     if precision:
-        text = text.rstrip("0").rstrip(".")
-    return text.replace(".", ",")
+        text = text.rstrip("0").rstrip(".,")
+    return text
 
 
 def _codec_name(track: dict[str, Any] | None) -> str:
     if not track:
-        return UNKNOWN
+        return _(UNKNOWN)
     description = str(track.get("codec-desc") or "").strip()
     codec = str(track.get("codec") or "").strip().lower()
     known = {
@@ -51,7 +53,7 @@ def _codec_name(track: dict[str, Any] | None) -> str:
         "opus": "Opus",
         "vp9": "VP9",
     }
-    return known.get(codec, description or (codec.upper() if codec else UNKNOWN))
+    return known.get(codec, description or (codec.upper() if codec else _(UNKNOWN)))
 
 
 @dataclass
@@ -161,13 +163,13 @@ class MediaInfo:
     @property
     def dimensions(self) -> str:
         width, height = self._dimensions()
-        return f"{width} × {height}" if width and height else UNKNOWN
+        return f"{width} × {height}" if width and height else _(UNKNOWN)
 
     @property
     def quality(self) -> str:
         width, height = self._dimensions()
         if width is None or height is None:
-            return UNKNOWN
+            return _(UNKNOWN)
         scan_lines = min(width, height)
         if scan_lines <= 576:
             name = "SD"
@@ -203,14 +205,14 @@ class MediaInfo:
                 return value
         track = self._selected_track("audio")
         value = str((track or {}).get("demux-channels") or "").strip()
-        return value or UNKNOWN
+        return value or _(UNKNOWN)
 
     @property
     def fps(self) -> str:
         return (
             f"{_decimal(self._container_fps, 3)} FPS"
             if self._container_fps is not None
-            else UNKNOWN
+            else _(UNKNOWN)
         )
 
     @staticmethod
@@ -228,7 +230,7 @@ class MediaInfo:
             parts.append("Video " + self._format_bitrate(self._video_bitrate))
         if self._audio_bitrate is not None:
             parts.append("Ses " + self._format_bitrate(self._audio_bitrate))
-        return " · ".join(parts) or UNKNOWN
+        return " · ".join(parts) or _(UNKNOWN)
 
     @property
     def dynamic_range(self) -> str:
@@ -253,7 +255,7 @@ class MediaInfo:
             "srgb",
         }:
             return "SDR"
-        return UNKNOWN
+        return _(UNKNOWN)
 
     @property
     def buffer_text(self) -> str:
@@ -261,10 +263,10 @@ class MediaInfo:
             return ""
         if self._paused_for_cache:
             return (
-                f"Arabellek · %{self._buffer_percent}"
+                _("Arabellek · %{buffer_percent}").format(buffer_percent=self._buffer_percent)
                 if self._buffer_percent is not None
-                else "Arabellek…"
+                else _("Arabellek…")
             )
         if self._loading:
-            return "Bağlanıyor…"
+            return _("Bağlanıyor…")
         return ""

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unicodedata
 
+from .i18n import _
+
 _ALIASES = {
     "tur": "tr",
     "eng": "en",
@@ -240,11 +242,15 @@ class TrackPreferences:
             )
             if selected is None:
                 if choice.get("lang"):
-                    label = "Ses" if mode == "audio" else "Altyazı"
+                    label = _("Ses") if mode == "audio" else _("Altyazı")
                     fallback = (
-                        "varsayılan ses kullanılıyor" if mode == "audio" else "altyazı kapalı"
+                        _("varsayılan ses kullanılıyor") if mode == "audio" else _("altyazı kapalı")
                     )
-                    missing.append(f"{label} dili ({choice['lang']}) bulunamadı; {fallback}.")
+                    missing.append(
+                        _("{label} dili ({lang}) bulunamadı; {fallback}.").format(
+                            label=label, lang=choice["lang"], fallback=fallback
+                        )
+                    )
                 if mode == "sub" and active is not None:
                     selected = "no"
             elif choice.get("lang") and active is not None and not manual:

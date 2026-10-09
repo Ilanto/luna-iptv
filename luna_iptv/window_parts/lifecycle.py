@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _
 
 
 class LifecycleMixin:
@@ -17,7 +18,7 @@ class LifecycleMixin:
         self._sync_message_bar()
         if retry is not None or not self.recovery_cancel_button.isHidden():
             self.toast.dismiss(immediate=True)
-        elif not message.startswith("Hazır"):
+        elif not message.startswith(_("Hazır")):
             self.toast.show_message(message, icon=icon)
 
     def _sync_message_bar(self):

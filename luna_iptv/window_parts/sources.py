@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import window as _window
+from ..i18n import _, _n
 
 
 class SourcesMixin:
@@ -57,7 +58,7 @@ class SourcesMixin:
             try:
                 success(result)
             except Exception:
-                message = "Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin."
+                message = _("Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin.")
                 if failure is not None:
                     failure(message)
                 else:
@@ -77,7 +78,7 @@ class SourcesMixin:
         _window.QThreadPool.globalInstance().start(task)
 
     def add_source(self, checked=False, location=""):
-        if self._busy or not self.guard("Kaynak eklemek için PIN gir."):
+        if self._busy or not self.guard(_("Kaynak eklemek için PIN gir.")):
             return
         dialog = _window.SourceDialog(self, location)
         if dialog.exec() == _window.QDialog.Accepted:
@@ -88,7 +89,7 @@ class SourcesMixin:
 
         if source_incomplete(source):
             if not quiet:
-                self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
+                self.status(_("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın."))
             return False
         if self._busy or self._importing or (quiet and not self._auto_refresh_available(source)):
             return False
@@ -145,7 +146,7 @@ class SourcesMixin:
                 else:
                     finish(True)
             except Exception:
-                failed("Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin.")
+                failed(_("Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin."))
 
         def failed(error):
             if quiet:
@@ -163,11 +164,11 @@ class SourcesMixin:
                 location = source["location"]
                 scheme = _window.urlsplit(location).scheme
                 if scheme not in ("http", "https", "rtsp", "rtp", "udp", "file", ""):
-                    raise _window.NetworkError("Bu yayın protokolü desteklenmiyor.")
+                    raise _window.NetworkError(_("Bu yayın protokolü desteklenmiyor."))
                 if not scheme:
                     path = _window.Path(location).expanduser().resolve()
                     if not path.is_file():
-                        raise _window.NetworkError("Video dosyası bulunamadı.")
+                        raise _window.NetworkError(_("Video dosyası bulunamadı."))
                     location = path.as_uri()
                 kind = (
                     "movie"
@@ -195,7 +196,7 @@ class SourcesMixin:
         self.run_task(
             load,
             done,
-            None if quiet else "Kaynak okunuyor…",
+            None if quiet else _("Kaynak okunuyor…"),
             None if quiet else lambda: self.import_source(source),
             failure=failed,
         )
@@ -204,7 +205,7 @@ class SourcesMixin:
     def accept_import(self, source, playlist, *, quiet=False):
         if not playlist.channels:
             notify = self.toast.show_message if quiet else self.status
-            notify("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
+            notify(_("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu."))
             return
         source = dict(source)
         previous_source = next(
@@ -248,7 +249,7 @@ class SourcesMixin:
                 self._loading = False
                 self.favorite_button.setEnabled(False)
                 self.video_stack.setCurrentIndex(0)
-                self.video_title.setText("İyi bir yayına yer aç.")
+                self.video_title.setText(_("İyi bir yayına yer aç."))
         changed = previous_source != source or sorted(
             previous_channels, key=lambda c: c.id
         ) != sorted(stored_channels, key=lambda c: c.id)
@@ -263,9 +264,15 @@ class SourcesMixin:
             self.store.set_setting("auto_refresh_last", last)
             kind = playlist.channels[0].kind
             self.set_section(kind if kind in ("live", "movie", "series") else "live")
-            detail = f"{len(playlist.channels)} yayın hazır."
+            detail = _n(
+                "{count} yayın hazır.", "{count} yayınlar hazır.", len(playlist.channels)
+            ).format(count=len(playlist.channels))
             if playlist.warnings:
-                detail += f" {len(playlist.warnings)} geçersiz satır atlandı."
+                detail += _n(
+                    " {count} geçersiz satır atlandı.",
+                    " {count} geçersiz satırlar atlandı.",
+                    len(playlist.warnings),
+                ).format(count=len(playlist.warnings))
             self.status(detail)
             if source.get("epg_url"):
                 self.load_guide(source)
@@ -281,7 +288,7 @@ class SourcesMixin:
         return all(str(left.get(field, "")) == str(right.get(field, "")) for field in fields)
 
     def edit_source(self, source):
-        if source is None or self._busy or not self.guard("Bağlantıyı düzenlemek için PIN gir."):
+        if source is None or self._busy or not self.guard(_("Bağlantıyı düzenlemek için PIN gir.")):
             return
         expected = dict(source)
         dialog = _window.SourceDialog(self, source=expected)
@@ -304,10 +311,10 @@ class SourcesMixin:
                 return
             self._source_edit_tokens.pop(expected["id"], None)
             if not playlist.channels:
-                self.status("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
+                self.status(_("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu."))
                 return
             if not self.store.apply_source_connection(expected, candidate, playlist):
-                self.status("Kaynak bu sırada değişti. Düzenleme uygulanmadı.")
+                self.status(_("Kaynak bu sırada değişti. Düzenleme uygulanmadı."))
                 return
             if self.current and self.current.id.startswith(expected["id"] + ":"):
                 if self._playback_active and self._playback_token is not None:
@@ -315,7 +322,7 @@ class SourcesMixin:
                 else:
                     self.recovery.cancel()
             self.refresh_library(select_source=expected["id"])
-            self.status("Kaynak bağlantısı doğrulandı ve güncellendi.")
+            self.status(_("Kaynak bağlantısı doğrulandı ve güncellendi."))
             stored = next(
                 (item for item in self.store.sources() if item["id"] == expected["id"]), None
             )
@@ -331,7 +338,7 @@ class SourcesMixin:
         self.run_task(
             lambda: _window.validate_candidate(candidate),
             completed,
-            "Yeni bağlantı doğrulanıyor…",
+            _("Yeni bağlantı doğrulanıyor…"),
             busy=True,
             failure=failed,
         )
@@ -358,11 +365,11 @@ class SourcesMixin:
             if not self.store.save_source_health(expected["id"], result.status, result.checked_at):
                 return
             message = {
-                "available": "Bağlantı kullanılabilir.",
-                "responding": "Sunucu yanıt veriyor; video akışı açılmadı.",
-                "unverified": "Adres geçerli; video akışı açılmadan doğrulanamıyor.",
-                "unavailable": "Bağlantıya ulaşılamadı.",
-            }.get(result.status, "Bağlantı durumu belirlenemedi.")
+                "available": _("Bağlantı kullanılabilir."),
+                "responding": _("Sunucu yanıt veriyor; video akışı açılmadı."),
+                "unverified": _("Adres geçerli; video akışı açılmadan doğrulanamıyor."),
+                "unavailable": _("Bağlantıya ulaşılamadı."),
+            }.get(result.status, _("Bağlantı durumu belirlenemedi."))
             self.status(message)
 
         def failed(_message):
@@ -371,7 +378,7 @@ class SourcesMixin:
         self.run_task(
             lambda: _window.check_connection(expected),
             completed,
-            "Bağlantı kontrol ediliyor…",
+            _("Bağlantı kontrol ediliyor…"),
             busy=False,
             failure=failed,
         )
@@ -424,7 +431,7 @@ class SourcesMixin:
                 dialog.render(profile)
             except Exception:
                 if current_dialog():
-                    dialog.show_error("Hesap profili güvenli biçimde işlenemedi.")
+                    dialog.show_error(_("Hesap profili güvenli biçimde işlenemedi."))
             finally:
                 if current_dialog():
                     dialog.set_refreshing(False)
@@ -449,10 +456,14 @@ class SourcesMixin:
         )
 
     def rename_source(self, source):
-        if source is None or not self.guard("Kaynağı yeniden adlandırmak için PIN gir."):
+        if source is None or not self.guard(_("Kaynağı yeniden adlandırmak için PIN gir.")):
             return
         name, accepted = _window.QInputDialog.getText(
-            self, "Kaynağı yeniden adlandır", "Kaynak adı", _window.QLineEdit.Normal, source["name"]
+            self,
+            _("Kaynağı yeniden adlandır"),
+            _("Kaynak adı"),
+            _window.QLineEdit.Normal,
+            source["name"],
         )
         if not accepted:
             return
@@ -462,21 +473,21 @@ class SourcesMixin:
             self.status(str(error))
             return
         if not renamed:
-            self.status("Kaynak artık mevcut değil.")
+            self.status(_("Kaynak artık mevcut değil."))
             return
         index = self.source_combo.findData(source["id"])
         if index >= 0:
             self.source_combo.setItemText(index, name.strip())
-        self.status("Kaynak adı güncellendi.")
+        self.status(_("Kaynak adı güncellendi."))
 
     def remove_source(self, source):
-        if not self.guard("Kaynağı kaldırmak için PIN gir."):
+        if not self.guard(_("Kaynağı kaldırmak için PIN gir.")):
             return
         if (
             _window.QMessageBox.question(
                 self,
-                "Kaynağı kaldır",
-                f"“{source['name']}” ve bu kaynağın favorileri kaldırılsın mı?",
+                _("Kaynağı kaldır"),
+                _("“{name}” ve bu kaynağın favorileri kaldırılsın mı?").format(name=source["name"]),
                 _window.QMessageBox.Yes | _window.QMessageBox.No,
             )
             != _window.QMessageBox.Yes
@@ -497,7 +508,7 @@ class SourcesMixin:
         self._guide_index.pop(source["id"], None)
         (self.store.path.parent / f"epg-{source['id']}.xml").unlink(missing_ok=True)
         self.refresh_library()
-        self.status("Kaynak kaldırıldı.")
+        self.status(_("Kaynak kaldırıldı."))
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and event.mimeData().urls()[0].isLocalFile():

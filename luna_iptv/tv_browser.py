@@ -7,10 +7,18 @@ from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from . import icons, theme
+from .i18n import N_, _
 from .library import CARD_HEIGHT, CARD_WIDTH, tile_color
 from .motion import animation_ms, motion_level, on_motion_changed
 
-TABS = ("Canlı", "Filmler", "Diziler", "Rehber", "Favoriler", "TV modundan çık")
+TABS = (
+    N_("Canlı"),
+    N_("Filmler"),
+    N_("Diziler"),
+    N_("Rehber"),
+    N_("Favoriler"),
+    N_("TV modundan çık"),
+)
 CARD_W, CARD_H = CARD_WIDTH * 2, CARD_HEIGHT * 2
 ROW_H = CARD_H + 80
 
@@ -49,7 +57,7 @@ class TvBrowser(QWidget):
         else:
             self.lift = 1.0
         channel = self.tv.focused_channel()
-        self.tv.setAccessibleName(channel.name if channel else TABS[self.tv.tab])
+        self.tv.setAccessibleName(channel.name if channel else _(TABS[self.tv.tab]))
         self.update()
 
     @staticmethod
@@ -103,7 +111,7 @@ class TvBrowser(QWidget):
                     artwork["live" if channel.kind == "live" else "vod"].append(channel.logo)
         painter.restore()
         if not tv.rows:
-            self.text(painter, area, "Burada henüz içerik yok.", 36)
+            self.text(painter, area, _("Burada henüz içerik yok."), 36)
         tv.host.logos.request_visible(artwork["live"], owner=self)
         tv.host.posters.request_visible(artwork["vod"], owner=self)
         painter.fillRect(QRectF(0, height - 245, width, 245), QColor(theme.DUSK))
@@ -123,7 +131,7 @@ class TvBrowser(QWidget):
         self.text(
             painter,
             QRectF(60, height - 53, width - 120, 40),
-            "↑↓ Satır  ·  ←→ Seç  ·  Enter İzle  ·  Geri Dön  ·  Geri basılı: Çık",
+            _("↑↓ Satır  ·  ←→ Seç  ·  Enter İzle  ·  Geri Dön  ·  Geri basılı: Çık"),
             24,
             theme.TEXT_SOFT,
         )
@@ -147,7 +155,7 @@ class TvBrowser(QWidget):
                 painter.setBrush(QColor(theme.ACCENT_TINT))
                 painter.setPen(QPen(QColor(theme.ACCENT), 4 if tv.row == -1 else 1))
                 painter.drawRoundedRect(rect, 12, 12)
-            self.text(painter, rect.adjusted(12, 0, -12, 0), title, 26)
+            self.text(painter, rect.adjusted(12, 0, -12, 0), _(title), 26)
 
     def _outline(self, painter, rect, selected):
         painter.setBrush(QColor(theme.RAISED if selected else theme.SURFACE))
@@ -198,7 +206,9 @@ class TvBrowser(QWidget):
             bold=True,
         )
         programme = None if locked else self.tv.host.programme_now(channel)
-        subtitle = "Kilitli içerik" if locked else programme.title if programme else channel.group
+        subtitle = (
+            _("Kilitli içerik") if locked else programme.title if programme else channel.group
+        )
         self.text(
             painter,
             QRectF(rect.x() + 24, rect.bottom() - 48, rect.width() - 48, 34),

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 
+from .i18n import N_, _
+
 log = logging.getLogger(__name__)
 
 APP_ID = "luna-iptv"
-REASON = "Luna IPTV oynatıyor"
+REASON = N_("Luna IPTV oynatıyor")
 # org.gnome.SessionManager.Inhibit flags: suspend (4) | idle (8).
 _GNOME_FLAGS = 4 | 8
 _CALL_TIMEOUT = 2.0
@@ -63,13 +65,13 @@ class IdleInhibit:
                 ("org.gnome.SessionManager", "/org/gnome/SessionManager"),
                 "org.gnome.SessionManager",
                 "Uninhibit",
-                ("Inhibit", "susu", (APP_ID, 0, REASON, _GNOME_FLAGS)),
+                ("Inhibit", "susu", (APP_ID, 0, _(REASON), _GNOME_FLAGS)),
             ),
             (
                 ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
                 "org.freedesktop.ScreenSaver",
                 "UnInhibit",
-                ("Inhibit", "ss", (APP_ID, REASON)),
+                ("Inhibit", "ss", (APP_ID, _(REASON))),
             ),
         )
         for (service, path), interface, release, (method, signature, args) in attempts:
