@@ -543,6 +543,7 @@ def build_window(w):
         ("Ctrl+F", lambda: w.search.setFocus()),
         ("Space", w.toggle_play),
         ("F", w.toggle_fullscreen),
+        ("F11", w.toggle_tv_mode),
         ("M", lambda: w.player.command(["cycle", "mute"])),
         ("Escape", w.leave_fullscreen),
         ("Right", lambda: w.transport.seek_relative(5)),

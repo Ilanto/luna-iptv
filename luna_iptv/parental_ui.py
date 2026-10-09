@@ -91,6 +91,12 @@ class PinDialog(QDialog):
         self.open_button.clicked.connect(self.try_pin)
         layout.addWidget(buttons)
         self.setFixedWidth(360)
+        if parent is not None and hasattr(parent, "scale"):
+            scale = parent.scale
+            self.setFixedWidth(round(680 * scale))
+            self.setStyleSheet(f"QWidget {{ font-size: {round(28 * scale)}px; }}")
+            self.field.setMinimumHeight(round(64 * scale))
+        self.field.setFocus()
         self._refresh_lockout()
 
     def _refresh_lockout(self):
