@@ -170,3 +170,28 @@ def test_local_day_follows_dst_changes(berlin_time, day, hours):
     grid.set_day(day)
     assert grid.day_minutes() == hours * 60
     grid.close()
+
+
+def test_main_search_counts_programmes_and_opens_them_in_the_guide(window):
+    window._guide_index["home"] = GuideIndex(
+        [
+            programme("nova", "Derin Mavi Belgesel", NOW + timedelta(hours=1)),
+            programme("haber", "Gündem", NOW + timedelta(hours=2)),
+            programme("haber", "Belgesel Kuşağı", NOW + timedelta(hours=30)),  # beyond a day
+        ]
+    )
+    window.set_section("live")
+    window.search.setText("belgesel")
+    chips = window.kind_bar.buttons()
+    assert "guide" in chips and chips["guide"].text().endswith("1")
+    chips["guide"].click()
+    assert window.library_pages.currentWidget() is window.guide_view
+    assert window.guide_view.search.text() == "belgesel"
+    assert window.programme_hits("x") == 0  # too short to search
+
+
+def test_guide_index_search_uses_cached_title_keys():
+    index = GuideIndex([programme("a", "Maç Önü", NOW), programme("b", "Maç Önü", NOW)])
+    hits = index.search("mac", NOW - timedelta(hours=1), NOW + timedelta(hours=2))
+    assert [p.channel_id for p in hits] == ["a", "b"]
+    assert len(index._title_keys) == 1

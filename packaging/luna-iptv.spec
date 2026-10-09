@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.18.0
+Version:        0.19.0
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -66,6 +66,13 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Fri Oct 09 2026 Luna IPTV contributors - 0.19.0-1
+- Picture and sound options, tray icon, watching statistics, first-run guide.
+- Accent colours and OLED theme, profile avatars, guide now-line pulse.
+- Automatic refresh, reminders for every profile, backup format 2.
+- Cinematic detail window, programme search, failover to another source.
+- Update notice, faster big catalogues, main-thread garbage collection.
+
 * Thu Oct 08 2026 Luna IPTV contributors - 0.18.0-1
 - Interface refresh: home hero banner, idle player panel hides, toasts, page fades.
 - TV-style channel banner and glass fullscreen controls.

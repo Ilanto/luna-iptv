@@ -21,11 +21,13 @@ def store(tmp_path):
 def test_profile_crud_and_persisted_selection(store):
     assert store.profile_id == 1
     assert store.profiles() == [
-        dict(id=1, name="Ben", color="#E8B04B", kids=False, protected=False, position=0)
+        dict(
+            id=1, name="Ben", color="#E8B04B", kids=False, protected=False, position=0, avatar=None
+        )
     ]
     child = store.create_profile("  Çocuk  ", "#123aBC", kids=True, protected=True)
     assert store.profile(child) == dict(
-        id=child, name="Çocuk", color="#123aBC", kids=True, protected=True, position=1
+        id=child, name="Çocuk", color="#123aBC", kids=True, protected=True, position=1, avatar=None
     )
     store.update_profile(child, name="Genç", color="#abcdef", kids=False, protected=False)
     assert store.profile(child)["name"] == "Genç"
@@ -174,7 +176,7 @@ def test_delete_profile_cascades_only_personal_rows(store):
     assert store._db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_backup_exports_and_restores_only_selected_profile(store):
+def test_backup_exports_and_restores_all_profiles_without_switching_active(store):
     store.set_favorite("home:one", True)
     store.save_progress("home:one", 12, 100)
     other = store.create_profile("Diğer", "#123456")
@@ -183,7 +185,9 @@ def test_backup_exports_and_restores_only_selected_profile(store):
     store.set_in_folder(folder, "home:two", True)
     store.save_progress("home:two", 35, 100)
     data = export_backup(store)
-    assert data["version"] == 1
+    assert data["version"] == 2
+    assert data["profile_data"]["1"]["favorites"] == ["home:one"]
+    assert data["profile_data"][str(other)]["favorites"] == ["home:two"]
     assert data["favorites"] == ["home:two"]
     assert [row["channel_id"] for row in data["history"]] == ["home:two"]
     assert data["favorite_folders"][0]["members"] == ["home:two"]
@@ -194,6 +198,10 @@ def test_backup_exports_and_restores_only_selected_profile(store):
     apply_backup(store, data)
     apply_backup(store, data)
     assert store.profile_id == store.setting("active_profile") == target
+    assert store.favorites() == set()
+    assert store.progress_map() == {}
+    assert store.folders() == []
+    store.use_profile(other)
     assert store.favorites() == {"home:two"}
     assert store.progress_map() == {"home:two": (35, 100)}
     assert store.folder_items(store.folders()[0][0]) == {"home:two"}

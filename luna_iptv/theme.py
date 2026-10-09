@@ -2,6 +2,8 @@
 
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 
+from .settings import ACCENT_CHOICES, BASE_THEME_CHOICES, selected_setting
+
 NIGHT = "#0b1020"  # window
 DUSK = "#0f1529"  # sidebar and quiet panels
 SURFACE = "#141b33"  # cards
@@ -18,6 +20,35 @@ TEXT = "#e8ecff"
 TEXT_SOFT = "#a3acd4"
 TEXT_MUTED = "#6e78a6"
 DANGER = "#ff9aa8"
+
+# Immutable palette definitions; widgets always read the live tokens above.
+_ACCENTS = {
+    "moon": ("#a9b8ff", "#cdd6ff", "#222d5c", "#0b1020"),
+    "gold": ("#ffd58a", "#ffe7b8", "#45351e", "#21180b"),
+    "rose": ("#f4abc5", "#ffd2e2", "#462538", "#240f1a"),
+    "mint": ("#93dfc2", "#c3f5e2", "#193c34", "#0b211b"),
+}
+_BASES = {
+    "night": ("#0b1020", "#0f1529", "#141b33", "#1b2444", "#232e55", "#26315a", "#1c2547"),
+    "oled": ("#000000", "#060709", "#0c0e12", "#15181e", "#20252d", "#303640", "#222830"),
+}
+
+
+def set_palette(accent="moon", base="night"):
+    """Replace the live tokens and rebuild QSS; unsupported choices use defaults."""
+    global ACCENT, ACCENT_STRONG, ACCENT_TINT, ACCENT_INK
+    global NIGHT, DUSK, SURFACE, RAISED, HOVER, LINE, LINE_SOFT, STYLE
+    accent = accent if isinstance(accent, str) and accent in _ACCENTS else "moon"
+    base = base if isinstance(base, str) and base in _BASES else "night"
+    ACCENT, ACCENT_STRONG, ACCENT_TINT, ACCENT_INK = _ACCENTS[accent]
+    NIGHT, DUSK, SURFACE, RAISED, HOVER, LINE, LINE_SOFT = _BASES[base]
+    STYLE = _build_style()
+
+
+def _rgba(color, alpha):
+    value = QColor(color)
+    return f"rgba({value.red()}, {value.green()}, {value.blue()}, {alpha})"
+
 
 UI_FAMILIES = ("Poppins", "Adwaita Sans", "Cantarell", "Noto Sans")
 MONO_FAMILIES = ("Hurmit Nerd Font Mono", "Adwaita Mono")
@@ -39,7 +70,13 @@ def mono_font(size=9):
     return font
 
 
-def apply_theme(app):
+def apply_theme(app, store=None):
+    """Apply saved choices (or the current palette) and repaint existing widgets."""
+    if store is not None:
+        set_palette(
+            selected_setting(store, "accent", ACCENT_CHOICES),
+            selected_setting(store, "base_theme", BASE_THEME_CHOICES),
+        )
     app.setStyle("Fusion")
     font = QFont(family(UI_FAMILIES, "Sans Serif"), 10)
     font.setHintingPreference(QFont.PreferNoHinting)
@@ -75,9 +112,12 @@ def apply_theme(app):
     clock = mono_font()
     rules.append(f'QLabel#clock {{ font-family: "{clock.family()}"; font-size: 9pt; }}')
     app.setStyleSheet(STYLE + "\n".join(rules))
+    for widget in app.allWidgets():
+        widget.update()
 
 
-STYLE = f"""
+def _build_style():
+    return f"""
 QMainWindow, QDialog {{ background: {NIGHT}; }}
 QWidget {{ color: {TEXT}; }}
 QLabel {{ background: transparent; }}
@@ -132,13 +172,13 @@ QLabel#accountStatus[state="banned"] {{ color: {DANGER}; }}
 
 QFrame#sidebar {{ background: {DUSK}; border-right: 1px solid {LINE_SOFT}; }}
 QFrame#sourceCard {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 14px; }}
-QFrame#navIndicator {{ background: {ACCENT_TINT}; border: 1px solid #2f3b72; border-radius: 16px; }}
+QFrame#navIndicator {{ background: {ACCENT_TINT}; border: 1px solid {LINE}; border-radius: 16px; }}
 QFrame#library {{ background: {NIGHT}; }}
 QFrame#watchPanel {{ background: {DUSK}; border-left: 1px solid {LINE_SOFT}; }}
 QFrame#controls {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 16px; }}
-QFrame#controls[overlay="true"] {{ background: rgba(11, 16, 32, 0.80);
-    border: 1px solid rgba(169, 184, 255, 0.20); border-radius: 18px; }}
-QFrame#channelBanner {{ background: rgba(11, 16, 32, 0.80); border: 1px solid rgba(169, 184, 255, 0.22);
+QFrame#controls[overlay="true"] {{ background: {_rgba(NIGHT, 0.80)};
+    border: 1px solid {_rgba(ACCENT, 0.20)}; border-radius: 18px; }}
+QFrame#channelBanner {{ background: {_rgba(NIGHT, 0.80)}; border: 1px solid {_rgba(ACCENT, 0.22)};
     border-radius: 18px; }}
 QFrame#bannerDivider {{ background: rgba(232, 236, 255, 0.18); }}
 QLabel#bannerNumber {{ color: {TEXT}; font-size: 34px; font-weight: 700; }}
@@ -147,6 +187,7 @@ QLabel#bannerTitle {{ color: {TEXT}; font-size: 13px; font-weight: 600; }}
 QFrame#mediaInfo {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 14px; }}
 QFrame#guide {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 14px; }}
 QFrame#panel {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 16px; }}
+QFrame#toastPill {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: 18px; }}
 QFrame#cardFooter {{ background: {DUSK}; border-top: 1px solid {LINE_SOFT}; }}
 QWidget#cardBody {{ background: {NIGHT}; }}
 QFrame#messageBar {{ background: {DUSK}; border-top: 1px solid {LINE_SOFT}; }}
@@ -154,23 +195,23 @@ QFrame#messageBar {{ background: {DUSK}; border-top: 1px solid {LINE_SOFT}; }}
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit {{
     background: {RAISED}; border: 1px solid {LINE}; border-radius: 10px; padding: 8px 10px;
     selection-background-color: {ACCENT_TINT}; }}
-QLineEdit:hover, QComboBox:hover {{ border-color: #34407a; }}
+QLineEdit:hover, QComboBox:hover {{ border-color: {TEXT_MUTED}; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus, QTextEdit:focus {{
-    border-color: {ACCENT}; background: #1e2850; }}
+    border-color: {ACCENT}; background: {HOVER}; }}
 QComboBox::drop-down {{ border: none; width: 26px; }}
 QComboBox QAbstractItemView {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: 10px;
     padding: 4px; selection-background-color: {ACCENT_TINT}; outline: none; }}
 
 QPushButton {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: 10px;
     padding: 8px 14px; }}
-QPushButton:hover {{ background: {HOVER}; border-color: #3a4785; }}
+QPushButton:hover {{ background: {HOVER}; border-color: {TEXT_MUTED}; }}
 QPushButton:focus {{ border-color: {ACCENT}; }}
 QPushButton:pressed {{ background: {ACCENT_TINT}; }}
 QPushButton:disabled {{ color: {TEXT_MUTED}; background: {DUSK}; border-color: {LINE_SOFT}; }}
 QPushButton#primary {{ background: {ACCENT}; color: {ACCENT_INK}; border: 1px solid {ACCENT};
     font-weight: 600; border-radius: 12px; }}
 QPushButton#primary:hover {{ background: {ACCENT_STRONG}; border-color: {ACCENT_STRONG}; }}
-QPushButton#primary:pressed {{ background: #93a4f5; }}
+QPushButton#primary:pressed {{ background: {ACCENT}; }}
 QPushButton#nav {{ text-align: left; border: 1px solid transparent; background: transparent;
     padding: 10px 12px; color: {TEXT_SOFT}; }}
 QPushButton#nav:hover {{ color: {TEXT}; background: transparent; }}
@@ -189,14 +230,14 @@ QPushButton#transport {{ background: transparent; border: 1px solid transparent;
     padding: 0; }}
 QPushButton#transport:hover {{ background: {RAISED}; }}
 QPushButton#transport:checked {{ background: {ACCENT_TINT}; color: {ACCENT_STRONG};
-    border-color: #2f3b72; }}
+    border-color: {LINE}; }}
 QPushButton#transport:disabled {{ background: transparent; border-color: transparent; }}
 QPushButton#hero {{ background: {ACCENT}; border: none; border-radius: 23px; padding: 0; }}
 QPushButton#hero:hover {{ background: {ACCENT_STRONG}; }}
-QPushButton#hero:pressed {{ background: #93a4f5; }}
+QPushButton#hero:pressed {{ background: {ACCENT}; }}
 QPushButton#chip, QPushButton#chipMore {{ background: transparent; border: 1px solid {LINE};
     border-radius: 15px; padding: 0 14px; color: {TEXT_SOFT}; }}
-QPushButton#chip:hover, QPushButton#chipMore:hover {{ border-color: #3a4785; color: {TEXT};
+QPushButton#chip:hover, QPushButton#chipMore:hover {{ border-color: {TEXT_MUTED}; color: {TEXT};
     background: transparent; }}
 QPushButton#chip:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ACCENT_INK};
     font-weight: 600; }}
@@ -214,23 +255,23 @@ QPushButton#homeScroll {{ border-radius: 15px; padding: 0; font-size: 22px; }}
 QListView {{ background: transparent; border: none; outline: none; }}
 QListView::item {{ border-radius: 12px; }}
 QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: #2a3463; min-height: 36px; border-radius: 3px; }}
-QScrollBar::handle:vertical:hover {{ background: #3a4785; }}
+QScrollBar::handle:vertical {{ background: {LINE}; min-height: 36px; border-radius: 3px; }}
+QScrollBar::handle:vertical:hover {{ background: {TEXT_MUTED}; }}
 QScrollBar::handle:vertical:disabled {{ background: transparent; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
 QScrollBar:horizontal {{ background: transparent; height: 8px; margin: 2px; }}
-QScrollBar::handle:horizontal {{ background: #2a3463; min-width: 36px; border-radius: 3px; }}
+QScrollBar::handle:horizontal {{ background: {LINE}; min-width: 36px; border-radius: 3px; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
-QSlider::groove:horizontal {{ height: 4px; background: #27315c; border-radius: 2px; }}
+QSlider::groove:horizontal {{ height: 4px; background: {LINE}; border-radius: 2px; }}
 QSlider::sub-page:horizontal {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-    stop:0 #7f8fe6, stop:1 {ACCENT_STRONG}); border-radius: 2px; }}
+    stop:0 {ACCENT}, stop:1 {ACCENT_STRONG}); border-radius: 2px; }}
 QSlider::handle:horizontal {{ background: {TEXT}; width: 14px; height: 14px; margin: -5px 0;
     border-radius: 7px; border: 3px solid {ACCENT}; }}
 QSlider::handle:horizontal:hover {{ background: #ffffff; border-color: {ACCENT_STRONG}; }}
-QSlider::sub-page:horizontal:disabled {{ background: #27315c; }}
-QSlider::handle:horizontal:disabled {{ background: #3a4470; border-color: #27315c; }}
+QSlider::sub-page:horizontal:disabled {{ background: {LINE}; }}
+QSlider::handle:horizontal:disabled {{ background: {HOVER}; border-color: {LINE}; }}
 
 QSplitter::handle {{ background: transparent; width: 2px; }}
 QSplitter::handle:hover {{ background: {ACCENT_TINT}; }}
@@ -251,12 +292,12 @@ QLabel#poster {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {RAI
     border: 1px solid {LINE_SOFT}; border-radius: 16px; color: {TEXT_MUTED}; }}
 QToolTip {{ color: {TEXT}; background: {RAISED}; padding: 6px 9px; border: 1px solid {LINE};
     border-radius: 8px; }}
-"""
-
-STYLE += f"""
 QTabBar#seasonTabs::tab {{ border-radius: 8px; margin-right: 4px; }}
 QTabBar#seasonTabs::tab:selected {{ background: {ACCENT_TINT}; color: {ACCENT_STRONG}; }}
 QTabBar#seasonTabs::tab:hover {{ background: {RAISED}; }}
 QTabBar#seasonTabs::tab:focus {{ border-color: {ACCENT}; }}
 QListView#episodeList {{ background: {SURFACE}; padding: 0; }}
 """
+
+
+set_palette()

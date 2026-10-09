@@ -20,6 +20,20 @@ from . import icons, theme
 from .dialogs import text_label
 
 PROFILE_COLORS = ("#E8B04B", "#7C8CF8", "#4FC3A1", "#F07A8C", "#B48CF2", "#5BB8F0")
+PROFILE_AVATARS = (
+    ("Ay", "moon"),
+    ("Yıldız", "star"),
+    ("Roket", "rocket"),
+    ("Kedi", "cat"),
+    ("Tilki", "fox"),
+    ("Baykuş", "owl"),
+    ("Ayı", "bear"),
+    ("Gezegen", "planet"),
+    ("Kuyruklu yıldız", "comet"),
+    ("Güneş", "sun"),
+    ("Bulut", "cloud"),
+    ("TV", "tv"),
+)
 
 
 def profile_flags(profile):
@@ -32,7 +46,7 @@ def profile_flags(profile):
 
 
 class ProfileAvatar(QAbstractButton):
-    """A moonlit disc with the profile's initial; a star marks kids, a padlock a PIN."""
+    """A coloured disc with an initial or picture, plus the kids/PIN badge."""
 
     def __init__(self, size=40, parent=None):
         super().__init__(parent)
@@ -65,17 +79,30 @@ class ProfileAvatar(QAbstractButton):
         painter.setPen(Qt.NoPen)
         painter.setBrush(glow)
         painter.drawEllipse(rect)
-        if self.hasFocus() or self.underMouse() or self.isDown():
+        if self.hasFocus() or self.underMouse() or self.isDown() or self.isChecked():
             painter.setPen(QColor(theme.ACCENT_STRONG))
             painter.setBrush(Qt.NoBrush)
             painter.drawEllipse(rect.adjusted(-1, -1, 1, 1))
-        font = QFont(self.font())
-        font.setPixelSize(max(10, int(rect.height() * 0.44)))
-        font.setWeight(QFont.Bold)
-        painter.setFont(font)
-        painter.setPen(QColor(theme.ACCENT_INK))
-        initial = self.profile["name"][:1].upper()
-        painter.drawText(rect, Qt.AlignCenter, initial)
+        avatar = self.profile.get("avatar")
+        if avatar in {value for _, value in PROFILE_AVATARS}:
+            inner = rect.adjusted(
+                rect.width() * 0.2, rect.height() * 0.2, -rect.width() * 0.2, -rect.height() * 0.2
+            )
+            pixmap = icons.pixmap(
+                avatar, theme.TEXT, round(inner.width()), self.devicePixelRatioF()
+            )
+            painter.save()
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawPixmap(inner, pixmap, QRectF(pixmap.rect()))
+            painter.restore()
+        else:
+            font = QFont(self.font())
+            font.setPixelSize(max(10, int(rect.height() * 0.44)))
+            font.setWeight(QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.ACCENT_INK))
+            initial = self.profile["name"][:1].upper()
+            painter.drawText(rect, Qt.AlignCenter, initial)
         badge = max(12.0, rect.width() * 0.34)
         corner = QRectF(rect.right() - badge + 2, rect.bottom() - badge + 2, badge, badge)
         mark = (
@@ -135,7 +162,7 @@ class ProfilePicker(QDialog):
 
 
 class ProfileEditor(QDialog):
-    """Name, colour and the two switches of one profile."""
+    """Name, colour, picture and the two switches of one profile."""
 
     def __init__(self, store, profile=None, parent=None):
         super().__init__(parent)
@@ -179,6 +206,27 @@ class ProfileEditor(QDialog):
             self.colors.buttons()[0].setChecked(True)
         swatches.addStretch()
         layout.addLayout(swatches)
+        layout.addWidget(text_label("PROFİL RESMİ", "eyebrow"))
+        pictures = QHBoxLayout()
+        pictures.setSpacing(3)
+        self.avatars = QButtonGroup(self)
+        self.avatar_buttons = {}
+        current_avatar = profile.get("avatar") if profile else None
+        for title, avatar in (("Harf", None), *PROFILE_AVATARS):
+            button = ProfileAvatar(34) if avatar else QPushButton("Harf")
+            button.setCheckable(True)
+            button.setProperty("avatar", avatar)
+            button.setAccessibleName(title)
+            button.setToolTip(title)
+            if avatar is None:
+                button.setObjectName("chip")
+                button.setFixedSize(56, 34)
+            self.avatars.addButton(button)
+            self.avatar_buttons[avatar] = button
+            pictures.addWidget(button)
+        self.avatar_buttons.get(current_avatar, self.avatar_buttons[None]).setChecked(True)
+        pictures.addStretch()
+        layout.addLayout(pictures)
         self.kids = QCheckBox("Çocuk profili (kilitli içerik hiç görünmez)")
         self.kids.setChecked(bool(profile and profile["kids"]))
         self.kids.toggled.connect(self._preview)
@@ -205,7 +253,8 @@ class ProfileEditor(QDialog):
         self.save_button.clicked.connect(self.save)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.setFixedWidth(420)
+        self.avatars.buttonToggled.connect(self._preview)
+        self.setFixedWidth(560)
         self._preview()
 
     def values(self):
@@ -214,11 +263,18 @@ class ProfileEditor(QDialog):
             color=self.colors.checkedButton().property("color"),
             kids=self.kids.isChecked(),
             protected=self.protected.isChecked(),
+            avatar=self.avatars.checkedButton().property("avatar"),
         )
 
     def _preview(self, *_):
         values = self.values()
         self.preview.set_profile(dict(values, name=values["name"] or "?"))
+        for avatar, button in self.avatar_buttons.items():
+            if avatar:
+                button.set_profile(dict(values, avatar=avatar, kids=False, protected=False))
+                title = next(title for title, value in PROFILE_AVATARS if value == avatar)
+                button.setToolTip(title)
+                button.setAccessibleName(title)
 
     def save(self):
         values = self.values()

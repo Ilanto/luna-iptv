@@ -1,16 +1,39 @@
 """Application settings that apply as soon as a choice changes."""
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QHBoxLayout, QVBoxLayout
+from PySide6.QtCore import Qt, QTime, Signal
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QSystemTrayIcon,
+    QTimeEdit,
+    QVBoxLayout,
+)
 
+from . import theme
 from .dialogs import text_label
 from .media_dialog import _LANGUAGE_PREFERENCES
 from .motion import IconButton, set_motion_level
-from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selected_setting
+from .settings import (
+    ACCENT_CHOICES,
+    AUTOPLAY_CHOICES,
+    BASE_THEME_CHOICES,
+    MOTION_CHOICES,
+    REFRESH_CHOICES,
+    STARTUP_CHOICES,
+    refresh_time,
+    selected_setting,
+)
+from .updates import UPDATE_CHOICES
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, store, parent=None):
+    refresh_changed = Signal()
+
+    def __init__(self, store, parent=None, *, tray_available=None):
         super().__init__(parent)
         self.store = store
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -23,6 +46,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(text_label("Ayarlar", "heading"))
 
         appearance = self._section(layout, "GÖRÜNÜM")
+        self.accent_combo = self._choice(appearance, "Vurgu rengi", "accent", ACCENT_CHOICES)
+        self.base_theme_combo = self._choice(appearance, "Tema", "base_theme", BASE_THEME_CHOICES)
         self.motion_combo = self._choice(appearance, "Hareket", "motion_level", MOTION_CHOICES)
         note = text_label("Az: gökyüzü ve logo sabit. Kapalı: tüm hareketler kapalı.", "faint")
         note.setWordWrap(True)
@@ -50,6 +75,43 @@ class SettingsDialog(QDialog):
 
         startup = self._section(layout, "BAŞLANGIÇ")
         self.startup_combo = self._choice(startup, "Açılışta", "startup_action", STARTUP_CHOICES)
+        updates = self._section(layout, "GÜNCELLEME")
+        self.refresh_combo = self._choice(
+            updates, "Kaynakları ve rehberi otomatik yenile", "auto_refresh", REFRESH_CHOICES
+        )
+        row = QHBoxLayout()
+        label = text_label("Saat", "muted")
+        self.refresh_time = QTimeEdit(QTime.fromString(refresh_time(store), "HH:mm"))
+        self.refresh_time.setDisplayFormat("HH:mm")
+        self.refresh_time.setAccessibleName("Saat")
+        label.setBuddy(self.refresh_time)
+        self.refresh_time.setEnabled(self.refresh_combo.currentData() == "daily")
+        self.refresh_time.timeChanged.connect(
+            lambda value: self._save("auto_refresh_time", value.toString("HH:mm"))
+        )
+        self.refresh_combo.currentIndexChanged.connect(
+            lambda _: self.refresh_time.setEnabled(self.refresh_combo.currentData() == "daily")
+        )
+        row.addWidget(label)
+        row.addStretch()
+        row.addWidget(self.refresh_time)
+        updates.addLayout(row)
+        self.update_combo = self._choice(
+            updates, "Yeni sürümleri denetle", "update_check", UPDATE_CHOICES
+        )
+        self.close_to_tray = QCheckBox("Kapatınca tepsiye küçült")
+        self.close_to_tray.setChecked(store.setting("close_to_tray", False) is True)
+        available = (
+            QSystemTrayIcon.isSystemTrayAvailable() if tray_available is None else tray_available
+        )
+        self.close_to_tray.setEnabled(available)
+        self.close_to_tray.toggled.connect(lambda value: self._save("close_to_tray", value))
+        startup.addWidget(self.close_to_tray)
+        if not available:
+            hint = text_label("Bu masaüstünde sistem tepsisi kullanılamıyor.", "faint")
+            hint.setWordWrap(True)
+            startup.addWidget(hint)
+            self.close_to_tray.setToolTip(hint.text())
         layout.addStretch()
         footer = QHBoxLayout()
         footer.addWidget(text_label("Değişiklikler anında kaydedilir.", "faint"))
@@ -90,5 +152,9 @@ class SettingsDialog(QDialog):
 
     def _save(self, key, value):
         self.store.set_setting(key, value)
+        if key in {"auto_refresh", "auto_refresh_time"}:
+            self.refresh_changed.emit()
         if key == "motion_level":
             set_motion_level(value)
+        elif key in ("accent", "base_theme"):
+            theme.apply_theme(QApplication.instance(), self.store)

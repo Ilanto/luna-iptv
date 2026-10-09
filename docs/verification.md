@@ -84,3 +84,11 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - İş üçe bölündü: Codex (gpt-6-astra) iki ayrı worktree'de panel/bildirim/sayfa geçişi ve kart hareketi/yükleme; vitrin ve kanal bandı burada. Birleştirmede tek çakışma (kapanış temizliği) elle çözüldü.
 - İncelemede: kanal bandındaki opaklık efekti OpenGL videosunun üstünde riskli (ve offscreen'de boş çiziliyordu) — bant artık efeksiz açılıp kapanıyor. Bildirim ve sayfa geçişindeki animasyon grupları `clear()` ile boşaltılırken Qt "animationAt: index is out of bounds" uyarısı veriyordu; Python yığınıyla kaynağı bulundu, animasyonlar tek tek çıkarılıyor.
 - `scripts/test-quiet.sh`: **868 geçti**, 5 atlandı. Görsel kontrol (offscreen): vitrinli ana sayfa (panel gizli), kart üzerine gelme, oynarken panel, kanal bandı, bildirim.
+
+# Luna IPTV 0.19.0 · hızlı kazançlar
+
+- Dört Codex işi (görünüm, veri, rahatlık, bilgi penceresi) paralel worktree'lerde; programda arama, yedek kaynak, hız ölçümü ve güncelleme uyarısı burada. Birleştirmelerde ayar penceresi ve ana pencere çakışmaları iki tarafı da koruyarak çözüldü; yedek biçimi ile profil resmi sütunu birbirini bilmediği için yedek doğrulaması resimsiz profili reddediyordu, düzeltildi.
+- Tam test paketi zaman zaman segfault veriyordu: faulthandler, Python'un çöp toplayıcısının bir HTTP sunucu iş parçacığında Qt nesnelerini yok ettiğini gösterdi. Uygulamada da logo indirme iş parçacıkları olduğundan otomatik toplama kapatıldı, ana iş parçacığındaki bir zamanlayıcı topluyor (testlerde her testten sonra).
+- `scripts/benchmark.py` (100.000 kanal): açılış 2,34 → 1,38 sn, yenileme 2,22 → 1,07 sn.
+- Bir Codex işi gün değişiminde boşalan scratchpad yüzünden kurallar dosyası olmadan başladı; çalışan testlerin hepsinin offscreen olduğu süreç ortamından doğrulandı. Kurallar artık `work/codex/` altında.
+- `scripts/test-quiet.sh`: **1027 geçti**, 5 atlandı. Görsel kontrol (offscreen): bilgi penceresi, ilk açılış, ayarlar, istatistikler.

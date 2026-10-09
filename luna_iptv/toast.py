@@ -46,10 +46,6 @@ class Toast(QWidget):
         outer.setContentsMargins(8, 8, 8, 8)
         self.pill = QFrame()
         self.pill.setObjectName("toastPill")
-        self.pill.setStyleSheet(
-            f"QFrame#toastPill {{ background: {theme.RAISED}; border: 1px solid {theme.LINE};"
-            f" border-radius: 18px; }} QLabel {{ color: {theme.TEXT}; background: transparent; }}"
-        )
         outer.addWidget(self.pill)
         row = QHBoxLayout(self.pill)
         row.setContentsMargins(18, 12, 18, 12)

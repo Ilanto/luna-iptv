@@ -7,7 +7,7 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.18.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.19.0-1.noarch.rpm
 luna-iptv
 ```
 
@@ -26,6 +26,21 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.19.0 · hızlı kazançlar
+
+- **Görüntü ve ses** (Oynatma menüsü): görüntü oranı (Otomatik, 16:9, 4:3, 21:9, Doldur), yakınlaştırma, parlaklık/kontrast, ses güçlendirme ve sesi dengeleme; kaynak başına hatırlanır.
+- **Renkler:** Ayarlar → Görünüm'de vurgu rengi (Ay mavisi, Altın, Gül, Nane) ve OLED siyah tema; anında uygulanır.
+- **Otomatik yenileme:** kaynaklar ve rehber her gün belirlediğin saatte (ya da 6 saatte bir) sessizce güncellenir; bitmek üzere olan Xtream aboneliği için günde bir uyarı.
+- **Bilgi penceresi** yenilendi: afiş renklerinden fonlu büyük başlık, tür etiketleri, "Devamı", "Devam et · N dk kaldı", derli toplu künye.
+- **Rehberde arama** ana arama kutusundan: "Rehberde" düğmesi önümüzdeki 24 saatte eşleşen programları gösterir.
+- **Yedek kaynağa geçiş:** açılmayan bir canlı kanal başka kaynağındaki aynı kanaldan (rehber kimliği ya da HD/FHD etiketsiz aynı ad) açılır.
+- **Profiller:** 12 hazır profil resmi; diğer profillerin hatırlatıcıları da bildirim verir ("Ece için: …"), "İzle" o profile geçer.
+- **Yedekler** artık tüm profilleri, kategori düzenini ve kilitleri de taşır (PIN asla); eski yedekler açılmaya devam eder.
+- **Tepsi simgesi** (isteğe bağlı "kapatınca tepsiye küçült"), **İstatistikler** (profil menüsü: haftalık süre, son 7 gün, en çok izlenenler), **ilk açılış rehberi**, rehberde nabız atan "şu an" çizgisi ve kanal logoları.
+- **Yeni sürüm uyarısı:** günde bir GitHub'daki son sürüme bakılır (Ayarlar'dan kapatılabilir; kişisel veri gönderilmez).
+- **Hız:** 100.000 kanalda açılış 2,3 → 1,4 sn, yenileme 2,2 → 1,1 sn (`scripts/benchmark.py`).
+- **Kararlılık:** Python çöp toplayıcısı artık yalnız ana iş parçacığında çalışır; arka plan indirmeleri sırasında nadir çökme olasılığı kapandı.
 
 ### 0.18.0 · arayüz yenilemesi
 

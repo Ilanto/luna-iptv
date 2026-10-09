@@ -1,4 +1,5 @@
 import math
+import re
 import unicodedata
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -30,6 +31,15 @@ def search_key(text):
     )
 
 
+_QUALITY = re.compile(r"\b(?:hd|fhd|uhd|sd|4k|8k|hevc|h\.?26[45]|raw|backup|yedek)\b")
+
+
+def channel_key(name):
+    """A channel name without quality tags or punctuation: 'TRT 1 HD' and 'TRT1 FHD' match."""
+    key = _QUALITY.sub(" ", search_key(name))
+    return "".join(c for c in key if c.isalnum())
+
+
 PROGRESS_ROLE = Qt.UserRole + 2
 LOCKED_ROLE = Qt.UserRole + 3
 
@@ -53,6 +63,7 @@ class ChannelModel(QAbstractListModel):
         self.progress = {}
         self.locked = frozenset()  # channel ids behind the parental PIN
         self._rows = {}
+        self._keys = {}  # (name, group) -> search key, reused across resets
 
     def rowCount(self, parent=None):
         return 0 if parent is not None and parent.isValid() else len(self.channels)
@@ -84,7 +95,14 @@ class ChannelModel(QAbstractListModel):
         self.favorites = favorites
         self.progress = dict(progress or {})
         self._rows = {channel.id: row for row, channel in enumerate(channels)}
-        self.search_keys = [search_key(c.name + " " + c.group) for c in channels]
+        # Normalising 100,000 names took most of a refresh; names rarely change between them.
+        old, keys = self._keys, {}
+        for c in channels:
+            pair = c.name, c.group
+            if pair not in keys:
+                keys[pair] = old.get(pair) or search_key(c.name + " " + c.group)
+        self._keys = keys
+        self.search_keys = [keys[c.name, c.group] for c in channels]
         self.endResetModel()
 
     def row_of(self, channel_id):
@@ -93,7 +111,10 @@ class ChannelModel(QAbstractListModel):
 
     def set_locked(self, channel_ids):
         """Swap the set of locked channels and repaint every card."""
-        self.locked = frozenset(channel_ids)
+        locked = frozenset(channel_ids)
+        if locked == self.locked:
+            return  # a full dataChanged makes every proxy re-filter every row
+        self.locked = locked
         if self.channels:
             self.dataChanged.emit(
                 self.index(0, 0), self.index(len(self.channels) - 1, 0), [LOCKED_ROLE]
@@ -179,9 +200,8 @@ class ChannelFilter(QSortFilterProxyModel):
         return channel.id.split(":", 1)[0], channel.kind, channel.group
 
     def category_hidden(self, channel):
-        return (channel.id.split(":", 1)[0], channel.group) in self.hidden_categories.get(
-            channel.kind, ()
-        )
+        hidden = self.hidden_categories.get(channel.kind)
+        return bool(hidden) and (channel.id.split(":", 1)[0], channel.group) in hidden
 
     def _hidden_in_section(self, channel):
         return self.section not in ("favorites", "recent") and self.category_hidden(channel)

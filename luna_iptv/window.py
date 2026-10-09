@@ -4,11 +4,12 @@ import gzip
 import hashlib
 import math
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSlider,
@@ -22,16 +23,25 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from . import __version__, theme
+from . import __version__, icons, theme
 from .accounts import sanitize_profile
+from .auto_refresh import RefreshScheduler
 from .category_editor import CategoryEditor
 from .channel_banner import BannerPlacer, ChannelBanner
+from .comfort import ComfortPreferences
 from .dialogs import AccountDialog, GuideDialog, SourceDialog
 from .epg import GuideIndex, parse_xmltv
 from .fullscreen import FullscreenController
 from .idle_inhibit import IdleInhibit
 from .layout import build_window
-from .library import ChannelFilter, ChannelModel, ordered_channels, resumable
+from .library import (
+    ChannelFilter,
+    ChannelModel,
+    channel_key,
+    ordered_channels,
+    resumable,
+    search_key,
+)
 from .media_controller import MediaDetailController
 from .media_info import MediaInfo
 from .mini_player import MiniPlayerController
@@ -51,9 +61,12 @@ from .settings import AUTOPLAY_CHOICES, MOTION_CHOICES, STARTUP_CHOICES, selecte
 from .settings_dialog import SettingsDialog
 from .shell_motion import PageTransition, WatchPanelController
 from .source_connections import HealthResult, check_connection, validate_candidate
+from .statistics import StatisticsDialog, WatchTracker
 from .tasks import Task
 from .toast import Toast
 from .transport import TransportController
+from .tray import TrayController
+from .updates import UpdateChecker
 from .watching import SLEEP_CHOICES, Countdown, NumberEntry, SleepTimer, next_episode
 
 
@@ -102,14 +115,11 @@ class RemoteControl:
         self._window.transport.seek_relative(position_us / 1e6 - self._window._position)
 
     def raise_window(self):
-        if self._window.isMinimized():
-            self._window.showNormal()
-        self._window.raise_()
-        self._window.activateWindow()
+        self._window.tray.show_window()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, store, *, ask_profile=False):
+    def __init__(self, store, *, ask_profile=False, tray_available=None):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.store = store
@@ -121,7 +131,11 @@ class MainWindow(QMainWindow):
         self._duration = 0.0
         self._seekable = False
         self._closed = False
+        self._quitting = False
+        self._buffering = False
+        self._statistics_dialog = None
         self._busy = False
+        self._importing = False
         self._tasks = set()
         self._retry = None
         self._guide_data = {}
@@ -154,6 +168,8 @@ class MainWindow(QMainWindow):
         self.transport = TransportController(self.player, self)
         self.recovery = RecoveryController(self)
         self.track_preferences = TrackPreferences(store, self.player)
+        self.comfort_preferences = ComfortPreferences(store, self.player)
+        self.watch_tracker = WatchTracker(store)
         build_window(self)
         self._language_notice_timer = QTimer(self)
         self._language_notice_timer.setSingleShot(True)
@@ -177,8 +193,16 @@ class MainWindow(QMainWindow):
         self.toast = Toast(self)
         self.idle_inhibit = IdleInhibit()
         self.mpris = MprisService(RemoteControl(self), self)
-        self.reminder_service = ReminderService(self.store, self._watch_reminder, self.status, self)
+        self.reminder_service = ReminderService(
+            self.store,
+            self._watch_reminder,
+            self.status,
+            self,
+            switch_profile=lambda profile_id: self.switch_profile(profile_id),
+        )
         self.reminder_service.changed.connect(self._reminders_changed)
+        self.updates = UpdateChecker(self.store, self)
+        self.updates.found.connect(self.update_found)
         self.sleep_timer = SleepTimer(self)
         self.sleep_timer.changed.connect(self.refresh_sleep_button)
         self.sleep_timer.expired.connect(self.sleep_expired)
@@ -192,6 +216,7 @@ class MainWindow(QMainWindow):
         self.number_entry.typing.connect(self._number_typing)
         self.number_entry.chosen.connect(self.jump_to_number)
         self._notice_kind = None
+        self._failover_tried = set()
         self._reminders_dialog = None
         self._playback_paused = False
         self.transport.changed.connect(self.refresh_transport)
@@ -209,6 +234,11 @@ class MainWindow(QMainWindow):
         self.player.ready.connect(
             lambda: self.engine_label.setText("mpv  ·  " + QApplication.platformName())
         )
+        self.tray = TrayController(self, available=tray_available)
+        self._watch_timer = QTimer(self)
+        self._watch_timer.setInterval(30000)
+        self._watch_timer.timeout.connect(self.watch_tracker.flush)
+        self._watch_timer.start()
         self.refresh_library()
         self.refresh_profile_badge()
         self._guide_timer = QTimer(self)
@@ -218,6 +248,37 @@ class MainWindow(QMainWindow):
         self._guide_timer.start()
         QTimer.singleShot(0, self.load_cached_guides)
         QTimer.singleShot(0, self.start_session if ask_profile else self.restore_last_channel)
+        self.refresh_scheduler = RefreshScheduler(
+            self.store,
+            self.import_source,
+            self._auto_refresh_available,
+            self.toast.show_message,
+            self,
+        )
+        self.recovery.changed.connect(self._wake_refresh)
+        self.refresh_scheduler.start()
+
+    def _wake_refresh(self):
+        scheduler = getattr(self, "refresh_scheduler", None)
+        if scheduler is not None:
+            scheduler.wake()
+
+    def _auto_refresh_available(self, source):
+        if self._closed or self._busy or self._importing or self._tasks:
+            return False
+        return not MainWindow._auto_refresh_playing(self, source)
+
+    def _auto_refresh_playing(self, source):
+        return bool(
+            self.current
+            and self.current.id.startswith(source["id"] + ":")
+            and (
+                self._playback_active
+                or self._loading
+                or self.recovery.state
+                in {"connecting", "untracked-connecting", "waiting", "buffering"}
+            )
+        )
 
     def status(self, message, retry=None, *, icon=None):
         self.mini_status.setText(message)
@@ -259,6 +320,7 @@ class MainWindow(QMainWindow):
                 self._busy = False
                 if not self._closed:
                     self.add_button.setEnabled(True)
+            self._wake_refresh()
 
         def done(result):
             finish()
@@ -267,9 +329,11 @@ class MainWindow(QMainWindow):
             try:
                 success(result)
             except Exception:
-                self.status(
-                    "Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin.", retry
-                )
+                message = "Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin."
+                if failure is not None:
+                    failure(message)
+                else:
+                    self.status(message, retry)
 
         def failed(error):
             finish()
@@ -291,29 +355,76 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             self.import_source(dialog.source())
 
-    def import_source(self, source):
+    def import_source(self, source, *, quiet=False, on_finished=None):
         from .backup import source_incomplete
 
         if source_incomplete(source):
-            self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
-            return
-        if self._busy:
-            return
+            if not quiet:
+                self.status("Önce eksik kaynak bilgilerini «Bağlantıyı düzenle» ile tamamlayın.")
+            return False
+        if self._busy or self._importing or (quiet and not self._auto_refresh_available(source)):
+            return False
         source = dict(source)
-        self.channel_list.set_loading(True)
-        self.filter_changed()
+        self._importing = True
+        completed = False
+        if not quiet:
+            self.channel_list.set_loading(True)
+            self.filter_changed()
 
-        def done(result):
-            try:
-                self.accept_import(source, result)
-            finally:
+        def finish(success, changed=False):
+            nonlocal completed
+            if completed:
+                return
+            completed = True
+            self._importing = False
+            if not quiet:
                 self.channel_list.set_loading(False)
                 self.filter_changed()
+            if on_finished is not None:
+                on_finished(success, changed)
+            self._wake_refresh()
+
+        def done(result):
+            if quiet:
+                stored = next((s for s in self.store.sources() if s["id"] == source["id"]), None)
+                if (
+                    stored is None
+                    or not self._same_source(stored, source)
+                    or self._auto_refresh_playing(source)
+                ):
+                    finish(False)
+                    return
+            try:
+                changed = (
+                    self.accept_import(source, result, quiet=True)
+                    if quiet
+                    else self.accept_import(source, result)
+                )
+                if quiet and changed is None:
+                    finish(False)
+                elif quiet:
+                    updated = next(s for s in self.store.sources() if s["id"] == source["id"])
+                    if updated.get("epg_url"):
+                        self.load_guide(
+                            updated,
+                            quiet=True,
+                            on_finished=lambda success, guide_changed: finish(
+                                success, changed or guide_changed
+                            ),
+                        )
+                    else:
+                        finish(True, changed)
+                else:
+                    finish(True)
+            except Exception:
+                failed("Veri kaydedilemedi. Disk alanını ve dosya izinlerini kontrol edin.")
 
         def failed(error):
-            self.channel_list.set_loading(False)
-            self.filter_changed()
-            self.status(error, lambda: self.import_source(source))
+            if quiet:
+                self.toast.show_message(error)
+            else:
+                self.status(error, lambda: self.import_source(source))
+            finish(False)
 
         def load():
             if source["type"] == "xtream":
@@ -356,16 +467,22 @@ class MainWindow(QMainWindow):
         self.run_task(
             load,
             done,
-            "Kaynak okunuyor…",
-            lambda: self.import_source(source),
+            None if quiet else "Kaynak okunuyor…",
+            None if quiet else lambda: self.import_source(source),
             failure=failed,
         )
+        return True
 
-    def accept_import(self, source, playlist):
+    def accept_import(self, source, playlist, *, quiet=False):
         if not playlist.channels:
-            self.status("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
+            notify = self.toast.show_message if quiet else self.status
+            notify("Bu kaynakta oynatılabilir yayın bulunamadı. Önceki liste korundu.")
             return
         source = dict(source)
+        previous_source = next(
+            (s for s in self.store.sources() if s["id"] == source.get("id")), None
+        )
+        previous_channels = self.store.channels(source["id"]) if source.get("id") else []
         if not source.get("epg_url") and playlist.epg_urls:
             source["epg_url"] = playlist.epg_urls[0]
         source_id = self.store.save_source(source)
@@ -398,20 +515,33 @@ class MainWindow(QMainWindow):
                 self._sync_playback_state()
                 self.player.stop()
                 self.current = None
+                self.tray.refresh()
                 self.watch_panel.sync()
                 self._loading = False
                 self.favorite_button.setEnabled(False)
                 self.video_stack.setCurrentIndex(0)
                 self.video_title.setText("İyi bir yayına yer aç.")
-        self.refresh_library(select_source=source_id)
-        kind = playlist.channels[0].kind
-        self.set_section(kind if kind in ("live", "movie", "series") else "live")
-        detail = f"{len(playlist.channels)} yayın hazır."
-        if playlist.warnings:
-            detail += f" {len(playlist.warnings)} geçersiz satır atlandı."
-        self.status(detail)
-        if source.get("epg_url"):
-            self.load_guide(source)
+        changed = previous_source != source or sorted(
+            previous_channels, key=lambda c: c.id
+        ) != sorted(stored_channels, key=lambda c: c.id)
+        if not quiet or changed:
+            self.refresh_library(select_source=None if quiet else source_id)
+        if not quiet:
+            # A manual import already fetched the catalogue. Do not immediately
+            # download it a second time when the scheduler next becomes idle.
+            last = self.store.setting("auto_refresh_last", {})
+            last = dict(last) if isinstance(last, dict) else {}
+            last[source_id] = datetime.now().timestamp()
+            self.store.set_setting("auto_refresh_last", last)
+            kind = playlist.channels[0].kind
+            self.set_section(kind if kind in ("live", "movie", "series") else "live")
+            detail = f"{len(playlist.channels)} yayın hazır."
+            if playlist.warnings:
+                detail += f" {len(playlist.warnings)} geçersiz satır atlandı."
+            self.status(detail)
+            if source.get("epg_url"):
+                self.load_guide(source)
+        return changed
 
     def refresh_library(self, select_source=None):
         previous = select_source if select_source is not None else self.source_combo.currentData()
@@ -550,11 +680,21 @@ class MainWindow(QMainWindow):
         )
         self.category_bar.edit_button.setEnabled(bool(self.store.sources()))
         self._hidden_category_count = len(hidden_groups)
+        self._refresh_theme_details()
+        self.refresh_folders()
+
+    def _refresh_theme_details(self):
+        """Regenerate the few theme-coloured assets stored outside paint methods."""
+        if hasattr(self, "guide_mark"):
+            self.guide_mark.setPixmap(
+                icons.pixmap("guide", theme.ACCENT, 16, self.devicePixelRatioF())
+            )
+        if not hasattr(self, "_hidden_category_count"):
+            return
         self.hidden_categories_label.setText(
-            f'{len(hidden_groups)} kategori gizli · <a href="edit" style="color: {theme.ACCENT};'
+            f'{self._hidden_category_count} kategori gizli · <a href="edit" style="color: {theme.ACCENT};'
             f' text-decoration: none;">Düzenle</a>'
         )
-        self.refresh_folders()
 
     def edit_categories(self, *_):
         if self.proxy.section not in ("live", "movie", "series"):
@@ -735,8 +875,37 @@ class MainWindow(QMainWindow):
         self.category_bar.set_current(self.category.currentData() or "")
 
     def choose_search_kind(self, kind):
+        if kind == "guide":
+            # Programmes live in the Rehber page: carry the words there.
+            query = self.search.text().strip()
+            self.set_section("guide")
+            self.guide_view.search.setText(query)
+            return
         self.proxy.kind = kind
         self.filter_changed()
+
+    def programme_hits(self, query, hours=24):
+        """How many programmes of the next ``hours`` match ``query`` on visible channels."""
+        key = search_key(query)
+        if len(key) < 2 or not self._guide_index:
+            return 0
+        start = datetime.now(timezone.utc)
+        end = start + timedelta(hours=hours)
+        by_source = {}
+        for channel in self.model.channels:
+            if channel.kind != "live" or not channel.tvg_id:
+                continue
+            if self.proxy.hide_locked and channel.id in self.model.locked:
+                continue
+            source = channel.id.split(":", 1)[0]
+            if self.proxy.source and source != self.proxy.source:
+                continue
+            by_source.setdefault(source, set()).add(channel.tvg_id)
+        return sum(
+            len(index.search(key, start, end, by_source[source]))
+            for source, index in self._guide_index.items()
+            if source in by_source
+        )
 
     def filter_changed(self, *_):
         self.proxy.query = self.search.text().casefold().strip()
@@ -749,14 +918,15 @@ class MainWindow(QMainWindow):
         count = self.proxy.rowCount()
         if searching:
             counts = self.proxy.search_counts()
-            self.kind_bar.set_items(
-                [
-                    ("live", "Canlı", counts["live"]),
-                    ("movie", "Film", counts["movie"]),
-                    ("series", "Dizi", counts["series"]),
-                ],
-                self.proxy.kind,
-            )
+            kinds = [
+                ("live", "Canlı", counts["live"]),
+                ("movie", "Film", counts["movie"]),
+                ("series", "Dizi", counts["series"]),
+            ]
+            programmes = self.programme_hits(self.search.text())
+            if programmes:
+                kinds.append(("guide", "Rehberde", programmes))
+            self.kind_bar.set_items(kinds, self.proxy.kind)
             self.count_label.setText(f"{count:,} sonuç".replace(",", "."))
         else:
             self.count_label.setText(f"{count:,} yayın".replace(",", "."))
@@ -861,7 +1031,10 @@ class MainWindow(QMainWindow):
         if not self.guard("Ayarları açmak için PIN gir."):
             return
         if self._settings_dialog is None or not isValid(self._settings_dialog):
-            self._settings_dialog = SettingsDialog(self.store, self)
+            self._settings_dialog = SettingsDialog(
+                self.store, self, tray_available=self.tray.available
+            )
+            self._settings_dialog.refresh_changed.connect(self._wake_refresh)
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
@@ -879,10 +1052,12 @@ class MainWindow(QMainWindow):
         if dialog is not None and isValid(dialog):
             dialog.reject()
 
-    def request_play(self, channel, *, preferences=None, approved=False):
+    def request_play(self, channel, *, preferences=None, approved=False, failover=False):
         """Play a channel; locked ones ask for the PIN every time (approved: already asked)."""
         if not self.unlock_channel(channel, approved=approved):
             return
+        if not failover:
+            self._failover_tried = set()  # a person's own choice starts a new chain
         self.cancel_next_episode()
         self.dismiss_resume()
         preferences = normalize_preferences(preferences) if preferences is not None else None
@@ -918,6 +1093,15 @@ class MainWindow(QMainWindow):
         """Tell the desktop what is playing: the idle inhibit and media controls."""
         self.idle_inhibit.set_active(self._playback_active and not self._playback_paused)
         self._sync_mpris()
+        self._wake_refresh()
+        self.watch_tracker.set_running(
+            self._playback_active
+            and not self._playback_paused
+            and not self._loading
+            and not self._idle
+            and not self._buffering
+        )
+        self.tray.refresh()
 
     def _sync_mpris(self):
         channel = self.current if self._playback_active else None
@@ -960,6 +1144,8 @@ class MainWindow(QMainWindow):
             return
         self.dismiss_resume()
         self.save_progress()
+        self.watch_tracker.begin(channel.id)
+        self._buffering = False
         if not recovering:
             self.recovery.begin(channel.id, live=channel.kind == "live")
             self._record_recent = True
@@ -968,6 +1154,7 @@ class MainWindow(QMainWindow):
         persist_preferences = preferences is not None
         if preferences is None and self.current is not None and self.current.id == channel.id:
             preferences = self.track_preferences.current_choices()
+        preserve_comfort = self.current is not None and self.current.id == channel.id
         self.current = channel
         self.watch_panel.sync()
         self._current_persistent = True
@@ -985,6 +1172,7 @@ class MainWindow(QMainWindow):
         self._loading = True
         self._tracks = []
         source = self.source_for(channel)
+        self.comfort_preferences.begin(source["id"] if source else None, preserve=preserve_comfort)
         track_options = self.track_preferences.begin(
             source["id"] if source else None,
             preferences=preferences,
@@ -1081,7 +1269,8 @@ class MainWindow(QMainWindow):
         # mpv only reports pause changes; a new file starting unpaused sends none.
         self.play_button.setText("▶" if self._playback_paused else "Ⅱ")
         self.status(self.recovery.message or "Yayın oynatılıyor.")
-        self.player.set_property("volume", self.volume.value())
+        self.comfort_preferences.loaded(volume=self.volume.value())
+        self._sync_playback_state()
         self.save_progress()
 
     def playback_error(self, message):
@@ -1105,6 +1294,14 @@ class MainWindow(QMainWindow):
             self.recovery.paused(token, bool(value))
             self._sync_playback_state()
         elif name == "paused-for-cache":
+            self._buffering = bool(value)
+            self.watch_tracker.set_running(
+                self._playback_active
+                and not self._playback_paused
+                and not self._loading
+                and not self._idle
+                and not self._buffering
+            )
             self.recovery.buffering(token, bool(value))
         elif name == "track-list" and self._playback_active:
             self._update_tracks(value)
@@ -1157,7 +1354,9 @@ class MainWindow(QMainWindow):
             self.status(message, retry)
 
     def _finish_playback(self, *, end_session=True):
+        self.watch_tracker.set_running(False)
         if end_session:
+            self.watch_tracker.finish()
             self._playback_active = False
             self._playback_paused = False
             self._sync_playback_state()
@@ -1185,6 +1384,13 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         self.transport.observe(name, value)
+        if (
+            name == "paused-for-cache"
+            and self._playback_active
+            and self._untracked_playback_token == self._playback_token
+        ):
+            self._buffering = bool(value)
+            self._sync_playback_state()
         if self.media_info.update(name, value):
             self.refresh_media_info()
         if name == "idle-active" and value and not self._loading:
@@ -1223,6 +1429,7 @@ class MainWindow(QMainWindow):
             self.mute_button.setText("Sessiz" if value else "Ses")
         elif name == "volume" and value is not None:
             self.volume.blockSignals(True)
+            self.volume.setMaximum(max(100, self.comfort_preferences.values["boost"], round(value)))
             self.volume.setValue(round(value))
             self.volume.blockSignals(False)
         elif name == "track-list":
@@ -1230,6 +1437,7 @@ class MainWindow(QMainWindow):
                 self._update_tracks(value)
         elif name == "idle-active":
             self._idle = bool(value)
+            self._sync_playback_state()
         elif name == "paused-for-cache" and value:
             self.status("Yayın arabelleğe alınıyor…")
         elif (
@@ -1242,6 +1450,8 @@ class MainWindow(QMainWindow):
             self.status("Yayın oynatılıyor.")
 
     def save_progress(self):
+        if not self._closed:
+            self.watch_tracker.flush()
         if self.current and self._current_persistent and not self._closed and self._record_progress:
             self.store.save_progress(
                 self.current.id, self._position, self._duration, mark_recent=self._record_recent
@@ -1469,6 +1679,7 @@ class MainWindow(QMainWindow):
         self.channel_banner.hide_banner()
         self.stop_playback()
         self.current = None
+        self.tray.refresh()
         self.watch_panel.sync()
         self._current_persistent = False
         self.favorite_button.setEnabled(False)
@@ -1479,6 +1690,7 @@ class MainWindow(QMainWindow):
         self.cancel_next_episode()  # Stop, profile switches and closing end the countdown too
         self.dismiss_resume()
         self.save_progress()
+        self.watch_tracker.finish()
         self.recovery.cancel()
         self._untracked_playback_token = None
         self._playback_active = False
@@ -1512,10 +1724,57 @@ class MainWindow(QMainWindow):
             return
         self.play(self.current, recovering=True)
 
+    def alternative_channel(self, channel, tried=()):
+        """The same live channel in another source: same guide id, else the same plain name."""
+        if channel is None or channel.kind != "live":
+            return None
+        source = channel.id.split(":", 1)[0]
+        name = channel_key(channel.name)
+        for candidate in self.model.channels:
+            if (
+                candidate.kind != "live"
+                or candidate.id in tried
+                or candidate.id.split(":", 1)[0] == source
+                or candidate.id in self.model.locked
+                or self.proxy.category_hidden(candidate)
+            ):
+                continue
+            same_guide = channel.tvg_id and candidate.tvg_id == channel.tvg_id
+            if same_guide or (name and channel_key(candidate.name) == name):
+                return candidate
+        return None
+
+    def _fail_over(self):
+        """A live channel that will not open is tried once in each other source that has it."""
+        failed = self.current
+        tried = self._failover_tried | {failed.id}
+        alternative = self.alternative_channel(failed, tried)
+        if alternative is None:
+            return False
+        source = self.source_for(alternative)
+        self._failover_tried = tried
+        note = f"{failed.name} açılmadı; {source['name'] if source else 'diğer kaynak'} üzerinden açılıyor."
+
+        def switch():
+            self.request_play(alternative, failover=True)
+            self.status(note)  # after play's own "bağlanılıyor" line, so it is the one seen
+
+        QTimer.singleShot(0, switch)
+        return True
+
     def refresh_recovery(self):
         if self._closed:
             return
         terminal = self.recovery.state in {"failed", "untracked-failed"}
+        if (
+            terminal
+            and self.current is not None
+            and self.current.kind == "live"
+            and self._playback_active
+            and self._fail_over()
+        ):
+            self._finish_playback()
+            return
         live_wait = (
             self.recovery.state == "waiting"
             and self.current is not None
@@ -1634,6 +1893,10 @@ class MainWindow(QMainWindow):
                     )
                 )
         menu.addSeparator()
+        self.comfort_preferences.add_menu(
+            menu, guarded, self.status, enabled=self.current is not None and not self._idle
+        )
+        menu.addSeparator()
         remember = menu.addAction("Bu kaynak için tercihleri hatırla")
         remember.setCheckable(True)
         remember.setChecked(self.track_preferences.remember)
@@ -1660,6 +1923,11 @@ class MainWindow(QMainWindow):
         source_id = self.source_combo.currentData()
         source = next((s for s in self.store.sources() if s["id"] == source_id), None)
         menu = QMenu(self)
+        if self.updates.available:
+            menu.addAction(
+                f"Yeni sürüm: Luna {self.updates.available[0]} · İndir", self.open_update_page
+            )
+            menu.addSeparator()
         rename = menu.addAction("Seçili kaynağı yeniden adlandır")
         rename.setEnabled(source is not None and not self._busy)
         rename.triggered.connect(lambda: self.rename_source(source))
@@ -1952,6 +2220,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             source["epg_url"] = dialog.location.text().strip()
             self.store.save_source(source)
+            self.refresh_home()
             if source["epg_url"]:
                 self.load_guide(source)
 
@@ -1963,7 +2232,7 @@ class MainWindow(QMainWindow):
             if path.exists():
                 self.load_guide(source, cached=True)
 
-    def load_guide(self, source, cached=False):
+    def load_guide(self, source, cached=False, *, quiet=False, on_finished=None):
         path = self.store.path.parent / f"epg-{source['id']}.xml"
 
         def read():
@@ -1991,26 +2260,49 @@ class MainWindow(QMainWindow):
                         raise NetworkError("Açılmış rehber boyut sınırını aşıyor.")
             return raw, parse_xmltv(raw)
 
+        def finish(success, changed=False):
+            if on_finished is not None:
+                on_finished(success, changed)
+
         def done(result):
-            if not any(s["id"] == source["id"] for s in self.store.sources()):
+            stored = next((s for s in self.store.sources() if s["id"] == source["id"]), None)
+            if stored is None or (quiet and not self._same_source(stored, source)):
+                finish(False)
                 return
             raw, programmes = result
-            self._guide_data[source["id"]] = programmes
-            self._guide_index[source["id"]] = GuideIndex(programmes)
-            self._refresh_live_cards()
-            if self.library_pages.currentWidget() is self.guide_view:
-                self.refresh_guide_view()
+            changed = self._guide_data.get(source["id"]) != programmes
             if not cached:
                 import os
 
                 descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(descriptor, "wb") as stream:
                     stream.write(raw)
+            self._guide_data[source["id"]] = programmes
+            self._guide_index[source["id"]] = GuideIndex(programmes)
+            self._refresh_live_cards()
+            if self.library_pages.currentWidget() is self.guide_view:
+                self.refresh_guide_view()
             self.update_guide()
-            self.status(f"Program rehberi hazır · {len(programmes):,} program.".replace(",", "."))
+            if not quiet:
+                self.status(
+                    f"Program rehberi hazır · {len(programmes):,} program.".replace(",", ".")
+                )
+            finish(True, changed)
+
+        def failed(error):
+            if quiet:
+                self.toast.show_message(error)
+            else:
+                self.status(error, lambda: self.load_guide(source))
+            finish(False)
 
         self.run_task(
-            read, done, "Program rehberi okunuyor…", lambda: self.load_guide(source), busy=False
+            read,
+            done,
+            None if quiet else "Program rehberi okunuyor…",
+            None if quiet else lambda: self.load_guide(source),
+            busy=quiet,
+            failure=failed,
         )
 
     def _add_reminder_menu(self, menu, channel):
@@ -2124,9 +2416,17 @@ class MainWindow(QMainWindow):
                 lambda checked=False, pid=profile["id"]: self.switch_profile(pid)
             )
         menu.addSeparator()
+        menu.addAction("İstatistikler", self.open_statistics)
         menu.addAction("Profilleri yönet…", self.open_profiles)
         menu.addAction("Ebeveyn denetimi…", self.open_parental)
         return menu
+
+    def open_statistics(self):
+        self.watch_tracker.flush()
+        if self._statistics_dialog is not None and isValid(self._statistics_dialog):
+            self._statistics_dialog.close()
+        self._statistics_dialog = StatisticsDialog(self.store, self)
+        self._statistics_dialog.show()
 
     def switch_profile(self, profile_id):
         """Leaving a kids profile or entering a protected one asks for the PIN."""
@@ -2145,6 +2445,8 @@ class MainWindow(QMainWindow):
 
     def leave_profile(self):
         """Before another profile becomes active: save and stop what this one watches."""
+        if self._statistics_dialog is not None and isValid(self._statistics_dialog):
+            self._statistics_dialog.close()
         self.details.dismiss()  # an open detail card was unlocked for this profile only
         if self.current is not None:
             self.close_current()
@@ -2155,6 +2457,8 @@ class MainWindow(QMainWindow):
 
     def load_profile(self):
         """Reload everything personal: favorites, folders, history, reminders, locks."""
+        if self._statistics_dialog is not None and isValid(self._statistics_dialog):
+            self._statistics_dialog.close()
         self.details.dismiss()
         self.reminder_service.reload()
         self.refresh_library()
@@ -2166,6 +2470,15 @@ class MainWindow(QMainWindow):
             return
         self.choose_profile_at_start()
         self.restore_last_channel()
+        # Only the real app asks GitHub; tests build windows without a session.
+        QTimer.singleShot(20000, self.updates.check)
+
+    def update_found(self, version, page):
+        self.status(f"Luna {version} çıktı. Kaynak menüsünden indirebilirsin.")
+
+    def open_update_page(self):
+        if self.updates.available:
+            QDesktopServices.openUrl(QUrl(self.updates.available[1]))
 
     def choose_profile_at_start(self):
         """'Kim izliyor?' when there is more than one profile; protected ones need the PIN."""
@@ -2186,7 +2499,7 @@ class MainWindow(QMainWindow):
             return profile["id"]
         fallback = next((p for p in self.store.profiles() if not p["protected"]), None)
         if fallback is None:
-            self.close()  # every profile is protected and the PIN was not given
+            self.quit_application()  # every profile is protected and the PIN was not given
             return None
         self.store.use_profile(fallback["id"])
         self.load_profile()
@@ -2316,6 +2629,8 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event):
         super().changeEvent(event)
+        if event.type() == QEvent.PaletteChange:
+            self._refresh_theme_details()
         if (
             event.type() == QEvent.WindowStateChange
             and hasattr(self, "_fullscreen")
@@ -2358,11 +2673,29 @@ class MainWindow(QMainWindow):
         self.add_source(location=path)
         event.acceptProposedAction()
 
+    def quit_application(self):
+        self._quitting = True
+        self.close()
+
+    @staticmethod
+    def _session_ending():
+        """Logout or shutdown in progress (the session manager is saving)."""
+        app = QGuiApplication.instance()
+        saving = getattr(app, "isSavingSession", None)
+        return bool(saving and saving())
+
     def closeEvent(self, event):
         if self._closed:
             event.accept()
             return
+        # Logout or shutdown must really close, not hide in the tray.
+        if not self._quitting and not self._session_ending() and self.tray.hide_on_close():
+            event.ignore()
+            return
         self.save_progress()
+        self.watch_tracker.finish()
+        self._watch_timer.stop()
+        self.tray.close()
         self._closed = True
         self.watch_panel.animation.stop()
         self.page_transition.finish()
@@ -2371,6 +2704,7 @@ class MainWindow(QMainWindow):
         self.idle_inhibit.close()
         self.mpris.close()
         self.reminder_service.close()
+        self.refresh_scheduler.close()
         self.mini_player.close()
         self._source_edit_tokens.clear()
         self._source_health_tokens.clear()

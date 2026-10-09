@@ -206,7 +206,7 @@ def build_window(w):
     w.category_bar.chosen.connect(w.choose_category)
     w.category_bar.edit_requested.connect(w.edit_categories)
     row.addWidget(w.category_bar, 1)
-    w.kind_bar = ChipBar(limit=3, show_counts=True)
+    w.kind_bar = ChipBar(limit=4, show_counts=True)
     w.kind_bar.chosen.connect(w.choose_search_kind)
     w.kind_bar.hide()
     row.addWidget(w.kind_bar, 1)
@@ -461,7 +461,7 @@ def build_window(w):
     w.info_button.setEnabled(False)
     row.addWidget(w.info_button)
     w.playback_menu_button = icon_button(
-        "Oynatma", w.track_menu, "tracks", tip="Ses, altyazı ve oynatma seçenekleri"
+        "Oynatma", w.track_menu, "tracks", tip="Görüntü, ses, altyazı ve oynatma seçenekleri"
     )
     w.playback_menu_button.setProperty("mini_hidden", True)
     row.addWidget(w.playback_menu_button)
@@ -499,9 +499,9 @@ def build_window(w):
     guide.setSpacing(4)
     row = QHBoxLayout()
     row.setSpacing(8)
-    mark = QLabel()
-    mark.setPixmap(icons.pixmap("guide", theme.ACCENT, 16, w.devicePixelRatioF()))
-    row.addWidget(mark)
+    w.guide_mark = QLabel()
+    w.guide_mark.setPixmap(icons.pixmap("guide", theme.ACCENT, 16, w.devicePixelRatioF()))
+    row.addWidget(w.guide_mark)
     row.addWidget(text_label("PROGRAM REHBERİ", "eyebrow"))
     row.addStretch()
     row.addWidget(
