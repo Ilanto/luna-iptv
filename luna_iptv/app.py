@@ -17,8 +17,8 @@ def main():
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
 
+    from . import theme
     from .storage import Store
-    from .theme import apply_theme
     from .window import MainWindow
 
     # Let Qt select native Wayland on Wayland sessions; explicit user choice wins.
@@ -30,7 +30,6 @@ def main():
     app.setDesktopFileName("luna-iptv")
     icon = Path(__file__).resolve().parents[1] / "assets" / "logo" / "icon-256.png"
     app.setWindowIcon(QIcon(str(icon)) if icon.exists() else QIcon.fromTheme("luna-iptv"))
-    apply_theme(app)
     data_dir = (
         args.data_dir
         or Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "luna-iptv"
@@ -38,12 +37,14 @@ def main():
     try:
         store = Store(data_dir / "library.sqlite3")
     except (RuntimeError, OSError):
+        theme.apply_theme(app)
         QMessageBox.critical(
             None,
             "Kütüphane açılamadı",
             "Yerel veritabanı okunamadı. Veri dizinindeki izinleri ve boş disk alanını kontrol edin.",
         )
         return 1
+    theme.apply_theme(app, store)
     window = MainWindow(store, ask_profile=True)
     window.show()
     if args.file:

@@ -21,11 +21,13 @@ def store(tmp_path):
 def test_profile_crud_and_persisted_selection(store):
     assert store.profile_id == 1
     assert store.profiles() == [
-        dict(id=1, name="Ben", color="#E8B04B", kids=False, protected=False, position=0)
+        dict(
+            id=1, name="Ben", color="#E8B04B", kids=False, protected=False, position=0, avatar=None
+        )
     ]
     child = store.create_profile("  Çocuk  ", "#123aBC", kids=True, protected=True)
     assert store.profile(child) == dict(
-        id=child, name="Çocuk", color="#123aBC", kids=True, protected=True, position=1
+        id=child, name="Çocuk", color="#123aBC", kids=True, protected=True, position=1, avatar=None
     )
     store.update_profile(child, name="Genç", color="#abcdef", kids=False, protected=False)
     assert store.profile(child)["name"] == "Genç"

@@ -499,9 +499,9 @@ def build_window(w):
     guide.setSpacing(4)
     row = QHBoxLayout()
     row.setSpacing(8)
-    mark = QLabel()
-    mark.setPixmap(icons.pixmap("guide", theme.ACCENT, 16, w.devicePixelRatioF()))
-    row.addWidget(mark)
+    w.guide_mark = QLabel()
+    w.guide_mark.setPixmap(icons.pixmap("guide", theme.ACCENT, 16, w.devicePixelRatioF()))
+    row.addWidget(w.guide_mark)
     row.addWidget(text_label("PROGRAM REHBERİ", "eyebrow"))
     row.addStretch()
     row.addWidget(

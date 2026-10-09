@@ -1,6 +1,8 @@
 """Persisted application defaults, separate from each source's remembered choices."""
 
 MOTION_CHOICES = (("Tam", "full"), ("Az", "reduced"), ("Kapalı", "off"))
+ACCENT_CHOICES = (("Ay mavisi", "moon"), ("Altın", "gold"), ("Gül", "rose"), ("Nane", "mint"))
+BASE_THEME_CHOICES = (("Gece", "night"), ("OLED siyah", "oled"))
 STARTUP_CHOICES = (
     ("Son kanalı seç", "select"),
     ("Son kanalı oynat", "play"),

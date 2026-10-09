@@ -66,6 +66,27 @@ ICONS = {
     '1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
     "trash": '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
     "moon": '<path d="M20 14.6A8.5 8.5 0 1 1 9.4 4a6.8 6.8 0 0 0 10.6 10.6z" ' + FILL + "/>",
+    "rocket": '<path d="M9 15C8 9 12 3 21 3c0 9-6 13-12 12zM9 8H5l-3 6h6'
+    'M16 15v4l-6 3v-6M6 18l-3 3"/><circle cx="16" cy="8" r="2"/>',
+    "cat": '<path d="M4 11V3l6 4h4l6-4v8c4 11-20 11-16 0zM9 15l3 2 3-2'
+    'M12 17v2M2 13l5 1M2 17l5-1M17 14l5-1M17 16l5 1"/>'
+    '<path d="M8 11h.1M16 11h.1" stroke-width="2.8"/>',
+    "fox": '<path d="m3 3 8 5h2l8-5-1 12-8 7-8-7zM4 12l8 8 8-8M8 11l1 1M16 11l-1 1"/>'
+    '<path d="m10 17 2 2 2-2z" ' + FILL + "/>",
+    "owl": '<path d="M4 4l5 3h6l5-3v11c0 9-16 9-16 0zM10 15l2 2 2-2M9 22v-2M15 22v-2"/>'
+    '<circle cx="8.5" cy="11" r="3"/><circle cx="15.5" cy="11" r="3"/>'
+    '<path d="M8.5 11h.1M15.5 11h.1" stroke-width="2.5"/>',
+    "bear": '<circle cx="5" cy="5" r="3"/><circle cx="19" cy="5" r="3"/>'
+    '<rect x="4" y="5" width="16" height="16" rx="7"/>'
+    '<ellipse cx="12" cy="16" rx="4" ry="3"/><path d="M8 11h.1M16 11h.1M12 15v2"/>',
+    "planet": '<circle cx="12" cy="12" r="7"/>'
+    '<ellipse cx="12" cy="12" rx="11" ry="3.5" transform="rotate(-30 12 12)"/>',
+    "comet": '<circle cx="7" cy="17" r="4"/><path d="M4 12 13 3M11 20l10-10M11 13 21 3M15 13l6-6"/>',
+    "sun": '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2'
+    'M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/>',
+    "cloud": '<path d="M6 19a4.5 4.5 0 0 1-1-9 6 6 0 0 1 11.5-2A5.5 5.5 0 0 1 18 19z"/>',
+    "tv": '<rect x="3" y="7" width="18" height="13" rx="3"/><path d="m8 2 4 5 4-5'
+    'M8 23h8M8 12h.1M16 12h.1M9 16q3 3 6 0"/>',
 }
 
 # Transport and toggle buttons still speak in their established text states;
