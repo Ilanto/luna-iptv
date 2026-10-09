@@ -178,6 +178,9 @@ QFrame#watchPanel {{ background: {DUSK}; border-left: 1px solid {LINE_SOFT}; }}
 QFrame#controls {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 16px; }}
 QFrame#controls[overlay="true"] {{ background: {_rgba(NIGHT, 0.80)};
     border: 1px solid {_rgba(ACCENT, 0.20)}; border-radius: 18px; }}
+QFrame#multiTile {{ background: {NIGHT}; border: 2px solid {LINE}; border-radius: 8px; }}
+QFrame#multiTile[focused="true"] {{ border-color: {GOLD}; }}
+QLabel#multiName {{ color: {TEXT}; font-size: 13px; font-weight: 600; }}
 QFrame#channelBanner {{ background: {_rgba(NIGHT, 0.80)}; border: 1px solid {_rgba(ACCENT, 0.22)};
     border-radius: 18px; }}
 QFrame#bannerDivider {{ background: rgba(232, 236, 255, 0.18); }}
