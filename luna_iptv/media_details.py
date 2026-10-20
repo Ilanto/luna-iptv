@@ -83,6 +83,8 @@ def normalize_info(*records: object, base_url: str = "") -> dict[str, str]:
         "country": ("country", "countries"),
         "language": ("language", "languages"),
         "year": ("year", "releasedate", "release_date", "releaseDate", "air_date"),
+        "season": ("season",),
+        "episode": ("episode", "episode_num"),
         "imdb_id": ("imdb_id", "imdb", "imdb_url"),
         "poster": ("poster", "movie_image", "cover_big", "cover", "stream_icon"),
     }
@@ -106,6 +108,8 @@ def normalize_info(*records: object, base_url: str = "") -> dict[str, str]:
                     text = match[1] if match else ""
                 elif target == "poster":
                     text = resolve_logo(text, base_url)
+                elif target in {"season", "episode"}:
+                    text = text if re.fullmatch(r"[0-9]{1,5}", text) else ""
                 elif target == "duration":
                     text = _duration(value)
                 if text:

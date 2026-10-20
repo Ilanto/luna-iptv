@@ -92,3 +92,13 @@ PR #42 birleştikten sonra `codex exec` (gpt-6-astra, salt okunur) ile `b286310.
 - `scripts/benchmark.py` (100.000 kanal): açılış 2,34 → 1,38 sn, yenileme 2,22 → 1,07 sn.
 - Bir Codex işi gün değişiminde boşalan scratchpad yüzünden kurallar dosyası olmadan başladı; çalışan testlerin hepsinin offscreen olduğu süreç ortamından doğrulandı. Kurallar artık `work/codex/` altında.
 - `scripts/test-quiet.sh`: **1027 geçti**, 5 atlandı. Görsel kontrol (offscreen): bilgi penceresi, ilk açılış, ayarlar, istatistikler.
+
+# Luna IPTV 0.20.0 · büyük özellikler
+
+- Codex (gpt-6-astra) işleri ayrı worktree'lerde, en fazla üçü paralel: yeni bölüm + çocuk süresi, TMDB + OpenSubtitles, çoklu izleme, zaman kaydırma + kayıt + catch-up, TV modu, Flatpak, kod düzeni, İngilizce arayüz. Her biri incelendi, sessiz paket burada (yerel soketlerle) yeniden çalıştırıldı.
+- İncelemede: API anahtarları yalnız resmi uç noktalara gidiyor (OpenSubtitles girişte dönen sunucu adı izinli listeyle sınırlı); ffmpeg kaydı kabuk olmadan argüman listesiyle, başlıklarda satır sonu reddediliyor; çoklu izleme kutuları kapanışta oynatıcılarını bırakıyor.
+- Birleştirmelerde: ayarlar penceresinde iki iki-sütun düzeni birleştirildi (1080p'ye sığacak biçimde dengelendi); `play()` içinde çocuk süresi denetimi + altyazı kapatma sıralandı; zaman kaydırmalı `load` korunup TV modu sinyali eklendi. TV modu zamanlayıcıları kurucu argümanlarıyla (`QTimer(self, interval=…)`) birleşik kodda hata verdi; ayarlayıcılarla kuruldu. TV kartları logosuz kanallarda yalnız ay simgesi gösteriyordu; ana ızgaradaki gibi renkli zemin ve büyük ad.
+- `isSavingSession` bir örnek yöntemi; sınıf üzerinden çağrılınca `closeEvent` içinde hata verip yarım kapanan pencere çöp toplamada çökme yapıyordu — düzeltildi.
+- RPM spec yalnız `.py` kopyalıyordu; İngilizce katalog (`locale/en.json`) eklendi.
+- İlk GitHub sürümü (v0.19.0) yayımlandı; Flatpak derlemesi GitHub'da geçti.
+- `scripts/test-quiet.sh`: **1236 geçti**, 6 atlandı. Görsel kontrol (offscreen): ayarlar, TV modu, İngilizce ana pencere.

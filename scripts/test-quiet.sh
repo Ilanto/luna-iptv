@@ -9,8 +9,9 @@ if [ -d "$LUNA_ROOT/work/deps/root/usr/lib64" ]; then
   export LD_LIBRARY_PATH="$LUNA_ROOT/work/deps/root/usr/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 quiet() {
+  # Offscreen widgets must not register tray icons on the user's live desktop.
   nice -n 19 ionice -c3 env -u DISPLAY -u WAYLAND_DISPLAY -u GDK_BACKEND \
-    QT_QPA_PLATFORM=offscreen "$@"
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null QT_QPA_PLATFORM=offscreen "$@"
 }
 quiet .venv/bin/ruff check luna_iptv tests scripts
 quiet .venv/bin/ruff format --check luna_iptv tests scripts

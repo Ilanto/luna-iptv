@@ -6,12 +6,15 @@ import gzip
 import hashlib
 import io
 import json
+import re
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from .accounts import AccountProfile, normalize_profile
+from .catchup import archive_days
+from .i18n import _
 from .media_details import MediaDetails, normalize_info
 from .models import Channel, Playlist
 from .playlist import parse_m3u, resolve_logo
@@ -26,7 +29,7 @@ class NetworkError(ValueError):
 def http_url(url: str) -> str:
     parts = urlsplit(url.strip())
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise NetworkError("Geçerli bir HTTP veya HTTPS adresi girin.")
+        raise NetworkError(_("Geçerli bir HTTP veya HTTPS adresi girin."))
     return urlunsplit(parts)
 
 
@@ -37,21 +40,25 @@ def fetch(url: str, max_bytes: int = LIMIT, *, with_url: bool = False):
         with urlopen(request, timeout=20) as response:
             raw = response.read(max_bytes + 1)
             if len(raw) > max_bytes:
-                raise NetworkError("Kaynak boyut sınırını aşıyor (64 MB).")
+                raise NetworkError(_("Kaynak boyut sınırını aşıyor (64 MB)."))
             if raw.startswith(b"\x1f\x8b"):
                 with gzip.GzipFile(fileobj=io.BytesIO(raw)) as zipped:
                     raw = zipped.read(max_bytes + 1)
                 if len(raw) > max_bytes:
-                    raise NetworkError("Açılmış kaynak boyut sınırını aşıyor.")
+                    raise NetworkError(_("Açılmış kaynak boyut sınırını aşıyor."))
             return (raw, response.geturl()) if with_url else raw
     except HTTPError as exc:
         raise NetworkError(
-            f"Sunucu HTTP {exc.code} döndürdü. Hesabı ve kaynak adresini kontrol edin."
+            _("Sunucu HTTP {code} döndürdü. Hesabı ve kaynak adresini kontrol edin.").format(
+                code=exc.code
+            )
         ) from None
     except (URLError, OSError, EOFError, ValueError) as exc:
         if isinstance(exc, NetworkError):
             raise
-        raise NetworkError("Kaynağa erişilemedi. Ağ bağlantısını ve adresi kontrol edin.") from None
+        raise NetworkError(
+            _("Kaynağa erişilemedi. Ağ bağlantısını ve adresi kontrol edin.")
+        ) from None
 
 
 def load_m3u(location: str) -> Playlist:
@@ -59,7 +66,7 @@ def load_m3u(location: str) -> Playlist:
         raw, base = fetch(location, with_url=True)
     else:
         if urlsplit(location).scheme and urlsplit(location).scheme != "file":
-            raise NetworkError("M3U için yerel dosya veya HTTP(S) adresi kullanın.")
+            raise NetworkError(_("M3U için yerel dosya veya HTTP(S) adresi kullanın."))
         from urllib.request import url2pathname
 
         path = (
@@ -73,9 +80,9 @@ def load_m3u(location: str) -> Playlist:
             with path.open("rb") as file:
                 raw = file.read(LIMIT + 1)
             if len(raw) > LIMIT:
-                raise NetworkError("Liste boyut sınırını aşıyor (64 MB).")
+                raise NetworkError(_("Liste boyut sınırını aşıyor (64 MB)."))
         except OSError:
-            raise NetworkError("Liste dosyası okunamadı.") from None
+            raise NetworkError(_("Liste dosyası okunamadı.")) from None
         base = path.as_uri()
     return parse_m3u(raw.decode("utf-8-sig", errors="replace"), base)
 
@@ -94,11 +101,11 @@ class XtreamClient:
         parsed = urlsplit(self.base)
         if parsed.query or parsed.fragment or parsed.username:
             raise NetworkError(
-                "Sunucu adresine yalnızca ana adresi yazın; kullanıcı ve şifreyi ayrı girin."
+                _("Sunucu adresine yalnızca ana adresi yazın; kullanıcı ve şifreyi ayrı girin.")
             )
         self.username, self.password = username, password
         if not username or not password:
-            raise NetworkError("Kullanıcı adı ve şifre gerekli.")
+            raise NetworkError(_("Kullanıcı adı ve şifre gerekli."))
 
     def _api(self, action: str = "", **params):
         query = {"username": self.username, "password": self.password, **params}
@@ -107,7 +114,7 @@ class XtreamClient:
         try:
             return json.loads(fetch(f"{self.base}/player_api.php?{urlencode(query)}"))
         except (json.JSONDecodeError, UnicodeDecodeError):
-            raise NetworkError("Sağlayıcı geçerli JSON yanıtı vermedi.") from None
+            raise NetworkError(_("Sağlayıcı geçerli JSON yanıtı vermedi.")) from None
 
     def stream_url(self, kind: str, item_id, extension="ts") -> str:
         extension = str(extension)
@@ -115,17 +122,29 @@ class XtreamClient:
             extension = "ts" if kind == "live" else "mp4"
         return f"{self.base}/{kind}/{quote(self.username, safe='')}/{quote(self.password, safe='')}/{quote(str(item_id), safe='')}.{extension}"
 
+    def timeshift_url(self, stream_id, start, duration_minutes):
+        """Build an archive request using the programme's supplied timezone."""
+        if start.utcoffset() is None or duration_minutes <= 0:
+            raise ValueError(_("Geçerli arşiv zamanı ve süresi gerekli."))
+        user = quote(self.username, safe="")
+        password = quote(self.password, safe="")
+        stream = quote(str(stream_id), safe="")
+        return (
+            f"{self.base}/timeshift/{user}/{password}/{int(duration_minutes)}/"
+            f"{start:%Y-%m-%d:%H-%M}/{stream}.ts"
+        )
+
     def _list(self, action):
         data = self._api(action)
         if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
-            raise NetworkError("Sağlayıcının katalog biçimi desteklenmiyor.")
+            raise NetworkError(_("Sağlayıcının katalog biçimi desteklenmiyor."))
         return data
 
     @staticmethod
     def _profile(response: object) -> AccountProfile:
         user_info = response.get("user_info") if isinstance(response, dict) else None
         if not isinstance(user_info, dict):
-            raise NetworkError("Sağlayıcının hesap profil biçimi desteklenmiyor.")
+            raise NetworkError(_("Sağlayıcının hesap profil biçimi desteklenmiyor."))
         return normalize_profile(response)
 
     def account_info(self) -> AccountProfile:
@@ -135,7 +154,7 @@ class XtreamClient:
         account = self._api()
         user_info = account.get("user_info") if isinstance(account, dict) else None
         if not isinstance(user_info, dict) or str(user_info.get("auth", 0)) != "1":
-            raise NetworkError("Oturum açılamadı. Kullanıcı adı ve şifreyi kontrol edin.")
+            raise NetworkError(_("Oturum açılamadı. Kullanıcı adı ve şifreyi kontrol edin."))
         account_profile = self._profile(account)
         channels = []
         for mode, api, kind in [
@@ -174,6 +193,10 @@ class XtreamClient:
                         kind=kind,
                         series_id=str(item_id) if mode == "series" else "",
                         provider_key=provider_key,
+                        tv_archive=mode == "live" and str(row.get("tv_archive")) == "1",
+                        tv_archive_duration=(
+                            archive_days(row.get("tv_archive_duration")) if mode == "live" else 0
+                        ),
                     )
                 )
         return Playlist(
@@ -204,15 +227,19 @@ class XtreamClient:
             if not series_id and channel.provider_key.startswith("series:"):
                 series_id = unquote(channel.provider_key.split(":", 1)[1])
             if not series_id:
-                raise NetworkError("Dizi kimliği bulunamadı.")
+                raise NetworkError(_("Dizi kimliği bulunamadı."))
             response = self._api("get_series_info", series_id=series_id)
-            self._validate_detail_response(response, "Dizi bilgisi alınamadı.")
+            self._validate_detail_response(response, _("Dizi bilgisi alınamadı."))
             channels = []
             episode_info = {}
             info = normalize_info(response.get("info"), base_url=self.base + "/")
             for season, row in self._episode_rows(response):
                 item_info = normalize_info(row.get("info"), row, base_url=self.base + "/")
                 item = self._episode_channel(season, row, series_id, item_info)
+                number = row.get("episode_num", "")
+                if re.fullmatch(r"[0-9]{1,5}", str(number)):
+                    item_info["season"] = str(season)
+                    item_info["episode"] = str(number)
                 channels.append(item)
                 episode_info[item.provider_key] = item_info
             series_info = response.get("info")
@@ -222,7 +249,7 @@ class XtreamClient:
                 series_title = channel.name
             return MediaDetails(info, channels, episode_info, series_title)
         if channel.kind != "movie":
-            raise NetworkError("Bu yayın için medya bilgisi desteklenmiyor.")
+            raise NetworkError(_("Bu yayın için medya bilgisi desteklenmiyor."))
         vod_id = ""
         if channel.provider_key.startswith("movie:"):
             vod_id = unquote(channel.provider_key.split(":", 1)[1])
@@ -234,11 +261,11 @@ class XtreamClient:
             if "/movie/" in path:
                 vod_id = unquote(path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
         if not vod_id:
-            raise NetworkError("Film kimliği bulunamadı.")
+            raise NetworkError(_("Film kimliği bulunamadı."))
         response = self._api("get_vod_info", vod_id=vod_id)
-        self._validate_detail_response(response, "Film bilgisi alınamadı.")
+        self._validate_detail_response(response, _("Film bilgisi alınamadı."))
         if not any(isinstance(response.get(key), dict) for key in ("info", "movie_data")):
-            raise NetworkError("Film bilgisi alınamadı.")
+            raise NetworkError(_("Film bilgisi alınamadı."))
         return MediaDetails(
             normalize_info(
                 response.get("info"), response.get("movie_data"), base_url=self.base + "/"
@@ -279,9 +306,9 @@ class XtreamClient:
 
     @staticmethod
     def _episode_rows(response: dict):
-        XtreamClient._validate_detail_response(response, "Dizi bölüm bilgisi alınamadı.")
+        XtreamClient._validate_detail_response(response, _("Dizi bölüm bilgisi alınamadı."))
         if not isinstance(response, dict) or not isinstance(response.get("episodes"), (dict, list)):
-            raise NetworkError("Dizi bölüm bilgisi alınamadı.")
+            raise NetworkError(_("Dizi bölüm bilgisi alınamadı."))
         seasons = response["episodes"]
         if isinstance(seasons, list):
             grouped = {}

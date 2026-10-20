@@ -1,0 +1,5 @@
+#!/bin/sh
+# Keep Flatpak's per-app XDG directories and load the libraries installed in /app.
+export PYTHONPATH="/app/share/luna-iptv${PYTHONPATH:+:$PYTHONPATH}"
+export LD_LIBRARY_PATH="/app/lib:/app/lib/ffmpeg${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec /usr/bin/python3 -c 'from luna_iptv.app import main; raise SystemExit(main())' "$@"

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout, QWi
 
 from . import theme
 from .dialogs import text_label
+from .i18n import _
 from .library import KIND_LABELS, cover_source, resumable, tile_color
 from .motion import IconButton
 
@@ -19,8 +20,12 @@ def remaining_text(seconds):
     minutes = max(1, round(seconds / 60))
     hours, minutes = divmod(minutes, 60)
     if hours:
-        return f"{hours} sa {minutes} dk kaldı" if minutes else f"{hours} sa kaldı"
-    return f"{minutes} dk kaldı"
+        return (
+            _("{hours} sa {minutes} dk kaldı").format(hours=hours, minutes=minutes)
+            if minutes
+            else _("{hours} sa kaldı").format(hours=hours)
+        )
+    return _("{minutes} dk kaldı").format(minutes=minutes)
 
 
 class HeroArt(QWidget):
@@ -113,9 +118,9 @@ class HomeHero(QFrame):
         text.addLayout(progress)
         actions = QHBoxLayout()
         actions.setSpacing(12)
-        self.play_button = IconButton("Devam et", "play", label=True, size=16)
+        self.play_button = IconButton(_("Devam et"), "play", label=True, size=16)
         self.play_button.setObjectName("primary")
-        self.details_button = IconButton("Ayrıntılar", "info", label=True, size=16)
+        self.details_button = IconButton(_("Ayrıntılar"), "info", label=True, size=16)
         self.details_button.setObjectName("glass")
         for button in (self.play_button, self.details_button):
             button.setMinimumHeight(44)
@@ -148,14 +153,14 @@ class HomeHero(QFrame):
         """A film or episode half watched: continue it."""
         self.mode = "resume"
         self.channel = channel
-        self.eyebrow.setText("KALDIĞIN YERDEN DEVAM ET")
+        self.eyebrow.setText(_("KALDIĞIN YERDEN DEVAM ET"))
         self.title.setText(channel.name)
-        kind = "Dizi bölümü" if channel.series_id else KIND_LABELS.get(channel.kind)
+        kind = _("Dizi bölümü") if channel.series_id else _(KIND_LABELS.get(channel.kind, ""))
         self.meta.setText(" · ".join(filter(None, (channel.group, kind))))
         fraction = position / duration if resumable(position, duration) else 0.0
         self._progress(fraction, remaining_text(duration - position) if fraction else "")
-        self.play_button.setText("Devam et")
-        self.details_button.setText("Ayrıntılar")
+        self.play_button.setText(_("Devam et"))
+        self.details_button.setText(_("Ayrıntılar"))
         self.details_button.show()
         self._artwork_changed()
         self.show()
@@ -165,7 +170,7 @@ class HomeHero(QFrame):
         self.mode = "live"
         self.channel = channel
         programme = self.now_for(channel)
-        self.eyebrow.setText("FAVORİN ŞU AN YAYINDA")
+        self.eyebrow.setText(_("FAVORİN ŞU AN YAYINDA"))
         if programme is not None:
             start, end = programme.start.astimezone(), programme.end.astimezone()
             self.title.setText(programme.title)
@@ -177,9 +182,9 @@ class HomeHero(QFrame):
             self._progress(fraction, remaining_text(left) if left > 0 else "")
         else:
             self.title.setText(channel.name)
-            self.meta.setText(channel.group or "Canlı yayın")
+            self.meta.setText(channel.group or _("Canlı yayın"))
             self._progress(0.0, "")
-        self.play_button.setText("İzle")
+        self.play_button.setText(_("İzle"))
         self.details_button.hide()
         self._artwork_changed()
         self.show()

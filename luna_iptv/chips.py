@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import _, format_number
 from .library import search_key
 
 
@@ -30,16 +31,16 @@ class ChoicePopup(QFrame):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Kategori ara…")
+        self.search.setPlaceholderText(_("Kategori ara…"))
         self.search.setClearButtonEnabled(True)
-        self.search.setAccessibleName("Kategori ara")
+        self.search.setAccessibleName(_("Kategori ara"))
         layout.addWidget(self.search)
         self.list = QListWidget()
         self.list.setObjectName("chipList")
-        self.list.setAccessibleName("Kategoriler")
+        self.list.setAccessibleName(_("Kategoriler"))
         layout.addWidget(self.list, 1)
         for value, label, count in items:
-            item = QListWidgetItem(f"{label}   {count:,}".replace(",", "."))
+            item = QListWidgetItem(f"{label}   {format_number(count, decimals=0, grouping=True)}")
             item.setData(Qt.UserRole, value)
             item.setData(Qt.UserRole + 1, search_key(label))
             self.list.addItem(item)
@@ -50,7 +51,7 @@ class ChoicePopup(QFrame):
         self.list.itemActivated.connect(self._pick)
         self.list.itemClicked.connect(self._pick)
         if editable:
-            self.edit_button = QPushButton("Kategorileri düzenle…")
+            self.edit_button = QPushButton(_("Kategorileri düzenle…"))
             self.edit_button.setObjectName("ghost")
             self.edit_button.clicked.connect(self._edit)
             layout.addWidget(self.edit_button)
@@ -100,7 +101,7 @@ class ChipBar(QWidget):
 
     def __init__(
         self,
-        all_label="Tümü",
+        all_label=None,
         more_label="",
         limit=7,
         show_counts=False,
@@ -110,7 +111,7 @@ class ChipBar(QWidget):
         editable=False,
     ):
         super().__init__(parent)
-        self.all_label = all_label
+        self.all_label = _("Tümü") if all_label is None else all_label
         self.more_label = more_label
         self.limit = limit
         self.show_counts = show_counts
@@ -127,9 +128,9 @@ class ChipBar(QWidget):
         self.more_button = None
         self.edit_button = None
         if editable:
-            self.edit_button = QPushButton("Düzenle", self)
+            self.edit_button = QPushButton(_("Düzenle"), self)
             self.edit_button.setObjectName("chipMore")
-            self.edit_button.setAccessibleName("Kategorileri düzenle")
+            self.edit_button.setAccessibleName(_("Kategorileri düzenle"))
             self.edit_button.setCursor(Qt.PointingHandCursor)
             self.edit_button.setFixedHeight(30)
             self.edit_button.setMinimumWidth(self.edit_button.sizeHint().width())
@@ -159,7 +160,11 @@ class ChipBar(QWidget):
         return button
 
     def _label(self, label, count):
-        return f"{label}  {count:,}".replace(",", ".") if self.show_counts else label
+        return (
+            f"{label}  {format_number(count, decimals=0, grouping=True)}"
+            if self.show_counts
+            else label
+        )
 
     def set_items(self, items, current="", *, total=None):
         self._items = list(items)
@@ -188,7 +193,11 @@ class ChipBar(QWidget):
         if current and all(value != current for value, _, _ in shown):
             shown += [item for item in self._items if item[0] == current]
         for value, label, count in shown:
-            self._chip(value, self._label(label, count), f"{label} · {count:,}".replace(",", "."))
+            self._chip(
+                value,
+                self._label(label, count),
+                f"{label} · {format_number(count, decimals=0, grouping=True)}",
+            )
         self._overflow = len(self._items) > len(shown)
         if self.more_label:
             if self.more_button is None:

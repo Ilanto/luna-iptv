@@ -8,6 +8,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .timeshift import cached_ranges
+
 
 class TransportController(QObject):
     """Coordinate exact skips and nominal-rate keyframe scanning."""
@@ -29,6 +31,8 @@ class TransportController(QObject):
         self._closed = False
         self._loaded = False
         self._live = False
+        self._backbuffer = False
+        self._ranges = ()
         self._seekable = False
         self._partially_seekable = False
         self._seeking = False
@@ -49,12 +53,15 @@ class TransportController(QObject):
 
     @property
     def can_seek(self) -> bool:
-        return not self._closed and self._loaded and self._seekable
+        available = bool(self._ranges) if self._live and self._backbuffer else self._seekable
+        return not self._closed and self._loaded and available
 
     @property
     def can_scan(self) -> bool:
-        return (
-            self.can_seek and not self._live and not self._partially_seekable and self._duration > 0
+        return self.can_seek and (
+            bool(self.live_window)
+            if self._live
+            else not self._partially_seekable and self._duration > 0
         )
 
     @property
@@ -65,12 +72,49 @@ class TransportController(QObject):
     def label(self) -> str:
         return "1×" if self._rate == 0 else f"{self._rate:+d}×"
 
-    def prepare(self, live: bool) -> None:
+    @property
+    def timeshift_enabled(self):
+        return self._live and self._backbuffer
+
+    @property
+    def live_window(self):
+        if not self._loaded or not self._live or not self._backbuffer or not self._ranges:
+            return None
+        return self._ranges[-1]
+
+    @property
+    def behind_live(self):
+        return bool(self.can_seek and self.live_window and self.live_window[1] - self._position > 3)
+
+    def seek_absolute(self, target):
+        target = self._number(target)
+        if not self.can_seek or target is None:
+            return False
+        self.cancel(restore_pause=True)
+        if self._live and self._backbuffer:
+            # Snap into a real cached interval; never ask the provider for a seek.
+            target = min(
+                (min(end, max(start, target)) for start, end in self._ranges),
+                key=lambda point: abs(point - target),
+            )
+        self._player.command(["seek", target, "absolute+exact"])
+        return True
+
+    def jump_live(self):
+        if not self.live_window or not self.can_seek:
+            return False
+        self.seek_absolute(self.live_window[1])
+        self.normal_play()
+        return True
+
+    def prepare(self, live: bool, *, backbuffer: bool = False) -> None:
         before = self._visible_state()
         self._cancel(restore_pause=False)
         self._reset_pause_lifecycle()
         self._loaded = False
         self._live = bool(live)
+        self._backbuffer = bool(backbuffer)
+        self._ranges = ()
         self._seekable = False
         self._partially_seekable = False
         self._seeking = False
@@ -92,6 +136,7 @@ class TransportController(QObject):
         self._cancel(restore_pause=False)
         self._reset_pause_lifecycle()
         self._loaded = False
+        self._ranges = ()
         self._seekable = False
         self._partially_seekable = False
         self._seeking = False
@@ -110,6 +155,8 @@ class TransportController(QObject):
             number = self._number(value)
             if number is not None:
                 self._position = max(0.0, number)
+        elif name == "demuxer-cache-state" and self._loaded and self.timeshift_enabled:
+            self._ranges = cached_ranges(value)
         elif name == "duration":
             number = self._number(value)
             if number is not None:
@@ -133,6 +180,8 @@ class TransportController(QObject):
         amount = self._number(seconds)
         if not self.can_seek or amount is None or amount == 0:
             return False
+        if self._live and self._backbuffer:
+            return self.seek_absolute(self._position + amount)
         self.cancel(restore_pause=True)
         self._player.command(["seek", amount, "relative+exact"])
         return True
@@ -191,6 +240,7 @@ class TransportController(QObject):
         self._reset_pause_lifecycle()
         self._closed = True
         self._loaded = False
+        self._ranges = ()
         self._seekable = False
         self._partially_seekable = False
         self._emit_if_changed(before)
@@ -201,14 +251,16 @@ class TransportController(QObject):
 
         elapsed = max(0.0, time.monotonic() - self._anchor_time)
         target = self._anchor_position + self._rate * elapsed
-        target = min(self._duration, max(0.0, target))
+        lower, upper = self.live_window or (0.0, self._duration)
+        target = min(upper, max(lower, target))
         self._player.command(["seek", target, "absolute+keyframes"])
 
-        if target <= 0.0 or target >= self._duration:
+        if target <= lower or target >= upper:
             self.cancel(restore_pause=True)
 
     def _reanchor(self) -> None:
-        self._anchor_position = min(self._duration, max(0.0, self._position))
+        lower, upper = self.live_window or (0.0, self._duration)
+        self._anchor_position = min(upper, max(lower, self._position))
         self._anchor_time = time.monotonic()
 
     def _cancel(self, restore_pause: bool) -> None:
@@ -300,10 +352,17 @@ class TransportController(QObject):
         self._scan_pause_request = None
         self._waiting_for_pause = False
 
-    def _visible_state(self) -> tuple[bool, bool, int, bool]:
-        return (self.can_seek, self.can_scan, self._rate, self._paused)
+    def _visible_state(self):
+        return (
+            self.can_seek,
+            self.can_scan,
+            self._rate,
+            self._paused,
+            self.live_window,
+            self.behind_live,
+        )
 
-    def _emit_if_changed(self, before: tuple[bool, bool, int, bool]) -> None:
+    def _emit_if_changed(self, before: tuple) -> None:
         if self._visible_state() != before:
             self.changed.emit()
 

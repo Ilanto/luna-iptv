@@ -8,11 +8,12 @@ from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 from . import __version__
+from .i18n import N_
 
 RELEASES_API = "https://api.github.com/repos/Ilanto/luna-iptv/releases/latest"
 RELEASES_PAGE = "https://github.com/Ilanto/luna-iptv/releases/latest"
 CHECK_EVERY = 24 * 3600
-UPDATE_CHOICES = (("Açık", "on"), ("Kapalı", "off"))
+UPDATE_CHOICES = ((N_("Açık"), "on"), (N_("Kapalı"), "off"))
 
 
 def parse_version(text):

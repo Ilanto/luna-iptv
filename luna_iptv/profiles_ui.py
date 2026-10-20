@@ -1,11 +1,12 @@
 """Profiles: a round avatar in the rail, the 'Kim izliyor?' picker and the profile editor."""
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTime, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QRadialGradient
 from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -13,35 +14,38 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTimeEdit,
     QVBoxLayout,
 )
 
 from . import icons, theme
 from .dialogs import text_label
+from .i18n import N_, _
+from .kids_limits import LIMIT_CHOICES, profile_limits
 
 PROFILE_COLORS = ("#E8B04B", "#7C8CF8", "#4FC3A1", "#F07A8C", "#B48CF2", "#5BB8F0")
 PROFILE_AVATARS = (
-    ("Ay", "moon"),
-    ("Yıldız", "star"),
-    ("Roket", "rocket"),
-    ("Kedi", "cat"),
-    ("Tilki", "fox"),
-    ("Baykuş", "owl"),
-    ("Ayı", "bear"),
-    ("Gezegen", "planet"),
-    ("Kuyruklu yıldız", "comet"),
-    ("Güneş", "sun"),
-    ("Bulut", "cloud"),
-    ("TV", "tv"),
+    (N_("Ay"), "moon"),
+    (N_("Yıldız"), "star"),
+    (N_("Roket"), "rocket"),
+    (N_("Kedi"), "cat"),
+    (N_("Tilki"), "fox"),
+    (N_("Baykuş"), "owl"),
+    (N_("Ayı"), "bear"),
+    (N_("Gezegen"), "planet"),
+    (N_("Kuyruklu yıldız"), "comet"),
+    (N_("Güneş"), "sun"),
+    (N_("Bulut"), "cloud"),
+    (N_("TV"), "tv"),
 )
 
 
 def profile_flags(profile):
     flags = []
     if profile["kids"]:
-        flags.append("Çocuk profili")
+        flags.append(_("Çocuk profili"))
     if profile["protected"]:
-        flags.append("PIN ile girilir")
+        flags.append(_("PIN ile girilir"))
     return " · ".join(flags)
 
 
@@ -59,8 +63,10 @@ class ProfileAvatar(QAbstractButton):
     def set_profile(self, profile):
         self.profile = profile
         name = profile["name"] if profile else ""
-        self.setToolTip(f"Profil: {name}" if name else "Profil")
-        self.setAccessibleName(f"Profil: {name}. Profil değiştir" if name else "Profil")
+        self.setToolTip(_("Profil: {name}").format(name=name) if name else _("Profil"))
+        self.setAccessibleName(
+            _("Profil: {name}. Profil değiştir").format(name=name) if name else _("Profil")
+        )
         self.update()
 
     def sizeHint(self):
@@ -124,12 +130,12 @@ class ProfilePicker(QDialog):
     def __init__(self, profiles, current_id=None, parent=None):
         super().__init__(parent)
         self.setObjectName("profilePicker")
-        self.setWindowTitle("Kim izliyor?")
+        self.setWindowTitle(_("Kim izliyor?"))
         self.chosen = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 30, 36, 26)
         layout.setSpacing(20)
-        heading = text_label("Kim izliyor?", "display")
+        heading = text_label(_("Kim izliyor?"), "display")
         heading.setAlignment(Qt.AlignCenter)
         layout.addWidget(heading)
         row = QHBoxLayout()
@@ -166,7 +172,7 @@ class ProfileEditor(QDialog):
 
     def __init__(self, store, profile=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Profili düzenle" if profile else "Yeni profil")
+        self.setWindowTitle(_("Profili düzenle") if profile else _("Yeni profil"))
         self._store = store
         self._profile = profile
         layout = QVBoxLayout(self)
@@ -178,8 +184,8 @@ class ProfileEditor(QDialog):
         top.addWidget(text_label(self.windowTitle(), "heading"), 1)
         layout.addLayout(top)
         self.name = QLineEdit(profile["name"] if profile else "")
-        self.name.setPlaceholderText("Profil adı")
-        self.name.setAccessibleName("Profil adı")
+        self.name.setPlaceholderText(_("Profil adı"))
+        self.name.setAccessibleName(_("Profil adı"))
         self.name.setMaxLength(40)
         self.name.textChanged.connect(self._preview)
         layout.addWidget(self.name)
@@ -192,7 +198,7 @@ class ProfileEditor(QDialog):
             button.setCheckable(True)
             button.setFixedSize(30, 30)
             button.setCursor(Qt.PointingHandCursor)
-            button.setAccessibleName(f"Renk {color}")
+            button.setAccessibleName(_("Renk {color}").format(color=color))
             button.setStyleSheet(
                 f"QPushButton {{ background: {color}; border-radius: 15px; border: 2px solid "
                 f"transparent; }} QPushButton:checked {{ border-color: {theme.TEXT}; }}"
@@ -206,18 +212,18 @@ class ProfileEditor(QDialog):
             self.colors.buttons()[0].setChecked(True)
         swatches.addStretch()
         layout.addLayout(swatches)
-        layout.addWidget(text_label("PROFİL RESMİ", "eyebrow"))
+        layout.addWidget(text_label(_("PROFİL RESMİ"), "eyebrow"))
         pictures = QHBoxLayout()
         pictures.setSpacing(3)
         self.avatars = QButtonGroup(self)
         self.avatar_buttons = {}
         current_avatar = profile.get("avatar") if profile else None
-        for title, avatar in (("Harf", None), *PROFILE_AVATARS):
-            button = ProfileAvatar(34) if avatar else QPushButton("Harf")
+        for title, avatar in ((_("Harf"), None), *PROFILE_AVATARS):
+            button = ProfileAvatar(34) if avatar else QPushButton(_("Harf"))
             button.setCheckable(True)
             button.setProperty("avatar", avatar)
-            button.setAccessibleName(title)
-            button.setToolTip(title)
+            button.setAccessibleName(_(title))
+            button.setToolTip(_(title))
             if avatar is None:
                 button.setObjectName("chip")
                 button.setFixedSize(56, 34)
@@ -227,17 +233,53 @@ class ProfileEditor(QDialog):
         self.avatar_buttons.get(current_avatar, self.avatar_buttons[None]).setChecked(True)
         pictures.addStretch()
         layout.addLayout(pictures)
-        self.kids = QCheckBox("Çocuk profili (kilitli içerik hiç görünmez)")
+        self.kids = QCheckBox(_("Çocuk profili (kilitli içerik hiç görünmez)"))
         self.kids.setChecked(bool(profile and profile["kids"]))
         self.kids.toggled.connect(self._preview)
         layout.addWidget(self.kids)
-        self.protected = QCheckBox("Bu profile girerken PIN sor")
+        self.protected = QCheckBox(_("Bu profile girerken PIN sor"))
         self.protected.setChecked(bool(profile and profile["protected"]))
         self.protected.toggled.connect(self._preview)
         layout.addWidget(self.protected)
+        self.limits_box = QFrame()
+        limits_layout = QVBoxLayout(self.limits_box)
+        limits_layout.setContentsMargins(0, 0, 0, 0)
+        limits = (
+            profile_limits(store, profile["id"])
+            if profile
+            else {"minutes": 0, "start": None, "end": "07:00"}
+        )
+        limits_layout.addWidget(text_label(_("Günlük süre"), "muted"))
+        self.daily_limit = QComboBox()
+        self.daily_limit.setAccessibleName(_("Günlük süre"))
+        for label, minutes in LIMIT_CHOICES:
+            self.daily_limit.addItem(_(label), minutes)
+        self.daily_limit.setCurrentIndex(self.daily_limit.findData(limits["minutes"]))
+        limits_layout.addWidget(self.daily_limit)
+        bedtime_row = QHBoxLayout()
+        bedtime_row.addWidget(text_label(_("Yatma saati"), "muted"))
+        self.bedtime = QComboBox()
+        self.bedtime.setAccessibleName(_("Yatma saati"))
+        self.bedtime.addItems([_("Yok"), _("Saat aralığı")])
+        self.bedtime.setCurrentIndex(1 if limits["start"] else 0)
+        bedtime_row.addWidget(self.bedtime)
+        self.bedtime_start = QTimeEdit(QTime.fromString(limits["start"] or "21:00", "HH:mm"))
+        self.bedtime_end = QTimeEdit(QTime.fromString(limits["end"], "HH:mm"))
+        for widget, label in ((self.bedtime_start, _("Başlangıç")), (self.bedtime_end, _("Bitiş"))):
+            widget.setDisplayFormat("HH:mm")
+            widget.setAccessibleName(label)
+            widget.setEnabled(bool(limits["start"]))
+            self.bedtime.currentIndexChanged.connect(
+                lambda index, w=widget: w.setEnabled(index == 1)
+            )
+            bedtime_row.addWidget(widget)
+        limits_layout.addLayout(bedtime_row)
+        layout.addWidget(self.limits_box)
+        self.limits_box.setVisible(self.kids.isChecked())
+        self.kids.toggled.connect(self.limits_box.setVisible)
         if not store.pin_hash():
             hint = text_label(
-                "Kilitler ve PIN koruması için önce Ebeveyn denetimi'nden bir PIN belirle.",
+                _("Kilitler ve PIN koruması için önce Ebeveyn denetimi'nden bir PIN belirle."),
                 "faint",
             )
             hint.setWordWrap(True)
@@ -246,8 +288,8 @@ class ProfileEditor(QDialog):
         self.error.setWordWrap(True)
         layout.addWidget(self.error)
         buttons = QDialogButtonBox()
-        buttons.addButton("Vazgeç", QDialogButtonBox.RejectRole)
-        self.save_button = buttons.addButton("Kaydet", QDialogButtonBox.AcceptRole)
+        buttons.addButton(_("Vazgeç"), QDialogButtonBox.RejectRole)
+        self.save_button = buttons.addButton(_("Kaydet"), QDialogButtonBox.AcceptRole)
         self.save_button.setObjectName("primary")
         self.save_button.clicked.disconnect()
         self.save_button.clicked.connect(self.save)
@@ -266,18 +308,23 @@ class ProfileEditor(QDialog):
             avatar=self.avatars.checkedButton().property("avatar"),
         )
 
-    def _preview(self, *_):
+    def _preview(self, *_args):
         values = self.values()
         self.preview.set_profile(dict(values, name=values["name"] or "?"))
         for avatar, button in self.avatar_buttons.items():
             if avatar:
                 button.set_profile(dict(values, avatar=avatar, kids=False, protected=False))
                 title = next(title for title, value in PROFILE_AVATARS if value == avatar)
-                button.setToolTip(title)
-                button.setAccessibleName(title)
+                button.setToolTip(_(title))
+                button.setAccessibleName(_(title))
 
     def save(self):
         values = self.values()
+        start = self.bedtime_start.time().toString("HH:mm") if self.bedtime.currentIndex() else None
+        end = self.bedtime_end.time().toString("HH:mm")
+        if values["kids"] and start == end:
+            self.error.setText(_("Yatma saatinin başlangıcı ve bitişi farklı olmalı."))
+            return False
         try:
             if self._profile is None:
                 self.profile_id = self._store.create_profile(
@@ -289,6 +336,14 @@ class ProfileEditor(QDialog):
         except ValueError as error:
             self.error.setText(str(error))
             return False
+        self._store.set_setting(
+            f"kids_limits:{self.profile_id}",
+            {
+                "minutes": self.daily_limit.currentData(),
+                "start": start,
+                "end": end,
+            },
+        )
         self.accept()
         return True
 
@@ -301,15 +356,16 @@ class ProfilesDialog(QDialog):
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Profiller")
+        self.setWindowTitle(_("Profiller"))
         self.resize(500, 440)
         self._store = store
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 18)
-        layout.addWidget(text_label("Profiller", "heading"))
+        layout.addWidget(text_label(_("Profiller"), "heading"))
         intro = text_label(
-            "Her profilin kendi favorileri, klasörleri, geçmişi ve hatırlatıcıları olur. "
-            "Kaynaklar ve ayarlar ortaktır.",
+            _(
+                "Her profilin kendi favorileri, klasörleri, geçmişi ve hatırlatıcıları olur. Kaynaklar ve ayarlar ortaktır."
+            ),
             "muted",
         )
         intro.setWordWrap(True)
@@ -319,12 +375,12 @@ class ProfilesDialog(QDialog):
         layout.addLayout(self.rows)
         layout.addStretch()
         actions = QHBoxLayout()
-        self.add_button = QPushButton("Profil ekle")
+        self.add_button = QPushButton(_("Profil ekle"))
         self.add_button.setObjectName("primary")
         self.add_button.clicked.connect(lambda: self.edit(None))
         actions.addWidget(self.add_button)
         actions.addStretch()
-        close = QPushButton("Kapat")
+        close = QPushButton(_("Kapat"))
         close.clicked.connect(self.reject)
         actions.addWidget(close)
         layout.addLayout(actions)
@@ -345,19 +401,19 @@ class ProfilesDialog(QDialog):
             avatar.setFocusPolicy(Qt.NoFocus)
             row.addWidget(avatar)
             text = QVBoxLayout()
-            active = " (şu an)" if profile["id"] == self._store.profile_id else ""
+            active = _(" (şu an)") if profile["id"] == self._store.profile_id else ""
             text.addWidget(text_label(profile["name"] + active))
             flags = profile_flags(profile)
             if flags:
                 text.addWidget(text_label(flags, "faint"))
             row.addLayout(text, 1)
-            edit = QPushButton("Düzenle")
-            edit.setAccessibleName(f"Profili düzenle: {profile['name']}")
+            edit = QPushButton(_("Düzenle"))
+            edit.setAccessibleName(_("Profili düzenle: {name}").format(name=profile["name"]))
             edit.clicked.connect(lambda checked=False, p=profile: self.edit(p))
             row.addWidget(edit)
-            remove = QPushButton("Sil")
+            remove = QPushButton(_("Sil"))
             remove.setObjectName("danger")
-            remove.setAccessibleName(f"Profili sil: {profile['name']}")
+            remove.setAccessibleName(_("Profili sil: {name}").format(name=profile["name"]))
             remove.setEnabled(len(profiles) > 1)
             remove.clicked.connect(lambda checked=False, p=profile: self.remove(p))
             row.addWidget(remove)
@@ -372,9 +428,10 @@ class ProfilesDialog(QDialog):
     def remove(self, profile):
         answer = QMessageBox.question(
             self,
-            "Profili sil",
-            f"“{profile['name']}” silinsin mi? Favorileri, klasörleri, geçmişi ve "
-            "hatırlatıcıları da silinir.",
+            _("Profili sil"),
+            _(
+                "“{name}” silinsin mi? Favorileri, klasörleri, geçmişi ve hatırlatıcıları da silinir."
+            ).format(name=profile["name"]),
             QMessageBox.Yes | QMessageBox.No,
         )
         if answer != QMessageBox.Yes:

@@ -6,6 +6,8 @@ import re
 import secrets
 import unicodedata
 
+from .i18n import _
+
 _ITERATIONS = 200_000
 _ADULT_GROUP = re.compile(
     r"\b(?:xxx|adults?|yetiskin|erotik|erotic|porno?)\b|(?<!\w)(?:18\+|\+18)(?!\w)"
@@ -18,7 +20,7 @@ def valid_pin(pin: str) -> bool:
 
 def hash_pin(pin: str) -> str:
     if not valid_pin(pin):
-        raise ValueError("PIN 4–8 rakamdan oluşmalı.")
+        raise ValueError(_("PIN 4–8 rakamdan oluşmalı."))
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", pin.encode("ascii"), salt, _ITERATIONS)
     return f"pbkdf2_sha256${_ITERATIONS}${salt.hex()}${digest.hex()}"

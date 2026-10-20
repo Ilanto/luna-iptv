@@ -119,7 +119,7 @@ class IconButton(QPushButton):
         _motion_signals.changed.connect(self._motion_changed)
 
     def icon_name(self):
-        return icons.GLYPHS.get(self.text(), self._icon)
+        return icons.glyph(self.text(), self._icon)
 
     def set_icon_name(self, name):
         self._icon = name

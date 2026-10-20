@@ -178,6 +178,9 @@ QFrame#watchPanel {{ background: {DUSK}; border-left: 1px solid {LINE_SOFT}; }}
 QFrame#controls {{ background: {SURFACE}; border: 1px solid {LINE_SOFT}; border-radius: 16px; }}
 QFrame#controls[overlay="true"] {{ background: {_rgba(NIGHT, 0.80)};
     border: 1px solid {_rgba(ACCENT, 0.20)}; border-radius: 18px; }}
+QFrame#multiTile {{ background: {NIGHT}; border: 2px solid {LINE}; border-radius: 8px; }}
+QFrame#multiTile[focused="true"] {{ border-color: {GOLD}; }}
+QLabel#multiName {{ color: {TEXT}; font-size: 13px; font-weight: 600; }}
 QFrame#channelBanner {{ background: {_rgba(NIGHT, 0.80)}; border: 1px solid {_rgba(ACCENT, 0.22)};
     border-radius: 18px; }}
 QFrame#bannerDivider {{ background: rgba(232, 236, 255, 0.18); }}
@@ -208,6 +211,12 @@ QPushButton:hover {{ background: {HOVER}; border-color: {TEXT_MUTED}; }}
 QPushButton:focus {{ border-color: {ACCENT}; }}
 QPushButton:pressed {{ background: {ACCENT_TINT}; }}
 QPushButton:disabled {{ color: {TEXT_MUTED}; background: {DUSK}; border-color: {LINE_SOFT}; }}
+QToolButton#onlineControl {{ background: {RAISED}; border: 1px solid {LINE};
+    border-radius: 8px; padding: 7px 10px; color: {TEXT}; }}
+QToolButton#onlineControl:hover {{ background: {HOVER}; border-color: {TEXT_MUTED}; }}
+QToolButton#onlineControl:focus {{ border-color: {ACCENT}; }}
+QToolButton#onlineControl:checked {{ background: {ACCENT_TINT}; }}
+QToolButton#onlineControl:disabled {{ color: {TEXT_MUTED}; background: {DUSK}; }}
 QPushButton#primary {{ background: {ACCENT}; color: {ACCENT_INK}; border: 1px solid {ACCENT};
     font-weight: 600; border-radius: 12px; }}
 QPushButton#primary:hover {{ background: {ACCENT_STRONG}; border-color: {ACCENT_STRONG}; }}

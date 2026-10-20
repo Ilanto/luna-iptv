@@ -14,10 +14,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .accounts import MAX_UNIX_SECONDS
+from .i18n import N_, _
 from .preferences import normalize_preferences
+from .settings import ONLINE_SECRETS
 
 MAX_FILE_SIZE = 32 * 1024 * 1024
-_PIN_FIELDS = {"pin", "pin_hash", "pin_salt", "parental_pin", "secrets"}
+_PIN_FIELDS = {"pin", "pin_hash", "pin_salt", "parental_pin", "secrets", *ONLINE_SECRETS}
 _CONNECTION = {"location", "username", "password", "epg_url"}
 _SOURCE_FIELDS = {"id", "name", "type", *_CONNECTION, "credentials_omitted"}
 _CHANNEL_FIELDS = {"id", "source_id", "name", "kind", "series_id", "provider_key"}
@@ -125,23 +127,26 @@ def export_backup(store, *, include_credentials=False, include_history=True) -> 
     return data
 
 
-def _require(condition, message="Yedek dosyasının veri yapısı geçersiz."):
+_INVALID_BACKUP = N_("Yedek dosyasının veri yapısı geçersiz.")
+
+
+def _require(condition, message=_INVALID_BACKUP):
     if not condition:
-        raise ValueError(message)
+        raise ValueError(_(message))
 
 
 def _json_tree(value, depth=0):
-    _require(depth <= 16, "Yedek dosyasında çok fazla iç içe veri var.")
+    _require(depth <= 16, _("Yedek dosyasında çok fazla iç içe veri var."))
     if isinstance(value, str):
-        _require(len(value) <= 16384, "Yedek dosyasında çok uzun bir metin var.")
+        _require(len(value) <= 16384, _("Yedek dosyasında çok uzun bir metin var."))
         _require(
             not any(unicodedata.category(c) in {"Cc", "Cf", "Cs"} for c in value),
-            "Yedek dosyası kontrol karakteri içeriyor.",
+            _("Yedek dosyası kontrol karakteri içeriyor."),
         )
     elif type(value) in (int, float):
         _require(math.isfinite(value) and abs(value) <= 2**63 - 1)
     elif isinstance(value, (dict, list)):
-        _require(len(value) <= 100000, "Yedek dosyasında çok fazla kayıt var.")
+        _require(len(value) <= 100000, _("Yedek dosyasında çok fazla kayıt var."))
         if isinstance(value, dict):
             for key, item in value.items():
                 _require(isinstance(key, str))
@@ -168,7 +173,7 @@ def _records(data, name, fields, identity="id"):
         _require(isinstance(item, dict) and set(item) == fields)
         key = item[identity]
         _require(type(key) in (str, int))
-        _require(key not in seen, "Yedek dosyasında yinelenen kayıt kimliği var.")
+        _require(key not in seen, _("Yedek dosyasında yinelenen kayıt kimliği var."))
         seen.add(key)
     return items
 
@@ -197,26 +202,26 @@ def validate_backup(data) -> BackupSummary:
     try:
         return _validate_backup(data)
     except (TypeError, KeyError, OverflowError, RecursionError, UnicodeError) as error:
-        raise ValueError("Yedek dosyasının veri yapısı geçersiz.") from error
+        raise ValueError(_("Yedek dosyasının veri yapısı geçersiz.")) from error
 
 
 def _validate_backup(data) -> BackupSummary:
     _require(isinstance(data, dict))
     version = data.get("version")
     _require(set(data) == (_ROOT_FIELDS | _V2_FIELDS if version == 2 else _ROOT_FIELDS))
-    _require(data["format"] == "luna-iptv-backup", "Bu dosya bir Luna IPTV yedeği değil.")
-    _require(type(version) is int and version in (1, 2), "Bu yedek sürümü desteklenmiyor.")
+    _require(data["format"] == "luna-iptv-backup", _("Bu dosya bir Luna IPTV yedeği değil."))
+    _require(type(version) is int and version in (1, 2), _("Bu yedek sürümü desteklenmiyor."))
     _json_tree(data)
     _require(
         len(json.dumps(data, ensure_ascii=False).encode("utf-8")) <= MAX_FILE_SIZE,
-        "Yedek dosyası 32 MB sınırını aşıyor.",
+        _("Yedek dosyası 32 MB sınırını aşıyor."),
     )
     _text(data["created"], nonempty=True, limit=64)
     try:
         created = datetime.fromisoformat(data["created"])
         _require(created.tzinfo is not None)
     except ValueError as error:
-        raise ValueError("Yedek dosyasının tarihi geçersiz.") from error
+        raise ValueError(_("Yedek dosyasının tarihi geçersiz.")) from error
     sources = _records(data, "sources", _SOURCE_FIELDS)
     _require(len(sources) <= 10000)
     for source in sources:
@@ -248,12 +253,12 @@ def _validate_backup(data) -> BackupSummary:
             isinstance(value, dict)
             and json.dumps(normalize_preferences(value), sort_keys=True)
             == json.dumps(value, sort_keys=True),
-            "Yedekteki oynatma tercihleri geçersiz.",
+            _("Yedekteki oynatma tercihleri geçersiz."),
         )
     _require(isinstance(data["app_settings"], dict))
     _require(
         data["app_settings"] == _without_pin_settings(data["app_settings"]),
-        "Yedek PIN veya gizli ayarlar içeremez.",
+        _("Yedek PIN veya gizli ayarlar içeremez."),
     )
     for key in data["app_settings"]:
         _text(key, nonempty=True, limit=512)
@@ -262,7 +267,7 @@ def _validate_backup(data) -> BackupSummary:
         extras = (0, 0, 0, 0, 0)
     else:
         referenced, counts, extras = _validate_v2(data, channel_ids, source_ids)
-    _require(channel_ids == referenced, "Yedek yalnızca kişisel kanal başvuruları içermeli.")
+    _require(channel_ids == referenced, _("Yedek yalnızca kişisel kanal başvuruları içermeli."))
     return BackupSummary(
         len(sources),
         counts[0],
@@ -328,7 +333,7 @@ def _compound_records(items, fields, identity):
         _require(isinstance(item, dict) and set(item) == fields)
         key = tuple(item[field] for field in identity)
         _require(all(type(value) in (str, int) for value in key))
-        _require(key not in seen, "Yedek dosyasında yinelenen kayıt var.")
+        _require(key not in seen, _("Yedek dosyasında yinelenen kayıt var."))
         seen.add(key)
     return items
 
@@ -422,19 +427,19 @@ def apply_backup(store, data) -> BackupSummary:
 def read_backup(path) -> dict:
     with Path(path).open("rb") as stream:
         raw = stream.read(MAX_FILE_SIZE + 1)
-    _require(len(raw) <= MAX_FILE_SIZE, "Yedek dosyası 32 MB sınırını aşıyor.")
+    _require(len(raw) <= MAX_FILE_SIZE, _("Yedek dosyası 32 MB sınırını aşıyor."))
 
     def unique_pairs(pairs):
         result = {}
         for key, value in pairs:
-            _require(key not in result, "Yedek dosyasında yinelenen JSON alanı var.")
+            _require(key not in result, _("Yedek dosyasında yinelenen JSON alanı var."))
             result[key] = value
         return result
 
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_pairs)
     except (ValueError, UnicodeError, RecursionError) as error:
-        raise ValueError("Yedek dosyası geçerli bir UTF-8 JSON dosyası değil.") from error
+        raise ValueError(_("Yedek dosyası geçerli bir UTF-8 JSON dosyası değil.")) from error
     validate_backup(data)
     return data
 

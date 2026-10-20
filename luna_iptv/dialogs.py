@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from .accounts import bounded_timestamp, sanitize_profile
+from .i18n import _, _n, format_date, format_number
 
 
 def text_label(text, name=None):
@@ -35,7 +36,7 @@ class AccountDialog(QDialog):
     def __init__(self, source_name, profile=None, parent=None, *, now=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setWindowTitle(f"Luna IPTV · {source_name} hesabı")
+        self.setWindowTitle(_("Luna IPTV · {source_name} hesabı").format(source_name=source_name))
         self.setMinimumWidth(500)
         self._now = now
         self.accepts_updates = True
@@ -44,7 +45,7 @@ class AccountDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
         layout.addWidget(text_label(source_name, "heading"))
-        intro = text_label("Sağlayıcının son hesap durumu", "muted")
+        intro = text_label(_("Sağlayıcının son hesap durumu"), "muted")
         layout.addWidget(intro)
         form = QFormLayout()
         self.status_value = text_label("")
@@ -55,12 +56,12 @@ class AccountDialog(QDialog):
         self.connections_value = text_label("")
         self.checked_value = text_label("")
         for title, value in [
-            ("Durum", self.status_value),
-            ("Hesap açılışı", self.created_value),
-            ("Bitiş", self.expiry_value),
-            ("Kalan", self.remaining_value),
-            ("Bağlantılar", self.connections_value),
-            ("Son kontrol", self.checked_value),
+            (_("Durum"), self.status_value),
+            (_("Hesap açılışı"), self.created_value),
+            (_("Bitiş"), self.expiry_value),
+            (_("Kalan"), self.remaining_value),
+            (_("Bağlantılar"), self.connections_value),
+            (_("Son kontrol"), self.checked_value),
         ]:
             value.setWordWrap(True)
             form.addRow(title, value)
@@ -69,8 +70,8 @@ class AccountDialog(QDialog):
         self.error_label.setWordWrap(True)
         layout.addWidget(self.error_label)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.button(QDialogButtonBox.Close).setText("Kapat")
-        self.refresh_button = buttons.addButton("Şimdi yenile", QDialogButtonBox.ActionRole)
+        buttons.button(QDialogButtonBox.Close).setText(_("Kapat"))
+        self.refresh_button = buttons.addButton(_("Şimdi yenile"), QDialogButtonBox.ActionRole)
         self.refresh_button.setObjectName("primary")
         self.refresh_button.clicked.connect(self.refresh_requested)
         buttons.rejected.connect(self.reject)
@@ -80,25 +81,25 @@ class AccountDialog(QDialog):
     def render(self, profile) -> None:
         self.error_label.clear()
         if profile is None:
-            self.status_value.setText("Bilinmiyor")
+            self.status_value.setText(_("Bilinmiyor"))
             self.status_value.setProperty("state", "unknown")
-            self.created_value.setText("Bilinmiyor")
-            self.expiry_value.setText("Bilinmiyor")
-            self.remaining_value.setText("Bilinmiyor · sağlayıcı tarih vermedi.")
-            self.connections_value.setText("Bilinmiyor / Bilinmiyor · son kontrolde")
-            self.checked_value.setText("Henüz başarılı kontrol yok.")
+            self.created_value.setText(_("Bilinmiyor"))
+            self.expiry_value.setText(_("Bilinmiyor"))
+            self.remaining_value.setText(_("Bilinmiyor · sağlayıcı tarih vermedi."))
+            self.connections_value.setText(_("Bilinmiyor / Bilinmiyor · son kontrolde"))
+            self.checked_value.setText(_("Henüz başarılı kontrol yok."))
             return
 
         profile = sanitize_profile(profile)
 
         labels = {
-            "active": "Aktif",
-            "expired": "Süresi dolmuş",
-            "disabled": "Devre dışı",
-            "banned": "Engellenmiş",
-            "unknown": "Bilinmiyor",
+            "active": _("Aktif"),
+            "expired": _("Süresi dolmuş"),
+            "disabled": _("Devre dışı"),
+            "banned": _("Engellenmiş"),
+            "unknown": _("Bilinmiyor"),
         }
-        self.status_value.setText(labels.get(profile.status, "Bilinmiyor"))
+        self.status_value.setText(labels.get(profile.status, _("Bilinmiyor")))
         self.status_value.setProperty("state", profile.status)
         self.status_value.style().unpolish(self.status_value)
         self.status_value.style().polish(self.status_value)
@@ -106,41 +107,53 @@ class AccountDialog(QDialog):
         self.expiry_value.setText(self._date(profile.expires_at))
         self.remaining_value.setText(self._remaining(profile.expires_at))
         active = (
-            "Bilinmiyor" if profile.active_connections is None else str(profile.active_connections)
+            _("Bilinmiyor")
+            if profile.active_connections is None
+            else str(profile.active_connections)
         )
-        maximum = "Bilinmiyor" if profile.max_connections is None else str(profile.max_connections)
-        self.connections_value.setText(f"{active} / {maximum} · son kontrolde")
+        maximum = (
+            _("Bilinmiyor") if profile.max_connections is None else str(profile.max_connections)
+        )
+        self.connections_value.setText(
+            _("{active} / {maximum} · son kontrolde").format(active=active, maximum=maximum)
+        )
         self.checked_value.setText(self._date(profile.checked_at))
 
     def _date(self, timestamp) -> str:
         timestamp = bounded_timestamp(timestamp)
         if timestamp is None:
-            return "Bilinmiyor"
+            return _("Bilinmiyor")
         try:
-            return datetime.fromtimestamp(timestamp).astimezone().strftime("%d.%m.%Y %H:%M")
+            return format_date(datetime.fromtimestamp(timestamp).astimezone(), include_time=True)
         except (OSError, OverflowError, ValueError):
-            return "Bilinmiyor"
+            return _("Bilinmiyor")
 
     def _remaining(self, expires_at) -> str:
         expires_at = bounded_timestamp(expires_at)
         if expires_at is None:
-            return "Bilinmiyor · sağlayıcı tarih vermedi."
+            return _("Bilinmiyor · sağlayıcı tarih vermedi.")
         now = self._now if self._now is not None else datetime.now().timestamp()
         seconds = expires_at - now
         if seconds <= 0:
-            return "Süre dolmuş."
+            return _("Süre dolmuş.")
         days = max(1, math.ceil(seconds / 86_400))
         months = days / 30
-        month_text = f"{months:.1f}".replace(".", ",")
-        return f"{days} gün · yaklaşık {month_text} ay"
+        month_text = format_number(months, decimals=1)
+        return _n(
+            "{days} gün · yaklaşık {month_text} ay",
+            "{days} günler · yaklaşık {month_text} ay",
+            days,
+        ).format(days=days, month_text=month_text)
 
     def set_refreshing(self, refreshing: bool) -> None:
         self.is_refreshing = refreshing
         self.refresh_button.setEnabled(not refreshing)
-        self.refresh_button.setText("Yenileniyor…" if refreshing else "Şimdi yenile")
+        self.refresh_button.setText(_("Yenileniyor…") if refreshing else _("Şimdi yenile"))
 
     def show_error(self, message: str) -> None:
-        self.error_label.setText(f"Yenileme başarısız: {message} Son bilinen durum korundu.")
+        self.error_label.setText(
+            _("Yenileme başarısız: {message} Son bilinen durum korundu.").format(message=message)
+        )
 
     def _invalidate(self) -> None:
         if self._invalidated:
@@ -171,22 +184,26 @@ class SourceDialog(QDialog):
         super().__init__(parent)
         self._source = dict(source) if source is not None else None
         editing = self._source is not None
-        self.setWindowTitle("Luna IPTV · Kaynağı düzenle" if editing else "Luna IPTV · Kaynak ekle")
+        self.setWindowTitle(
+            _("Luna IPTV · Kaynağı düzenle") if editing else _("Luna IPTV · Kaynak ekle")
+        )
         self.setMinimumWidth(580)
         layout = QVBoxLayout(self)
         layout.setSpacing(18)
-        layout.addWidget(text_label("Kendi yayın dünyanı ekle", "heading"))
+        layout.addWidget(text_label(_("Kendi yayın dünyanı ekle"), "heading"))
         intro = text_label(
-            "M3U listeni ya da sağlayıcı hesabını bağla.\nKaynakların yalnızca bu bilgisayarda saklanır.",
+            _(
+                "M3U listeni ya da sağlayıcı hesabını bağla.\nKaynakların yalnızca bu bilgisayarda saklanır."
+            ),
             "muted",
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
         self.name = QLineEdit()
-        self.name.setPlaceholderText("Örn. Evdeki yayınlar")
-        self.name.setAccessibleName("Kaynak adı")
+        self.name.setPlaceholderText(_("Örn. Evdeki yayınlar"))
+        self.name.setAccessibleName(_("Kaynak adı"))
         form = QFormLayout()
-        form.addRow("Kaynak adı", self.name)
+        form.addRow(_("Kaynak adı"), self.name)
         layout.addLayout(form)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
@@ -194,40 +211,42 @@ class SourceDialog(QDialog):
         form = QFormLayout(page)
         row = QHBoxLayout()
         self.location = QLineEdit(location)
-        self.location.setPlaceholderText("https://… veya yerel M3U dosyası")
-        browse = QPushButton("Dosya seç")
+        self.location.setPlaceholderText(_("https://… veya yerel M3U dosyası"))
+        browse = QPushButton(_("Dosya seç"))
         browse.clicked.connect(self.browse)
         row.addWidget(self.location)
         row.addWidget(browse)
-        form.addRow("Liste", row)
+        form.addRow(_("Liste"), row)
         self.epg = QLineEdit()
-        self.epg.setPlaceholderText("XMLTV adresi veya dosyası · isteğe bağlı")
-        form.addRow("Program rehberi", self.epg)
-        self.tabs.addTab(page, "M3U listesi")
+        self.epg.setPlaceholderText(_("XMLTV adresi veya dosyası · isteğe bağlı"))
+        form.addRow(_("Program rehberi"), self.epg)
+        self.tabs.addTab(page, _("M3U listesi"))
         page = QWidget()
         form = QFormLayout(page)
         self.host = QLineEdit()
-        self.host.setPlaceholderText("https://sunucu:port")
+        self.host.setPlaceholderText(_("https://sunucu:port"))
         self.username = QLineEdit()
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
-        form.addRow("Sunucu", self.host)
-        form.addRow("Kullanıcı", self.username)
-        form.addRow("Şifre", self.password)
-        self.tabs.addTab(page, "Xtream hesabı")
+        form.addRow(_("Sunucu"), self.host)
+        form.addRow(_("Kullanıcı"), self.username)
+        form.addRow(_("Şifre"), self.password)
+        self.tabs.addTab(page, _("Xtream hesabı"))
         page = QWidget()
         form = QFormLayout(page)
         self.direct = QLineEdit()
-        self.direct.setPlaceholderText("HTTP(S), RTSP, UDP adresi veya video dosyası")
-        choose = QPushButton("Video seç")
+        self.direct.setPlaceholderText(_("HTTP(S), RTSP, UDP adresi veya video dosyası"))
+        choose = QPushButton(_("Video seç"))
         choose.clicked.connect(self.browse_video)
         row = QHBoxLayout()
         row.addWidget(self.direct)
         row.addWidget(choose)
-        form.addRow("Yayın", row)
-        self.tabs.addTab(page, "Tek yayın / dosya")
+        form.addRow(_("Yayın"), row)
+        self.tabs.addTab(page, _("Tek yayın / dosya"))
         note = text_label(
-            "Hesap bilgileri ve yayın adresleri kullanıcıya özel yerel veritabanında\nsaklanır; disk üzerinde ayrıca şifrelenmez.",
+            _(
+                "Hesap bilgileri ve yayın adresleri kullanıcıya özel yerel veritabanında\nsaklanır; disk üzerinde ayrıca şifrelenmez."
+            ),
             "muted",
         )
         note.setWordWrap(True)
@@ -236,9 +255,9 @@ class SourceDialog(QDialog):
         self.feedback.setWordWrap(True)
         layout.addWidget(self.feedback)
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Cancel).setText("Vazgeç")
+        buttons.button(QDialogButtonBox.Cancel).setText(_("Vazgeç"))
         save = buttons.addButton(
-            "Bağlantıyı doğrula ve kaydet" if editing else "Kaynağı ekle",
+            _("Bağlantıyı doğrula ve kaydet") if editing else _("Kaynağı ekle"),
             QDialogButtonBox.AcceptRole,
         )
         save.setObjectName("primary")
@@ -269,8 +288,8 @@ class SourceDialog(QDialog):
                 self.direct.setText(location)
 
     def browse(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "M3U listesi seç", "", "Yayın listeleri (*.m3u *.m3u8);;Tüm dosyalar (*)"
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self, _("M3U listesi seç"), "", _("Yayın listeleri (*.m3u *.m3u8);;Tüm dosyalar (*)")
         )
         if path:
             self.location.setText(path)
@@ -278,8 +297,11 @@ class SourceDialog(QDialog):
                 self.name.setText(Path(path).stem)
 
     def browse_video(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Video seç", "", "Videolar (*.mp4 *.mkv *.ts *.webm *.mov);;Tüm dosyalar (*)"
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            _("Video seç"),
+            "",
+            _("Videolar (*.mp4 *.mkv *.ts *.webm *.mov);;Tüm dosyalar (*)"),
         )
         if path:
             self.direct.setText(path)
@@ -289,10 +311,10 @@ class SourceDialog(QDialog):
     def validate(self):
         data = self.source()
         if not data["name"] or not data["location"]:
-            self.feedback.setText("Kaynağa bir ad ver ve adresini ya da dosyasını gir.")
+            self.feedback.setText(_("Kaynağa bir ad ver ve adresini ya da dosyasını gir."))
             return
         if data["type"] == "xtream" and (not data["username"] or not data["password"]):
-            self.feedback.setText("Kullanıcı adı ve şifre gerekli.")
+            self.feedback.setText(_("Kullanıcı adı ve şifre gerekli."))
             return
         self.accept()
 
@@ -314,24 +336,26 @@ class SourceDialog(QDialog):
 class GuideDialog(QDialog):
     def __init__(self, current="", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Program rehberi")
+        self.setWindowTitle(_("Program rehberi"))
         self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
-        layout.addWidget(text_label("XMLTV program rehberi", "heading"))
+        layout.addWidget(text_label(_("XMLTV program rehberi"), "heading"))
         self.location = QLineEdit(current)
-        self.location.setPlaceholderText("https://…/epg.xml.gz veya yerel XMLTV dosyası")
+        self.location.setPlaceholderText(_("https://…/epg.xml.gz veya yerel XMLTV dosyası"))
         layout.addWidget(self.location)
-        choose = QPushButton("Dosya seç")
+        choose = QPushButton(_("Dosya seç"))
         layout.addWidget(choose)
         choose.clicked.connect(self.browse)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Save).setText(_("Kaydet"))
+        buttons.button(QDialogButtonBox.Cancel).setText(_("Vazgeç"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
     def browse(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "XMLTV seç", "", "Program rehberi (*.xml *.xmltv *.gz);;Tüm dosyalar (*)"
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self, _("XMLTV seç"), "", _("Program rehberi (*.xml *.xmltv *.gz);;Tüm dosyalar (*)")
         )
         if path:
             self.location.setText(path)

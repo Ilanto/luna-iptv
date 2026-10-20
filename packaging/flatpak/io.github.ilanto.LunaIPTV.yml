@@ -1,0 +1,213 @@
+app-id: io.github.ilanto.LunaIPTV
+runtime: org.kde.Platform
+runtime-version: '6.8'
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: '6.8'
+command: luna-iptv
+
+# BaseApp's 6.8 branch tracks PySide6 6.8.x (>=6.8,<6.12).
+# https://github.com/flathub/io.qt.PySide.BaseApp
+# Check the actual version during the build as well; no second Qt wheel is needed.
+build-options:
+  env:
+    BASEAPP_REMOVE_WEBENGINE: '1'
+    BASEAPP_DISABLE_NUMPY: '1'
+
+# KDE 6.8 uses Freedesktop 24.08. Its FFmpeg headers build libmpv; the full
+# runtime extension supplies codecs omitted from the minimal runtime FFmpeg.
+add-extensions:
+  org.freedesktop.Platform.ffmpeg-full:
+    directory: lib/ffmpeg
+    version: '24.08'
+    add-ld-path: .
+    autodelete: false
+
+finish-args:
+  # IPTV streams, remote playlists, programme guides and artwork.
+  - --share=network
+  # Shared memory for the X11 fallback.
+  - --share=ipc
+  # Native Wayland, with X11 only when Wayland is unavailable.
+  - --socket=wayland
+  - --socket=fallback-x11
+  # OpenGL video rendering and hardware decoding.
+  - --device=dri
+  # Audio output through PulseAudio or PipeWire's PulseAudio service.
+  - --socket=pulseaudio
+  # Programme reminders.
+  - --talk-name=org.freedesktop.Notifications
+  # Keep the display/session awake during playback (idle_inhibit.py).
+  - --talk-name=org.freedesktop.ScreenSaver
+  - --talk-name=org.gnome.SessionManager
+  # Exact service name exported by mpris.py for desktop media controls.
+  - --own-name=org.mpris.MediaPlayer2.luna_iptv
+  # Desktop tray registration.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # Only the designated recordings directory is writable outside app data.
+  - --filesystem=xdg-videos/Luna:create
+  # Native QFileDialog uses the portal; no blanket Downloads/home access.
+  - --env=QT_QPA_PLATFORMTHEME=xdgdesktopportal
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/*.a
+  - /lib/*.la
+  - /share/man
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+  - mkdir -p /app/lib/ffmpeg
+
+# Dependency order follows https://github.com/flathub/io.mpv.Mpv.
+# Git sources include fixed commits; archive/wheel sources include SHA-256.
+modules:
+  - name: luajit
+    buildsystem: autotools
+    no-autogen: true
+    make-args:
+      - PREFIX=/app
+      - BUILDMODE=dynamic
+    make-install-args:
+      - PREFIX=/app
+    sources:
+      - type: archive
+        url: https://github.com/LuaJIT/LuaJIT/archive/c6ffc141a8762b41703f9287d63d93622a13dd8f.tar.gz
+        sha256: 6e5fec07750add912e7c3eae0c194d24cd6d023714e1f04a0298a5b4819e4457
+
+  - name: libass
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+      - --enable-fontconfig
+      - --enable-harfbuzz
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.3
+        commit: e46aedea0a0d17da4c4ef49d84b94a7994664ab5
+
+  - name: uchardet
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DBUILD_STATIC=OFF
+      - -DBUILD_BINARY=OFF
+    sources:
+      - type: archive
+        url: https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz
+        sha256: e97a60cfc00a1c147a674b097bb1422abd9fa78a2d9ce3f3fdcc2e78a34ac5f0
+
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - --libdir=lib
+      - --wrap-mode=nodownload
+      - -Dopengl=enabled
+      # Luna embeds libmpv's OpenGL renderer, so no shaderc/glslang is required.
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
+      - -Dglslang=disabled
+      - -Dlibdovi=disabled
+      - -Ddemos=false
+      - -Dtests=false
+    sources:
+      # flatpak-builder fetches the pinned glad submodule before offline builds.
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.349.0
+        commit: 1fd3c7bde7b943fe8985c893310b5269a09b46c5
+
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - --libdir=lib
+      - --wrap-mode=nodownload
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dbuild-date=false
+      - -Dmanpage-build=disabled
+      - -Dlua=enabled
+      - -Duchardet=enabled
+      - -Dgl=enabled
+      - -Degl=enabled
+      - -Dpulse=enabled
+      - -Dvulkan=disabled
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.41.0
+        commit: 41f6a645068483470267271e1d09966ca3b9f413
+
+  - name: dbus-python
+    buildsystem: meson
+    config-opts:
+      - -Dtests=false
+      - -Ddoc=false
+    sources:
+      - type: archive
+        url: https://dbus.freedesktop.org/releases/dbus-python/dbus-python-1.3.2.tar.gz
+        sha256: ad67819308618b5069537be237f8e68ca1c7fcc95ee4a121fe6845b1418248f8
+
+  - name: python-mpv
+    buildsystem: simple
+    build-commands:
+      - >-
+        pip3 install --no-index --no-deps --no-build-isolation --prefix=/app
+        python_mpv-1.0.8-py3-none-any.whl
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/22/f3/4c632eaacebfc62ab9414586137aecf6c0ea2a1e99708cf5a4c0dec13ae0/python_mpv-1.0.8-py3-none-any.whl
+        sha256: b5296403e990fb7348df4ca2211937a030f524bf638657bda7e45a00bc2df0cd
+
+  - name: luna-iptv
+    buildsystem: simple
+    build-commands:
+      - |
+        python3 - <<'PY'
+        import PySide6
+        version = tuple(map(int, PySide6.__version__.split('.')))
+        assert (6, 8) <= version < (6, 12), PySide6.__version__
+        print('BaseApp PySide6:', PySide6.__version__)
+        PY
+      - install -d /app/share/luna-iptv
+      - cp -r luna_iptv assets /app/share/luna-iptv/
+      - find /app/share/luna-iptv -type d -name __pycache__ -prune -exec rm -r {} +
+      - install -Dm755 packaging/flatpak/luna-iptv /app/bin/luna-iptv
+      - >-
+        install -Dm644 packaging/luna-iptv.desktop
+        /app/share/applications/io.github.ilanto.LunaIPTV.desktop
+      - >-
+        desktop-file-edit --set-icon=io.github.ilanto.LunaIPTV
+        /app/share/applications/io.github.ilanto.LunaIPTV.desktop
+      - |
+        for size in 16 24 32 48 64 128 256 512; do
+          install -Dm644 assets/logo/icon-$size.png \
+            /app/share/icons/hicolor/${size}x${size}/apps/io.github.ilanto.LunaIPTV.png
+        done
+      - >-
+        install -Dm644 packaging/flatpak/io.github.ilanto.LunaIPTV.metainfo.xml
+        /app/share/metainfo/io.github.ilanto.LunaIPTV.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/io.github.ilanto.LunaIPTV/LICENSE
+      - desktop-file-validate /app/share/applications/io.github.ilanto.LunaIPTV.desktop
+    sources:
+      # Copy only application/package inputs, never local data or build caches.
+      - type: dir
+        path: ../../luna_iptv
+        dest: luna_iptv
+        skip:
+          - __pycache__
+      - type: dir
+        path: ../../assets
+        dest: assets
+      - type: file
+        path: ../luna-iptv.desktop
+        dest: packaging
+      - type: file
+        path: luna-iptv
+        dest: packaging/flatpak
+      - type: file
+        path: io.github.ilanto.LunaIPTV.metainfo.xml
+        dest: packaging/flatpak
+      - type: file
+        path: ../../LICENSE

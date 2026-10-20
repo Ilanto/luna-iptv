@@ -40,7 +40,14 @@ def qt_app():
     for worker in threading.enumerate():
         if worker.name == "mpv-shutdown":
             worker.join(timeout=25)
+    # Standalone dialog tests can leave hidden, parentless widgets alive. Dispose
+    # them while Python subclasses and QApplication still exist, rather than
+    # leaving their virtual callbacks to PySide's interpreter-exit cleanup.
+    for widget in app.topLevelWidgets():
+        widget.deleteLater()
     app.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    gc.collect()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     _qt_application = None
 

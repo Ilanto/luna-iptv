@@ -2,6 +2,8 @@
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
+from .i18n import _
+
 
 class TaskSignals(QObject):
     done = Signal(object)
@@ -24,7 +26,7 @@ class Task(QRunnable):
             self.signals.failed.emit(
                 str(exc)
                 if isinstance(exc, NetworkError)
-                else "Kaynak işlenemedi. Dosya biçimini ve erişim bilgilerini kontrol edin."
+                else _("Kaynak işlenemedi. Dosya biçimini ve erişim bilgilerini kontrol edin.")
             )
         else:
             self.signals.done.emit(result)

@@ -18,6 +18,9 @@ class Channel:
     series_id: str = ""
     headers: dict[str, str] = field(default_factory=dict)
     provider_key: str = ""
+    tv_archive: bool = False
+    tv_archive_duration: int = 0
+    parental_id: str = ""
 
 
 @dataclass

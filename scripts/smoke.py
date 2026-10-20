@@ -146,13 +146,20 @@ def main():
         wait(lambda: props.get("mute") is True)
         QTest.mouseClick(w.play_button, Qt.LeftButton)
         wait(lambda: props.get("pause") is True)
-        image = w.video.grabFramebuffer()
-        colors = {
-            image.pixelColor(x, y).name()
-            for x in range(20, image.width(), 50)
-            for y in range(20, image.height(), 50)
-        }
-        assert len(colors) > 8
+
+        def frame_colors():
+            image = w.video.grabFramebuffer()
+            return len(
+                {
+                    image.pixelColor(x, y).name()
+                    for x in range(20, image.width(), 50)
+                    for y in range(20, image.height(), 50)
+                }
+            )
+
+        # A paused frame can still be on its way to a freshly sized framebuffer.
+        wait(lambda: frame_colors() > 8)
+        frame_count = frame_colors()  # the window is gone by the final report
         w.grab().save(str(out / "luna-playing.png"))
         results["checks"].append("single-click native HLS rendering, EPG, favorite, pause, mute")
         w.toggle_fullscreen()
@@ -185,7 +192,7 @@ def main():
         reopened.close()
         results["checks"].append("reopen persistence and orderly renderer shutdown")
         assert not errors, errors
-        results["frame_colors"] = len(colors)
+        results["frame_colors"] = frame_count
         results["success"] = True
     except Exception as exc:
         results["success"] = False

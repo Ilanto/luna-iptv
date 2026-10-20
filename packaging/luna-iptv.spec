@@ -1,5 +1,5 @@
 Name:           luna-iptv
-Version:        0.19.0
+Version:        0.20.1
 Release:        1
 Summary:        Native personal IPTV client for Linux
 License:        MIT
@@ -9,11 +9,14 @@ BuildRequires:  desktop-file-utils
 BuildRequires:  python3 >= 3.11
 Requires:       python3 >= 3.11
 Requires:       python3-pyside6 >= 6.8
-Requires:       python3-pyside6 < 6.12
+# Allow Qt 6 minor updates on rolling distributions; validate system Qt in CI.
+Requires:       python3-pyside6 < 7
 Requires:       python3-python-mpv >= 1.0.8
 Requires:       python3-python-mpv < 2
 Requires:       libmpv2 >= 0.38
 Requires:       python3-dbus-python
+# Recordings run ffmpeg as a separate process.
+Recommends:     ffmpeg
 
 %description
 Luna IPTV is a personal desktop client for M3U playlists, Xtream accounts,
@@ -33,7 +36,7 @@ from pathlib import Path
 import shutil
 
 destination = Path("%{buildroot}%{_datadir}/%{name}")
-for source in Path("luna_iptv").rglob("*.py"):
+for source in [*Path("luna_iptv").rglob("*.py"), *Path("luna_iptv").rglob("locale/*.json")]:
     target = destination / source
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)
@@ -66,6 +69,16 @@ desktop-file-validate packaging/luna-iptv.desktop
 %{_datadir}/icons/hicolor/*/apps/luna-iptv.png
 
 %changelog
+* Tue Oct 20 2026 Luna IPTV contributors - 0.20.1-1
+- Allow PySide6 6.12 and later Qt 6 minor releases.
+- Validate native playback and RPM dependencies against distribution Qt in CI.
+
+* Fri Oct 09 2026 Luna IPTV contributors - 0.20.0-1
+- Multi-view, TV mode, live time-shift, recordings and Xtream catch-up.
+- TMDB details and OpenSubtitles search with the user's own keys.
+- New-episode alerts, kids daily limits and bedtime, opening animation.
+- Flatpak packaging built on GitHub; English interface; window and storage split.
+
 * Fri Oct 09 2026 Luna IPTV contributors - 0.19.0-1
 - Picture and sound options, tray icon, watching statistics, first-run guide.
 - Accent colours and OLED theme, profile avatars, guide now-line pulse.

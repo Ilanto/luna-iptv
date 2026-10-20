@@ -6,16 +6,17 @@ from pathlib import Path
 
 from . import __version__
 from .gc_guard import MainThreadCollector
+from .i18n import _, set_language
 from .intro import IntroOverlay
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Luna IPTV — kişisel Linux IPTV istemcisi")
-    parser.add_argument("file", nargs="?", help="M3U listesi veya video dosyası")
+    parser = argparse.ArgumentParser(description=_("Luna IPTV — kişisel Linux IPTV istemcisi"))
+    parser.add_argument("file", nargs="?", help=_("M3U listesi veya video dosyası"))
     parser.add_argument("--version", action="version", version=f"Luna IPTV {__version__}")
-    parser.add_argument("--data-dir", type=Path, help="Ayrı kütüphane dizini")
+    parser.add_argument("--data-dir", type=Path, help=_("Ayrı kütüphane dizini"))
     args = parser.parse_args()
-    from PySide6.QtCore import QTimer
+    from PySide6.QtCore import QLocale, QTimer
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -33,7 +34,7 @@ def main():
     app.setQuitOnLastWindowClosed(True)
     app.setApplicationName("Luna IPTV")
     app.setOrganizationName("Luna")
-    app.setDesktopFileName("luna-iptv")
+    app.setDesktopFileName(os.environ.get("FLATPAK_ID", "luna-iptv"))
     icon = Path(__file__).resolve().parents[1] / "assets" / "logo" / "icon-256.png"
     app.setWindowIcon(QIcon(str(icon)) if icon.exists() else QIcon.fromTheme("luna-iptv"))
     data_dir = (
@@ -46,10 +47,14 @@ def main():
         theme.apply_theme(app)
         QMessageBox.critical(
             None,
-            "Kütüphane açılamadı",
-            "Yerel veritabanı okunamadı. Veri dizinindeki izinleri ve boş disk alanını kontrol edin.",
+            _("Kütüphane açılamadı"),
+            _(
+                "Yerel veritabanı okunamadı. Veri dizinindeki izinleri ve boş disk alanını kontrol edin."
+            ),
         )
         return 1
+    set_language(store.setting("language", "tr"))
+    QLocale.setDefault(QLocale("en_GB" if store.setting("language", "tr") == "en" else "tr_TR"))
     theme.apply_theme(app, store)
     window = MainWindow(store, ask_profile=True)
     window.show()

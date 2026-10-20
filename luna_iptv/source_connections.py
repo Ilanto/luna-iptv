@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlsplit
 from urllib.request import Request, url2pathname, urlopen
 
+from .i18n import _
 from .models import Channel, Playlist
 from .network import NetworkError, XtreamClient, channel_id, http_url, load_m3u
 
@@ -29,7 +30,7 @@ def _checked_at(value: int | None) -> int:
 def _local_path(location: str) -> Path:
     parsed = urlsplit(location)
     if parsed.scheme not in ("", "file"):
-        raise NetworkError("Bu yerel kaynak türü desteklenmiyor.")
+        raise NetworkError(_("Bu yerel kaynak türü desteklenmiyor."))
     value = url2pathname(parsed.path) if parsed.scheme == "file" else location
     return Path(value).expanduser().resolve()
 
@@ -39,9 +40,9 @@ def _regular_file(location: str) -> Path:
     try:
         mode = path.stat().st_mode
     except OSError:
-        raise NetworkError("Kaynak dosyası bulunamadı veya okunamıyor.") from None
+        raise NetworkError(_("Kaynak dosyası bulunamadı veya okunamıyor.")) from None
     if not stat.S_ISREG(mode):
-        raise NetworkError("Kaynak normal bir dosya değil.")
+        raise NetworkError(_("Kaynak normal bir dosya değil."))
     return path
 
 
@@ -54,9 +55,9 @@ def _remote_m3u_prefix(location: str) -> bytes:
         with urlopen(request, timeout=20) as response:
             return response.read(HEALTH_PREFIX_LIMIT)
     except HTTPError as exc:
-        raise NetworkError(f"Sunucu HTTP {exc.code} döndürdü.") from None
+        raise NetworkError(_("Sunucu HTTP {code} döndürdü.").format(code=exc.code)) from None
     except (URLError, OSError, ValueError):
-        raise NetworkError("Kaynağa erişilemedi.") from None
+        raise NetworkError(_("Kaynağa erişilemedi.")) from None
 
 
 def _direct_head(location: str) -> str:
@@ -69,9 +70,9 @@ def _direct_head(location: str) -> str:
     except HTTPError as exc:
         if exc.code in (405, 501):
             return "unverified"
-        raise NetworkError(f"Sunucu HTTP {exc.code} döndürdü.") from None
+        raise NetworkError(_("Sunucu HTTP {code} döndürdü.").format(code=exc.code)) from None
     except (URLError, OSError, ValueError):
-        raise NetworkError("Kaynağa erişilemedi.") from None
+        raise NetworkError(_("Kaynağa erişilemedi.")) from None
 
 
 def check_connection(source: dict[str, str], *, checked_at: int | None = None) -> HealthResult:
@@ -92,7 +93,7 @@ def check_connection(source: dict[str, str], *, checked_at: int | None = None) -
                 with _regular_file(location).open("rb") as file:
                     prefix = file.read(HEALTH_PREFIX_LIMIT)
             if not prefix.decode("utf-8-sig", errors="replace").lstrip().startswith("#EXTM3U"):
-                raise NetworkError("Kaynak geçerli bir M3U listesi gibi görünmüyor.")
+                raise NetworkError(_("Kaynak geçerli bir M3U listesi gibi görünmüyor."))
             status = "available"
         elif kind == "direct":
             scheme = urlsplit(location).scheme
@@ -104,7 +105,7 @@ def check_connection(source: dict[str, str], *, checked_at: int | None = None) -
                 _regular_file(location)
                 status = "available"
         else:
-            raise NetworkError("Kaynak türü desteklenmiyor.")
+            raise NetworkError(_("Kaynak türü desteklenmiyor."))
     except NetworkError:
         return HealthResult("unavailable", _checked_at(checked_at))
     return HealthResult(status, _checked_at(checked_at))
@@ -122,7 +123,7 @@ def validate_candidate(source: dict[str, str]) -> Playlist:
     if kind == "m3u":
         return load_m3u(location)
     if kind != "direct":
-        raise NetworkError("Kaynak türü desteklenmiyor.")
+        raise NetworkError(_("Kaynak türü desteklenmiyor."))
 
     scheme = urlsplit(location).scheme
     if scheme in ("http", "https"):
@@ -133,7 +134,7 @@ def validate_candidate(source: dict[str, str]) -> Playlist:
     elif scheme in ("", "file"):
         normalized = _regular_file(location).as_uri()
     else:
-        raise NetworkError("Bu yayın protokolü desteklenmiyor.")
+        raise NetworkError(_("Bu yayın protokolü desteklenmiyor."))
     movie = scheme in ("", "file") or urlsplit(normalized).path.lower().endswith(
         (".mp4", ".mkv", ".webm", ".mov", ".avi")
     )

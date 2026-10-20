@@ -36,7 +36,12 @@ class WatchPanelController(QObject):
 
     def suspended(self):
         w = self.window
-        return w._fullscreen or w.fullscreen.active or w.mini_player.active
+        return (
+            w._fullscreen
+            or w.fullscreen.active
+            or w.mini_player.active
+            or getattr(w, "tv_mode", None) is not None
+        )
 
     def _dragged(self, _position, _index):
         if self.suspended() or not self._open:

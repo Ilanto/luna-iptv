@@ -8,6 +8,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .i18n import _
+
 
 class RecoveryController(QObject):
     """Track one playback request and schedule bounded live reconnects."""
@@ -74,25 +76,27 @@ class RecoveryController(QObject):
     def message(self) -> str:
         if self._state == "connecting":
             return (
-                f"Canlı yayına yeniden bağlanılıyor ({self._attempt}/3)…"
+                _("Canlı yayına yeniden bağlanılıyor ({attempt}/3)…").format(attempt=self._attempt)
                 if self._attempt
-                else "Canlı yayına bağlanılıyor…"
+                else _("Canlı yayına bağlanılıyor…")
             )
         if self._state == "untracked-connecting":
-            return "Yayın açılıyor…"
+            return _("Yayın açılıyor…")
         if self._state == "buffering":
-            return "Canlı yayın arabelleğe alınıyor…"
+            return _("Canlı yayın arabelleğe alınıyor…")
         if self._state == "waiting":
             delay = self._RETRY_DELAYS_MS[self._attempt - 1] // 1000
-            return f"Bağlantı kesildi · {delay} sn sonra yeniden deneniyor ({self._attempt}/3)…"
+            return _("Bağlantı kesildi · {delay} sn sonra yeniden deneniyor ({attempt}/3)…").format(
+                delay=delay, attempt=self._attempt
+            )
         if self._state == "playing":
-            return "Yayın oynatılıyor."
+            return _("Yayın oynatılıyor.")
         if self._state == "paused":
-            return "Yayın duraklatıldı."
+            return _("Yayın duraklatıldı.")
         if self._state == "failed":
-            return "Canlı yayına üç denemeden sonra bağlanılamadı."
+            return _("Canlı yayına üç denemeden sonra bağlanılamadı.")
         if self._state == "untracked-failed":
-            return "Yayın başlatılamadı."
+            return _("Yayın başlatılamadı.")
         return ""
 
     def begin(self, channel_id: str, live: bool) -> None:
