@@ -7,11 +7,11 @@ Linux için özgün, kişisel IPTV istemcisi. Python, Qt 6 ve libmpv kullanır. 
 ## openSUSE kurulumu
 
 ```bash
-sudo zypper install ./dist/luna-iptv-0.20.0-1.noarch.rpm
+sudo zypper install ./dist/luna-iptv-0.20.1-1.noarch.rpm
 luna-iptv
 ```
 
-Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlılıkları: Python >=3.11, python3-pyside6 >=6.8, python3-python-mpv >=1.0.8 libmpv2 ve python3-dbus-python. PySide6 ve python-mpv üst sınırları pyproject/spec içinde sabittir. RPM yerel geliştirme çıktısıdır, dağıtım deposu imzası içermez. openSUSE Tumbleweed üzerinde üretilir; Leap uyumluluğu ayrıca doğrulanmamıştır. Kurulum yönetici yetkisi gerektirir; geliştirme sırasında sistem paketleri değiştirilmez.
+Dosya adı farklıysa `dist/` içindeki RPM adını kullanın. Paket bağımlılıkları: Python >=3.11, PySide6 >=6.8 ve <7, python-mpv >=1.0.8 ve <2, libmpv2 >=0.38 ve python3-dbus-python. Qt 6 ara sürümleri paket bağımlılığı tarafından engellenmez; openSUSE test işi dağıtımın kendi Qt/PySide paketleriyle çalışır ve üretilen RPM'nin bağımlılıklarını kurulum yapmadan denetler. Bu, gelecekteki bütün Qt sürümlerinin hatasız çalışacağı garantisi değildir. RPM yerel geliştirme çıktısıdır, dağıtım deposu imzası içermez. openSUSE Tumbleweed üzerinde üretilir; Leap uyumluluğu ayrıca doğrulanmamıştır. Kurulum yönetici yetkisi gerektirir; geliştirme sırasında sistem paketleri değiştirilmez.
 
 ## Flatpak kurulumu (Linux dağıtımları)
 
@@ -53,6 +53,13 @@ Kartın **Ses dili** ve **Altyazı dili** alanları, örneğin İngilizce ses + 
 Dil tercihleri mpv'nin dosyaya özel `loadfile` seçeneklerine eklenir; ilk parça seçimi oynatma başlamadan yapılır. Tercih edilen ses yoksa varsayılan ses kullanılır; tercih edilen altyazı yoksa başka dilde altyazıya düşülmez, kapalı kalır. Kısa bilgi oynatıcı başlığında gösterilir. **Otomatik**, sağlayıcı/mpv varsayılan seçimini kullanır. Oynatma sırasındaki gerçek parça menüsü mevcut `TrackPreferences` altyapısıyla çalışmayı sürdürür. [mpv parça seçimi seçenekleri](https://mpv.io/manual/stable/#track-selection).
 
 Oynatıcı pause, ses/mute, desteklenen akışlarda seek, ses/altyazı seçimi, tam ekran ve mini oynatıcı içerir. **Oynatma** menüsünden **Bu kaynak için tercihleri hatırla** seçeneğini açıp kapatabilir veya ses/altyazı tercihlerini sıfırlayabilirsiniz. Anlamlı bir ara konumu kayıtlı olan film/bölüm seçildiğinde oynatma değişmeden önce **Devam et / Baştan başlat / Vazgeç** sorulur; ilk birkaç saniyedeki veya bitişe yakın kayıtlar doğrudan başlar, canlı yayınlar soru göstermez. Son izlenenler yerel geçmişten gelir. Geçmiş temizlenirken devam konumlarını sıfırlamak isteğe bağlıdır; kaynaklar ve favoriler korunur. O sırada açık olan yayın veya otomatik yeniden bağlanma geçmişi hemen geri eklemez; yeni bir kullanıcı oynatma seçimi kaydı yeniden başlatır. Canlı yayınlarda seek, akışın sağladığı pencereye bağlıdır.
+
+### 0.20.1 · openSUSE ve Qt 6.12 uyumluluğu
+
+- **Güncelleme uyumluluğu:** RPM ve Python paketindeki PySide6 sürüm aralığı `>=6.8,<7` oldu. Qt 6.12 güncellemesinde eski paketin bağımlılık şartına takılması giderildi; mevcut kütüphane ve listeler korunur.
+- **Dağıtım üzerinde doğrulama:** openSUSE testleri sistemin Qt paketini kullanır ve oluşturulan RPM'in bağımlılıklarını denetler.
+- **Testlerin kapanışı:** gizli test pencereleri Python kapanmadan önce temizlenir; sessiz testler masaüstünün D-Bus oturumuna bağlanmaz.
+- **0.19.0'dan güncelleyenler için:** bu yayın 0.20 özelliklerini de içerir: çoklu izleme, TV modu, zaman kaydırma ve kayıt, geçmiş yayınlar, isteğe bağlı TMDB/altyazı bağlantıları, çocuk süre sınırları, İngilizce arayüz ve Flatpak paketi.
 
 ### 0.20.0 · büyük özellikler
 
