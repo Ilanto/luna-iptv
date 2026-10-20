@@ -54,7 +54,7 @@ jobs:
           for attempt in 1 2 3; do
             zypper --non-interactive install --no-recommends \
               git tar gzip python3 python3-pip python3-pyside6 python3-python-mpv \
-              python3-dbus-python rpm-build desktop-file-utils xvfb-run xauth ffmpeg libmpv2 \
+              python3-dbus-python python3-pycairo rpm-build desktop-file-utils xvfb-run xauth ffmpeg libmpv2 \
               Mesa-dri Mesa-libGL1 Mesa-libEGL1 libxkbcommon0 libxkbcommon-x11-0 \
               libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
               libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 fontconfig dejavu-fonts libdbus-1-3 \
